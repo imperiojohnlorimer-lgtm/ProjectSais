@@ -1,0 +1,259 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userExists() {
+      return signedIn()
+        && exists(
+          /databases/$(database)/documents/users/$(request.auth.uid)
+        );
+    }
+
+    function currentUser() {
+      return get(
+        /databases/$(database)/documents/users/$(request.auth.uid)
+      ).data;
+    }
+
+    function currentRole() {
+      return currentUser().role;
+    }
+
+    function currentName() {
+      return currentUser().name;
+    }
+
+    function isAdmin() {
+      return userExists() && currentRole() == 'Admin';
+    }
+
+    function isHead() {
+      return userExists() && currentRole() == 'Head';
+    }
+
+    function isSupervisor() {
+      return userExists() && currentRole() == 'Supervisor';
+    }
+
+    // Head + Supervisor: the operational staff roles that manage students,
+    // tasks, announcements, attendance, and schedules day-to-day. Admin no
+    // longer touches this data — Admin is scoped to Accounts, Departments,
+    // and Settings only.
+    function isStaff() {
+      return isHead() || isSupervisor();
+    }
+
+    match /users/{uid} {
+      // Head and Supervisor need to read user/student profiles for
+      // Students, Reports, Attendance, Tasks, and office matching. Admin
+      // needs read access here to manage Accounts.
+      allow read: if isAdmin() || isStaff()
+        || (signedIn() && request.auth.uid == uid);
+
+      allow create: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.role == 'Student';
+
+      // Role/status changes (Accounts screen) stay Admin-only.
+      allow update: if isAdmin()
+        || (
+          signedIn()
+          && request.auth.uid == uid
+          && request.resource.data.role == resource.data.role
+          && request.resource.data.status == resource.data.status
+        );
+
+      allow delete: if isAdmin();
+    }
+
+    match /students/{id} {
+      allow read: if isStaff()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+
+      allow create, update, delete: if isStaff();
+    }
+
+    match /announcements/{id} {
+      allow read: if signedIn();
+      allow create, update, delete: if isStaff();
+    }
+
+    // Applications & Applicant Screening are Head-exclusive now.
+    match /applications/{id} {
+      allow read: if isHead()
+        || (
+          signedIn()
+          && resource.data.applicantId == request.auth.uid
+        );
+
+      allow create: if signedIn()
+        && request.resource.data.applicantId == request.auth.uid;
+
+      allow update, delete: if isHead();
+    }
+
+    // Reports feed the Supervisor's DTR/Accomplishment Report approval flow.
+    // Head still reads all reports (used for org-wide hours totals) but
+    // doesn't approve/edit/delete individual reports through the UI.
+    match /reports/{id} {
+      allow read: if isHead() || isSupervisor()
+        || (
+          signedIn()
+          && (
+            resource.data.applicantId == request.auth.uid
+            || resource.data.studentName == currentName()
+          )
+        );
+
+      allow create: if signedIn()
+        && request.resource.data.applicantId == request.auth.uid;
+
+      allow update, delete: if isSupervisor();
+    }
+
+    match /attendance/{id} {
+      allow read: if isStaff()
+        || (
+          signedIn()
+          && resource.data.studentId == request.auth.uid
+        );
+
+      allow create, update: if isStaff();
+      allow delete: if isStaff();
+    }
+
+    match /tasks/{id} {
+      allow read: if isStaff()
+        || (
+          signedIn()
+          && (
+            resource.data.assignedTo == request.auth.uid
+            || resource.data.assignedToName == currentName()
+            || (
+              resource.data.assignedTo != null
+              && exists(
+                /databases/$(database)/documents/students/$(resource.data.assignedTo)
+              )
+              && get(
+                /databases/$(database)/documents/students/$(resource.data.assignedTo)
+              ).data.userId == request.auth.uid
+            )
+          )
+        );
+
+      allow update: if isStaff()
+        || (
+          signedIn()
+          && resource.data.assignedTo == request.auth.uid
+        );
+
+      allow create, delete: if isStaff();
+    }
+
+    match /classSchedules/{id} {
+      allow read: if isStaff()
+        || (
+          signedIn()
+          && resource.data.studentId == request.auth.uid
+        );
+
+      allow write: if isStaff();
+    }
+
+    // Notifications: Head owns the admin_notifications feed, Supervisor
+    // owns sa_notifications. Deletion (feed management) is Head-only now.
+    match /notifications/{id} {
+      allow read: if isStaff()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+
+      allow create: if isStaff()
+        || (
+          signedIn()
+          && request.resource.data.userId == request.auth.uid
+        );
+
+      allow update: if isStaff()
+        || (
+          signedIn()
+          && resource.data.userId == request.auth.uid
+        );
+
+      allow delete: if isHead();
+    }
+
+    match /offices/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    // Departments & Settings stay Admin-exclusive.
+    match /departments/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Skills screen is Head-exclusive now.
+    match /skills/{id} {
+      allow read: if signedIn();
+      allow write: if isHead();
+    }
+
+    // Performance Evaluation screen is Supervisor-exclusive; Head has no
+    // evaluations UI.
+    match /evaluations/{id} {
+      allow read, write: if isSupervisor();
+    }
+
+    // Applicant Screening is Head-exclusive.
+    match /screeningRecords/{id} {
+      allow read, write: if isHead();
+    }
+
+    match /documents/{id} {
+      allow read, write: if isStaff();
+    }
+
+    match /recurringSchedules/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /schedule_events/{id} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /meta/current_qr {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /meta/academic_year_settings {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /meta/{document} {
+      allow read: if signedIn();
+      allow write: if isStaff();
+    }
+
+    match /meta/{document}/years/{year}/{subcollection}/{id} {
+      allow read, write: if isStaff();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

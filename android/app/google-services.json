@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "478525793741",
+    "project_id": "sais-6168b",
+    "storage_bucket": "sais-6168b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:478525793741:android:4afa3402f587d749b01084",
+        "android_client_info": {
+          "package_name": "com.example.projectsais"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZOGxcQAZIWFZuJgKoojRR3e7i0C6ioCE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
