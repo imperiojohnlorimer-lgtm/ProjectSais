@@ -422,6 +422,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   Future<void> _handleScannedCode(BuildContext context, String code) async {
     final state = context.read<AppState>();
 
+    if (!state.isWithinAttendanceQrWindow()) {
+      _snack(
+        context,
+        'Attendance QR scanning is only available 6:30 AM–12:00 PM and '
+        '12:30 PM–5:00 PM.',
+        AppTheme.amber500,
+      );
+      return;
+    }
+
     // Reject codes that aren't a valid, still-active attendance QR
     final valid = await state.isQrTokenValid(code);
     if (!valid) {
@@ -489,7 +499,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Future<void> _showQrGenerator(BuildContext context) async {
     final state = context.read<AppState>();
+    if (!state.isWithinAttendanceQrWindow()) {
+      _snack(
+        context,
+        'Attendance QR can only be generated 6:30 AM–12:00 PM and '
+        '12:30 PM–5:00 PM.',
+        AppTheme.amber500,
+      );
+      return;
+    }
     await state.generateAttendanceQrToken();
+    if (!context.mounted) return;
     showDialog(context: context, builder: (_) => const _QrGenerateDialog());
   }
 }
@@ -1125,7 +1145,10 @@ class _RecordCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActive = record.isActive as bool;
-    final color = isActive ? AppTheme.emerald500 : AppTheme.slate400;
+    final isInvalid = record.isInvalid as bool;
+    final color = isInvalid
+        ? AppTheme.red500
+        : (isActive ? AppTheme.emerald500 : AppTheme.slate400);
     final isMobile = MediaQuery.of(context).size.width < 400;
 
     final dateParts = (record.date as String).split(' ');
@@ -1220,19 +1243,25 @@ class _RecordCard extends StatelessWidget {
                           vertical: 2,
                         ),
                         decoration: BoxDecoration(
-                          color: isActive
-                              ? AppTheme.emerald500.withValues(alpha: .1)
-                              : AppTheme.slate100,
+                          color: isInvalid
+                              ? AppTheme.red500.withValues(alpha: .1)
+                              : (isActive
+                                    ? AppTheme.emerald500.withValues(alpha: .1)
+                                    : AppTheme.slate100),
                           borderRadius: BorderRadius.circular(20),
                         ),
                         child: Text(
-                          isActive ? "On Duty" : "Completed",
+                          isInvalid
+                              ? "Invalid — Missed Time-Out"
+                              : (isActive ? "On Duty" : "Completed"),
                           style: TextStyle(
                             fontSize: 10,
                             fontWeight: FontWeight.w700,
-                            color: isActive
-                                ? AppTheme.emerald500
-                                : AppTheme.slate500,
+                            color: isInvalid
+                                ? AppTheme.red500
+                                : (isActive
+                                      ? AppTheme.emerald500
+                                      : AppTheme.slate500),
                           ),
                         ),
                       ),

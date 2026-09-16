@@ -21,6 +21,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _taskSub;
   StreamSubscription<List<Map<String, dynamic>>>? _attSub;
   StreamSubscription<List<Map<String, dynamic>>>? _appSub;
+  Timer? _missedTimeOutTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
     clientId: kIsWeb
@@ -34,6 +35,24 @@ class AppState extends ChangeNotifier {
   DateTime? qrGeneratedAt;
   static const _qrValiditySeconds =
       60; // how long a generated QR stays scannable
+
+  // Attendance QR scanning is only allowed during these two daily windows
+  // (morning session and afternoon session, with a lunch break in between).
+  static const _qrMorningStartMinutes = 6 * 60 + 30; // 6:30 AM
+  static const _qrMorningEndMinutes = 12 * 60; // 12:00 PM
+  static const _qrAfternoonStartMinutes = 12 * 60 + 30; // 12:30 PM
+  static const _qrAfternoonEndMinutes = 17 * 60; // 5:00 PM
+
+  /// Whether the given time (defaults to now) falls within an allowed
+  /// attendance QR scanning window.
+  bool isWithinAttendanceQrWindow([DateTime? at]) {
+    final now = at ?? DateTime.now();
+    final minutes = now.hour * 60 + now.minute;
+    return (minutes >= _qrMorningStartMinutes &&
+            minutes <= _qrMorningEndMinutes) ||
+        (minutes >= _qrAfternoonStartMinutes &&
+            minutes <= _qrAfternoonEndMinutes);
+  }
 
   /// Generates a brand-new one-time attendance token, persists it, and returns it.
   Future<String> generateAttendanceQrToken() async {
@@ -237,7 +256,20 @@ class AppState extends ChangeNotifier {
           .listen((list) {
         attendance = list.map((m) => AttendanceRecord.fromJson(m)).toList();
         notifyListeners();
+        if (isStaffUser) invalidateMissedTimeOuts();
       });
+
+      // Head/Supervisor sessions periodically sweep for attendance records
+      // whose session window closed while the student was still clocked in
+      // (they missed their time-out), so those records stop counting
+      // toward verified hours even if nothing else changes on the record.
+      _missedTimeOutTimer?.cancel();
+      if (isStaffUser) {
+        _missedTimeOutTimer = Timer.periodic(
+          const Duration(minutes: 1),
+          (_) => invalidateMissedTimeOuts(),
+        );
+      }
 
       // Start listening to tasks collection in real-time so assigned tasks
       // propagate to student assistants automatically.
@@ -321,6 +353,7 @@ class AppState extends ChangeNotifier {
     _attSub?.cancel();
     _taskSub?.cancel();
     _appSub?.cancel();
+    _missedTimeOutTimer?.cancel();
     super.dispose();
   }
 
@@ -2340,6 +2373,10 @@ class AppState extends ChangeNotifier {
           totalHours: defaultHours,
           academicYear: r.academicYear,
           isArchived: r.isArchived,
+          // A late clock-out after the session window already closed
+          // doesn't undo a missed time-out already flagged by
+          // invalidateMissedTimeOuts().
+          isInvalid: r.isInvalid,
         );
       }
       return r;
@@ -2355,6 +2392,87 @@ class AppState extends ChangeNotifier {
       });
     } catch (_) {
       // ignore
+    }
+  }
+
+  /// Parses a "H:MM AM/PM" time-of-day string (the format [clockIn]/
+  /// [clockOut] store) into minutes since midnight, or null if it can't
+  /// be parsed.
+  int? _parseTimeOfDayMinutes(String time) {
+    final match = RegExp(
+      r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+      caseSensitive: false,
+    ).firstMatch(time.trim());
+    if (match == null) return null;
+    var hour = int.parse(match.group(1)!);
+    final minute = int.parse(match.group(2)!);
+    final period = match.group(3)!.toUpperCase();
+    if (period == 'PM' && hour != 12) hour += 12;
+    if (period == 'AM' && hour == 12) hour = 0;
+    return hour * 60 + minute;
+  }
+
+  /// Marks any still-clocked-in attendance record as invalid once its
+  /// session window (morning or afternoon) has closed without a time-out —
+  /// the student missed their time-out, so the record stops counting
+  /// toward verified hours. A record from a previous day that's still
+  /// active is treated the same way (its window is long past).
+  Future<void> invalidateMissedTimeOuts() async {
+    final now = DateTime.now();
+    final nowMinutes = now.hour * 60 + now.minute;
+    final todayStr = _formattedToday();
+
+    final toInvalidate = <String>[];
+    for (final record in attendance) {
+      if (!record.isActive || record.isInvalid || record.isArchived) {
+        continue;
+      }
+
+      if (record.date.isNotEmpty && record.date != todayStr) {
+        toInvalidate.add(record.id);
+        continue;
+      }
+
+      final timeInMinutes = _parseTimeOfDayMinutes(record.timeIn);
+      if (timeInMinutes == null) continue;
+
+      final inMorningWindow = timeInMinutes <= _qrMorningEndMinutes;
+      final cutoff = inMorningWindow
+          ? _qrMorningEndMinutes
+          : _qrAfternoonEndMinutes;
+      if (nowMinutes > cutoff) {
+        toInvalidate.add(record.id);
+      }
+    }
+
+    if (toInvalidate.isEmpty) return;
+
+    final invalidIds = toInvalidate.toSet();
+    attendance = attendance.map((r) {
+      if (!invalidIds.contains(r.id)) return r;
+      return AttendanceRecord(
+        id: r.id,
+        studentName: r.studentName,
+        studentId: r.studentId,
+        date: r.date,
+        timeIn: r.timeIn,
+        timeOut: r.timeOut,
+        totalHours: r.totalHours,
+        academicYear: r.academicYear,
+        isArchived: r.isArchived,
+        isInvalid: true,
+      );
+    }).toList();
+    notifyListeners();
+
+    try {
+      _firestoreService ??= FirestoreService();
+      for (final id in toInvalidate) {
+        await _firestoreService!.updateAttendance(id, {'isInvalid': true});
+      }
+    } catch (_) {
+      // Firestore unavailable — local state is still updated; the next
+      // successful sweep will persist it.
     }
   }
 
@@ -3380,7 +3498,9 @@ class AppState extends ChangeNotifier {
 
   AttendanceRecord? get activeAttendanceRecord {
     try {
-      return filteredAttendance.firstWhere((r) => !r.isArchived && r.isActive);
+      return filteredAttendance.firstWhere(
+        (r) => !r.isArchived && !r.isInvalid && r.isActive,
+      );
     } catch (_) {
       return null;
     }
@@ -3391,7 +3511,11 @@ class AppState extends ChangeNotifier {
     'totalStudents': filteredStudents.length,
     'activeToday': attendance
         .where(
-          (a) => !a.isArchived && a.academicYear == academicYear && a.isActive,
+          (a) =>
+              !a.isArchived &&
+              !a.isInvalid &&
+              a.academicYear == academicYear &&
+              a.isActive,
         )
         .length,
     'pendingReports': reports

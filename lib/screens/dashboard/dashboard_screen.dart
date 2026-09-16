@@ -537,7 +537,9 @@ class _SupervisorDashboard extends StatelessWidget {
     final state = context.watch<AppState>();
 
     final assignedStudents = state.filteredStudents.length;
-    final activeToday = state.filteredAttendance.where((e) => e.isActive).length;
+    final activeToday = state.filteredAttendance
+        .where((e) => e.isActive && !e.isInvalid)
+        .length;
     final pendingReports = state.filteredReports.where((e) => e.status == 'Pending').length;
     final pendingTasks = state.filteredTasks.where((e) => e.status != 'Completed').length;
 

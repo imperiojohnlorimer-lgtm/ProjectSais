@@ -326,6 +326,10 @@ class AttendanceRecord {
   final double? totalHours;
   final String? academicYear;
   final bool isArchived;
+  // True once the student's session window (morning or afternoon) has
+  // closed while they were still clocked in — they missed their time-out,
+  // so the record no longer counts toward verified hours.
+  final bool isInvalid;
 
   AttendanceRecord({
     required this.id,
@@ -337,6 +341,7 @@ class AttendanceRecord {
     this.totalHours,
     this.academicYear,
     this.isArchived = false,
+    this.isInvalid = false,
   });
 
   bool get isActive => timeOut == null || timeOut!.isEmpty;
@@ -354,6 +359,7 @@ class AttendanceRecord {
         totalHours: (json['totalHours'] ?? 0).toDouble(),
         academicYear: json['academicYear']?.toString(),
         isArchived: json['isArchived'] == true,
+        isInvalid: json['isInvalid'] == true,
       );
 }
 
