@@ -463,6 +463,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   late List<List<TextEditingController>> _scheduleCtrls; // [row][8 fields]
   bool _generating = false;
   bool _syncingSchedule = false;
+  bool _sendingToHead = false;
 
   /// This student's recurring weekly schedule rules ("Add Schedule"/"Add
   /// Subject" on the Schedule/Calendar screen), keyed by weekday. Used to
@@ -1083,10 +1084,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
 
   bool _isPm(String time) => (_hour24(time) ?? 0) >= 12;
 
-  Future<void> _generate() async {
-    final messenger = ScaffoldMessenger.of(context);
-    setState(() => _generating = true);
-
+  /// Builds the report data from the current form state, persisting any
+  /// schedule edits along the way. Shared by "Generate & Download" and
+  /// "Send to Head" so both work off the exact same data.
+  Future<DtrAccomplishmentReportData> _buildReportData() async {
     // Pull the latest text typed into the note / schedule fields.
     final days = List.generate(
       _days.length,
@@ -1144,7 +1145,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           orElse: () => null,
         );
 
-    final data = DtrAccomplishmentReportData(
+    return DtrAccomplishmentReportData(
       studentId: widget.student.id,
       studentName: widget.student.name,
       department: widget.student.department,
@@ -1158,6 +1159,13 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       days: days,
       classSchedule: schedule,
     );
+  }
+
+  Future<void> _generate() async {
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _generating = true);
+
+    final data = await _buildReportData();
 
     try {
       final doc = await const DtrAccomplishmentReportDocumentService()
@@ -1206,6 +1214,88 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       );
     } finally {
       if (mounted) setState(() => _generating = false);
+    }
+  }
+
+  Future<void> _sendToHead() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('Send to Head?'),
+        content: Text(
+          'This will send ${widget.student.name}\'s DTR/Accomplishment report '
+          '(${_months[widget.month.month - 1]} ${widget.month.year}) to the Head.',
+          style: const TextStyle(fontSize: 13.5, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.maroon,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final state = context.read<AppState>();
+    setState(() => _sendingToHead = true);
+
+    final data = await _buildReportData();
+
+    try {
+      final doc = await const DtrAccomplishmentReportDocumentService()
+          .generateDtrAccomplishmentReport(data: data);
+      final bytes = doc.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Failed to generate the report document.');
+      }
+
+      final ok = await state.sendDtrReportToHead(
+        studentId: widget.student.id,
+        studentName: widget.student.name,
+        monthLabel: '${_months[widget.month.month - 1]} ${widget.month.year}',
+        bytes: bytes,
+        fileName: doc.fileName,
+      );
+
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              ok
+                  ? 'DTR/Accomplishment report sent to Head'
+                  : 'Failed to send report to Head',
+            ),
+            backgroundColor: ok ? AppTheme.emerald500 : AppTheme.red500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Could not send document: $e'),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _sendingToHead = false);
     }
   }
 
@@ -1292,51 +1382,96 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
             child: _scheduleTable(isMobile),
           ),
           const SizedBox(height: 24),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: _generating ? null : _generate,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.maroon,
-                foregroundColor: Colors.white,
-                padding: EdgeInsets.symmetric(
-                  vertical: isMobile ? 14 : 16,
-                  horizontal: 12,
-                ),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                elevation: 0,
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _generating
-                      ? const SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
-                        )
-                      : Icon(Icons.download_rounded, size: isMobile ? 17 : 18),
-                  const SizedBox(width: 8),
-                  Flexible(
-                    child: Text(
-                      _generating
-                          ? 'Generating...'
-                          : (isMobile
-                              ? 'Generate Report'
-                              : 'Generate & Download Report'),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: isMobile ? 13.5 : 14.5,
-                      ),
+          Flex(
+            direction: isMobile ? Axis.vertical : Axis.horizontal,
+            children: [
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: _generating ? null : _generate,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.maroon,
+                    foregroundColor: Colors.white,
+                    padding: EdgeInsets.symmetric(
+                      vertical: isMobile ? 14 : 16,
+                      horizontal: 12,
                     ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                    elevation: 0,
                   ),
-                ],
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _generating
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: Colors.white),
+                            )
+                          : Icon(Icons.download_rounded, size: isMobile ? 17 : 18),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _generating
+                              ? 'Generating...'
+                              : (isMobile
+                                  ? 'Generate Report'
+                                  : 'Generate & Download Report'),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: isMobile ? 13.5 : 14.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
+              SizedBox(width: isMobile ? 0 : 12, height: isMobile ? 10 : 0),
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _sendingToHead ? null : _sendToHead,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.maroon,
+                    side: const BorderSide(color: AppTheme.maroon, width: 1.4),
+                    padding: EdgeInsets.symmetric(
+                      vertical: isMobile ? 14 : 16,
+                      horizontal: 12,
+                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _sendingToHead
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2, color: AppTheme.maroon),
+                            )
+                          : Icon(Icons.send_rounded, size: isMobile ? 17 : 18),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          _sendingToHead ? 'Sending...' : 'Send to Head',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: isMobile ? 13.5 : 14.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

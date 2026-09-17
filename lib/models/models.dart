@@ -599,6 +599,9 @@ class Report {
   final String? feedback;
   final List<ReportAttachment> attachments;
   final String? academicYear;
+  final bool sentToHead;
+  final String? sentToHeadAt;
+  final List<ReportAttachment> headAttachments;
 
   Report({
     required this.id,
@@ -611,6 +614,9 @@ class Report {
     this.feedback,
     this.attachments = const [],
     this.academicYear,
+    this.sentToHead = false,
+    this.sentToHeadAt,
+    this.headAttachments = const [],
   });
 
   factory Report.fromJson(Map<String, dynamic> json) => Report(
@@ -623,8 +629,17 @@ class Report {
     submittedAt: json['submittedAt'],
     feedback: json['feedback'],
     academicYear: json['academicYear']?.toString(),
+    sentToHead: json['sentToHead'] == true,
+    sentToHeadAt: json['sentToHeadAt'],
     attachments:
         (json['attachments'] as List<dynamic>?)
+            ?.map(
+              (item) => ReportAttachment.fromJson(item as Map<String, dynamic>),
+            )
+            .toList() ??
+        const [],
+    headAttachments:
+        (json['headAttachments'] as List<dynamic>?)
             ?.map(
               (item) => ReportAttachment.fromJson(item as Map<String, dynamic>),
             )
@@ -1007,6 +1022,8 @@ class AppNotification {
   final String type; // 'announcement', 'application', 'system'
   final String createdAt;
   final bool isRead;
+  final String? attachmentName;
+  final String? attachmentUrl;
 
   AppNotification({
     required this.id,
@@ -1016,6 +1033,8 @@ class AppNotification {
     required this.type,
     required this.createdAt,
     this.isRead = false,
+    this.attachmentName,
+    this.attachmentUrl,
   });
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
@@ -1027,6 +1046,8 @@ class AppNotification {
         type: json['type'] ?? 'system',
         createdAt: _formatNotificationDate(json['createdAt']),
         isRead: json['isRead'] == true,
+        attachmentName: json['attachmentName'],
+        attachmentUrl: json['attachmentUrl'],
       );
 
   Map<String, dynamic> toJson() => {
@@ -1036,7 +1057,9 @@ class AppNotification {
     'type': type,
     'createdAt': createdAt,
     'isRead': isRead,
-  };
+    'attachmentName': attachmentName,
+    'attachmentUrl': attachmentUrl,
+  }..removeWhere((_, v) => v == null);
 
   AppNotification copyWith({bool? isRead}) => AppNotification(
     id: id,
@@ -1046,6 +1069,81 @@ class AppNotification {
     type: type,
     createdAt: createdAt,
     isRead: isRead ?? this.isRead,
+    attachmentName: attachmentName,
+    attachmentUrl: attachmentUrl,
+  );
+}
+
+/// A single item a Supervisor has forwarded up to the Head — an approved
+/// report, a submitted performance evaluation, or a generated DTR/
+/// Accomplishment report. Shown on the Head's dedicated "Sent to Head"
+/// screen, grouped by student, instead of mixed into general notifications.
+class HeadForward {
+  final String id;
+  final String type; // 'report' | 'evaluation' | 'dtr_report'
+  final String studentId;
+  final String studentName;
+  final String title;
+  final String fileName;
+  final String? downloadUrl;
+  final String sentByName;
+  final String? sentById;
+  final String sentAt;
+  final bool reviewed;
+
+  HeadForward({
+    required this.id,
+    required this.type,
+    required this.studentId,
+    required this.studentName,
+    required this.title,
+    required this.fileName,
+    this.downloadUrl,
+    required this.sentByName,
+    this.sentById,
+    required this.sentAt,
+    this.reviewed = false,
+  });
+
+  factory HeadForward.fromJson(Map<String, dynamic> json) => HeadForward(
+    id: json['_id'] ?? json['id'] ?? '',
+    type: json['type'] ?? 'report',
+    studentId: json['studentId'] ?? '',
+    studentName: json['studentName'] ?? '',
+    title: json['title'] ?? '',
+    fileName: json['fileName'] ?? '',
+    downloadUrl: json['downloadUrl'],
+    sentByName: json['sentByName'] ?? '',
+    sentById: json['sentById'],
+    sentAt: json['sentAt'] ?? '',
+    reviewed: json['reviewed'] == true,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'type': type,
+    'studentId': studentId,
+    'studentName': studentName,
+    'title': title,
+    'fileName': fileName,
+    'downloadUrl': downloadUrl,
+    'sentByName': sentByName,
+    'sentById': sentById,
+    'sentAt': sentAt,
+    'reviewed': reviewed,
+  }..removeWhere((_, v) => v == null);
+
+  HeadForward copyWith({bool? reviewed}) => HeadForward(
+    id: id,
+    type: type,
+    studentId: studentId,
+    studentName: studentName,
+    title: title,
+    fileName: fileName,
+    downloadUrl: downloadUrl,
+    sentByName: sentByName,
+    sentById: sentById,
+    sentAt: sentAt,
+    reviewed: reviewed ?? this.reviewed,
   );
 }
 
@@ -1170,6 +1268,11 @@ class Evaluation {
   final String? academicYear;
   final String? createdAt;
   final String? updatedAt;
+  final bool sentToHead;
+  final String? sentToHeadAt;
+  final String? headAttachmentName;
+  final String? headAttachmentPath;
+  final String? headAttachmentUrl;
 
   Evaluation({
     required this.id,
@@ -1191,6 +1294,11 @@ class Evaluation {
     this.academicYear,
     this.createdAt,
     this.updatedAt,
+    this.sentToHead = false,
+    this.sentToHeadAt,
+    this.headAttachmentName,
+    this.headAttachmentPath,
+    this.headAttachmentUrl,
   });
 
   double get averageRating {
@@ -1226,6 +1334,11 @@ class Evaluation {
     academicYear: json['academicYear']?.toString(),
     createdAt: json['createdAt'],
     updatedAt: json['updatedAt'],
+    sentToHead: json['sentToHead'] == true,
+    sentToHeadAt: json['sentToHeadAt'],
+    headAttachmentName: json['headAttachmentName'],
+    headAttachmentPath: json['headAttachmentPath'],
+    headAttachmentUrl: json['headAttachmentUrl'],
   );
 
   Map<String, dynamic> toJson() => {
@@ -1247,6 +1360,11 @@ class Evaluation {
     'academicYear': academicYear,
     'createdAt': createdAt,
     'updatedAt': updatedAt,
+    'sentToHead': sentToHead,
+    'sentToHeadAt': sentToHeadAt,
+    'headAttachmentName': headAttachmentName,
+    'headAttachmentPath': headAttachmentPath,
+    'headAttachmentUrl': headAttachmentUrl,
   }..removeWhere((_, v) => v == null);
 
   Evaluation copyWith({
@@ -1262,6 +1380,11 @@ class Evaluation {
     int? approvedReportCount,
     String? status,
     String? updatedAt,
+    bool? sentToHead,
+    String? sentToHeadAt,
+    String? headAttachmentName,
+    String? headAttachmentPath,
+    String? headAttachmentUrl,
   }) => Evaluation(
     id: id,
     studentId: studentId,
@@ -1283,5 +1406,10 @@ class Evaluation {
     academicYear: academicYear,
     createdAt: createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
+    sentToHead: sentToHead ?? this.sentToHead,
+    sentToHeadAt: sentToHeadAt ?? this.sentToHeadAt,
+    headAttachmentName: headAttachmentName ?? this.headAttachmentName,
+    headAttachmentPath: headAttachmentPath ?? this.headAttachmentPath,
+    headAttachmentUrl: headAttachmentUrl ?? this.headAttachmentUrl,
   );
 }

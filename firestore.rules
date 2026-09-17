@@ -214,6 +214,17 @@ service cloud.firestore {
       allow read, write: if isSupervisor();
     }
 
+    // Items a Supervisor forwards to the Head (reports, evaluations, DTR
+    // reports) for the Head's dedicated "Sent to Head" screen. Supervisor
+    // creates them; Head can read and toggle "reviewed".
+    match /headForwards/{id} {
+      allow read: if isHead() || isSupervisor();
+      allow create: if isSupervisor();
+      allow update: if isHead()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reviewed']);
+      allow delete: if isHead();
+    }
+
     // Applicant Screening is Head-exclusive.
     match /screeningRecords/{id} {
       allow read, write: if isHead();

@@ -20,6 +20,7 @@ import './accounts/offices_screen.dart';
 import './calendar/calendar_screen.dart';
 import './student_portal/announcements_screen.dart';
 import './accounts/admin_notifications_screen.dart';
+import './accounts/head_forwards_screen.dart';
 import './student_portal/sp_notifications_screen.dart';
 import './supervisor/sv_announcements_screen.dart';
 import './supervisor/performance_evaluation_screen.dart';
@@ -167,6 +168,13 @@ class _AppShellState extends State<AppShell> {
       roles: ['Supervisor'],
     ),
     (
+      id: 'head_forwards',
+      label: 'Sent to Head',
+      icon: Icons.forward_to_inbox_outlined,
+      activeIcon: Icons.forward_to_inbox,
+      roles: ['Head'],
+    ),
+    (
       id: 'admin_notifications',
       label: 'Notifications',
       icon: Icons.notifications_outlined,
@@ -254,6 +262,8 @@ class _AppShellState extends State<AppShell> {
         return const SpNotificationsScreen();
       case 'admin_notifications':
         return const AdminNotificationsScreen();
+      case 'head_forwards':
+        return const HeadForwardsScreen();
       default:
         return const DashboardScreen();
     }
@@ -297,6 +307,8 @@ class _AppShellState extends State<AppShell> {
         return 'Notifications';
       case 'admin_notifications':
         return 'Notifications';
+      case 'head_forwards':
+        return 'Sent to Head';
       default:
         return 'SAIS';
     }

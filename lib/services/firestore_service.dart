@@ -890,12 +890,53 @@ class FirestoreService {
       'attachments': r.attachments
           .map((attachment) => attachment.toJson())
           .toList(),
+      'sentToHead': r.sentToHead,
+      'sentToHeadAt': r.sentToHeadAt,
+      'headAttachments': r.headAttachments
+          .map((attachment) => attachment.toJson())
+          .toList(),
     }..removeWhere((k, v) => v == null);
     if (r.id.isNotEmpty) {
       await _reports.doc(r.id).set(data);
     } else {
       await _reports.add(data);
     }
+  }
+
+  // Items a Supervisor has forwarded to the Head (reports, evaluations,
+  // DTR/Accomplishment reports) — shown on the Head's dedicated screen.
+  CollectionReference get _headForwards => _db.collection('headForwards');
+
+  Future<List<HeadForward>> getAllHeadForwards() async {
+    final snap = await _headForwards.get();
+    return snap.docs
+        .map(
+          (d) => HeadForward.fromJson({
+            ...(d.data() as Map<String, dynamic>),
+            'id': d.id,
+          }),
+        )
+        .toList();
+  }
+
+  Future<String> addHeadForward(HeadForward forward) async {
+    final ref = await _headForwards.add(forward.toJson());
+    return ref.id;
+  }
+
+  /// Streams forwarded items in real time so the Head's "Sent to Head"
+  /// screen updates immediately, even if it was already open when a
+  /// supervisor sends something (or the Head logged in earlier).
+  Stream<List<Map<String, dynamic>>> headForwardsStream() {
+    return _headForwards.snapshots().map(
+      (snap) => snap.docs
+          .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+          .toList(),
+    );
+  }
+
+  Future<void> setHeadForwardReviewed(String id, bool reviewed) async {
+    await _headForwards.doc(id).update({'reviewed': reviewed});
   }
 
   // Performance Evaluations

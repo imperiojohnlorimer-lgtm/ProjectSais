@@ -40,6 +40,17 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     final hPad = isMobile ? 16.0 : 28.0;
     final allApps = state.applications;
     final pendingApps = allApps.where((a) => a.status == 'Pending').length;
+    final approvedApps = allApps.where((a) => a.status == 'Approved' || a.status == 'Accepted').length;
+    final waitlistedApps = allApps.where((a) => a.status == 'Waitlisted').length;
+    final rejectedApps = allApps.where((a) => a.status == 'Rejected').length;
+    final statusCounts = <String, int>{
+      'All': allApps.length,
+      'Pending': pendingApps,
+      'Approved': approvedApps,
+      'Waitlisted': waitlistedApps,
+      'Rejected': rejectedApps,
+    };
+    final reviewedFraction = allApps.isEmpty ? 0.0 : (allApps.length - pendingApps) / allApps.length;
 
     final departmentOptions = [
       'All',
@@ -168,6 +179,17 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (allApps.isNotEmpty) ...[
+                  _ApplicationsSummary(
+                    reviewedFraction: reviewedFraction,
+                    total: allApps.length,
+                    pending: pendingApps,
+                    approved: approvedApps,
+                    waitlisted: waitlistedApps,
+                    rejected: rejectedApps,
+                  ),
+                  const SizedBox(height: 16),
+                ],
                 // ── Filters ─────────────────────────────────
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -193,6 +215,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                         statusFilter,
                         statusOptions,
                         (value) => setState(() => statusFilter = value),
+                        counts: statusCounts,
                       ),
                       _dropdownFilterGroup(
                         'Department',
@@ -268,8 +291,9 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     IconData icon,
     String selected,
     List<String> options,
-    ValueChanged<String> onChanged,
-  ) {
+    ValueChanged<String> onChanged, {
+    Map<String, int>? counts,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -304,13 +328,36 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                   color: active ? AppTheme.maroon : AppTheme.slate100,
                   borderRadius: BorderRadius.circular(20),
                 ),
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: active ? Colors.white : AppTheme.slate600,
-                  ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      option,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: active ? Colors.white : AppTheme.slate600,
+                      ),
+                    ),
+                    if (counts != null && (counts[option] ?? 0) > 0) ...[
+                      const SizedBox(width: 5),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: active ? Colors.white.withValues(alpha: 0.25) : AppTheme.maroon.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          '${counts[option]}',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                            color: active ? Colors.white : AppTheme.maroon,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             );
@@ -386,6 +433,107 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       ],
     );
   }
+}
+
+class _ApplicationsSummary extends StatelessWidget {
+  final double reviewedFraction;
+  final int total;
+  final int pending;
+  final int approved;
+  final int waitlisted;
+  final int rejected;
+
+  const _ApplicationsSummary({
+    required this.reviewedFraction,
+    required this.total,
+    required this.pending,
+    required this.approved,
+    required this.waitlisted,
+    required this.rejected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.88)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.maroon.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Review progress',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
+              ),
+              const Spacer(),
+              Text(
+                pending > 0 ? '$pending of $total pending' : 'All $total reviewed',
+                style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: reviewedFraction.clamp(0, 1)),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) => LinearProgressIndicator(
+                value: value,
+                minHeight: 9,
+                backgroundColor: Colors.white.withValues(alpha: 0.22),
+                valueColor: const AlwaysStoppedAnimation(Colors.white),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 18,
+            runSpacing: 8,
+            children: [
+              _miniStat(Icons.hourglass_top_rounded, pending, 'Pending'),
+              _miniStat(Icons.check_circle_rounded, approved, 'Approved'),
+              _miniStat(Icons.schedule_rounded, waitlisted, 'Waitlisted'),
+              _miniStat(Icons.cancel_rounded, rejected, 'Rejected'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(IconData icon, int count, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 14, color: Colors.white70),
+      const SizedBox(width: 5),
+      Text(
+        '$count',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600),
+      ),
+    ],
+  );
 }
 
 class _AdminApplicationCard extends StatefulWidget {

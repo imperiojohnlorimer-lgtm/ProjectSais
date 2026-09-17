@@ -61,6 +61,18 @@ class _TasksScreenState extends State<TasksScreen> {
         .where((t) => !t.isArchived && t.status != 'Completed')
         .length;
 
+    final liveTasks = state.filteredTasks.where((t) => !t.isArchived).toList();
+    final statusCounts = <String, int>{
+      for (final s in _statuses)
+        s: s == 'All'
+            ? liveTasks.length
+            : s == 'Archived'
+                ? state.filteredTasks.where((t) => t.isArchived).length
+                : liveTasks.where((t) => t.status == s).length,
+    };
+    final completedCount = statusCounts['Completed'] ?? 0;
+    final progress = liveTasks.isEmpty ? 0.0 : completedCount / liveTasks.length;
+
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -165,6 +177,17 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
             const SizedBox(height: 18),
 
+            if (liveTasks.isNotEmpty) ...[
+              _ProgressSummary(
+                progress: progress,
+                completedCount: completedCount,
+                totalCount: liveTasks.length,
+                notStarted: statusCounts['Not Started'] ?? 0,
+                inProgress: statusCounts['In Progress'] ?? 0,
+              ),
+              const SizedBox(height: 18),
+            ],
+
             // Status filter
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -214,6 +237,24 @@ class _TasksScreenState extends State<TasksScreen> {
                               fontSize: 13,
                             ),
                           ),
+                          if ((statusCounts[s] ?? 0) > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: selected ? Colors.white.withValues(alpha: 0.25) : color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${statusCounts[s]}',
+                                style: TextStyle(
+                                  color: selected ? Colors.white : color,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -965,6 +1006,104 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 }
 
+class _ProgressSummary extends StatelessWidget {
+  final double progress;
+  final int completedCount;
+  final int totalCount;
+  final int notStarted;
+  final int inProgress;
+
+  const _ProgressSummary({
+    required this.progress,
+    required this.completedCount,
+    required this.totalCount,
+    required this.notStarted,
+    required this.inProgress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.88)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.maroon.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Overall progress',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
+              ),
+              const Spacer(),
+              Text(
+                '$completedCount / $totalCount completed',
+                style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: progress.clamp(0, 1)),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) => LinearProgressIndicator(
+                value: value,
+                minHeight: 9,
+                backgroundColor: Colors.white.withValues(alpha: 0.22),
+                valueColor: const AlwaysStoppedAnimation(Colors.white),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _miniStat(Icons.radio_button_unchecked_rounded, notStarted, 'Not started'),
+              const SizedBox(width: 18),
+              _miniStat(Icons.autorenew_rounded, inProgress, 'In progress'),
+              const SizedBox(width: 18),
+              _miniStat(Icons.check_circle_rounded, completedCount, 'Completed'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(IconData icon, int count, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 14, color: Colors.white70),
+      const SizedBox(width: 5),
+      Text(
+        '$count',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600),
+      ),
+    ],
+  );
+}
+
 class _TaskCard extends StatelessWidget {
   final Task task;
   final String role;
@@ -1168,18 +1307,34 @@ class _TaskCard extends StatelessWidget {
                         Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.person_rounded,
-                              size: 13,
-                              color: AppTheme.slate400,
+                            Container(
+                              width: 20,
+                              height: 20,
+                              alignment: Alignment.center,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.7)],
+                                ),
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                task.assignedToName!.trim().isNotEmpty
+                                    ? task.assignedToName!.trim()[0].toUpperCase()
+                                    : '?',
+                                style: const TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
                             ),
-                            const SizedBox(width: 4),
+                            const SizedBox(width: 6),
                             Text(
                               task.assignedToName!,
                               style: const TextStyle(
                                 fontSize: 12,
                                 color: AppTheme.slate600,
-                                fontWeight: FontWeight.w500,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                           ],

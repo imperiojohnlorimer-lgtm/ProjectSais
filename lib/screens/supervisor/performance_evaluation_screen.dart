@@ -494,6 +494,42 @@ class _PerformanceEvaluationScreenState
                           ),
                         ),
                         const SizedBox(width: 8),
+                        if (existing.status == 'Submitted')
+                          OutlinedButton.icon(
+                            onPressed: existing.sentToHead
+                                ? null
+                                : () => _sendEvaluationToHead(context, state, existing),
+                            icon: Icon(
+                              existing.sentToHead
+                                  ? Icons.check_circle_rounded
+                                  : Icons.send_rounded,
+                              size: 16,
+                            ),
+                            label: Text(
+                              existing.sentToHead ? 'Sent to Head' : 'Send to Head',
+                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: existing.sentToHead
+                                  ? AppTheme.emerald500
+                                  : AppTheme.maroon,
+                              disabledForegroundColor: AppTheme.emerald500,
+                              side: BorderSide(
+                                color: existing.sentToHead
+                                    ? AppTheme.emerald500
+                                    : AppTheme.maroon,
+                                width: 1.3,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 11,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(11),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 8),
                       ],
                       Container(
                         decoration: BoxDecoration(
@@ -664,6 +700,65 @@ class _PerformanceEvaluationScreenState
         margin: const EdgeInsets.all(16),),
       );
     }
+  }
+
+  Future<void> _sendEvaluationToHead(
+    BuildContext context,
+    AppState state,
+    Evaluation evaluation,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        title: const Text('Send to Head?'),
+        content: Text(
+          'This will send ${evaluation.studentName}\'s performance evaluation '
+          '(${evaluation.term}) to the Head. This can\'t be undone.',
+          style: const TextStyle(fontSize: 13.5, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.maroon,
+              foregroundColor: Colors.white,
+              elevation: 0,
+            ),
+            child: const Text('Send'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    bool ok = false;
+    String? errorText;
+    try {
+      ok = await state.sendEvaluationToHead(evaluation);
+    } catch (e) {
+      errorText = '$e';
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Evaluation sent to Head'
+              : 'Failed to send evaluation to Head'
+                  '${errorText != null ? ': $errorText' : ''}',
+        ),
+        backgroundColor: ok ? AppTheme.emerald500 : AppTheme.red500,
+        duration: const Duration(seconds: 4),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 
   void _openEvaluationForm(

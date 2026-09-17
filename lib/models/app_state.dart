@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -7,6 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:projectsais/services/appointment_document_service.dart';
 import 'package:projectsais/services/firestore_service.dart';
+import 'package:projectsais/services/performance_evaluation_document_service.dart';
 import 'package:projectsais/services/supabase_storage_service.dart';
 import '../firebase_options.dart';
 import 'models.dart';
@@ -21,6 +23,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _taskSub;
   StreamSubscription<List<Map<String, dynamic>>>? _attSub;
   StreamSubscription<List<Map<String, dynamic>>>? _appSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _headForwardsSub;
   Timer? _missedTimeOutTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
@@ -120,6 +123,7 @@ class AppState extends ChangeNotifier {
   List<Task> tasks = [];
   List<Report> reports = [];
   List<Evaluation> evaluations = [];
+  List<HeadForward> headForwards = [];
   List<Announcement> announcements = [];
   List<Application> applications = [];
   List<ScreeningRecord> screeningRecords = [];
@@ -291,6 +295,19 @@ class AppState extends ChangeNotifier {
         applications = list.map((m) => Application.fromJson(m)).toList();
         notifyListeners();
       });
+
+      // Head/Supervisor: keep "Sent to Head" items in sync in real time so
+      // a forward shows up immediately even if the Head's screen was
+      // already open, or they logged in before it was sent.
+      _headForwardsSub?.cancel();
+      if (isStaffUser) {
+        _headForwardsSub = _firestoreService!.headForwardsStream().listen((
+          list,
+        ) {
+          headForwards = list.map((m) => HeadForward.fromJson(m)).toList();
+          notifyListeners();
+        });
+      }
     } catch (_) {
       // Firestore not available or not initialized; ignore and keep in-memory behavior.
     }
@@ -353,6 +370,7 @@ class AppState extends ChangeNotifier {
     _attSub?.cancel();
     _taskSub?.cancel();
     _appSub?.cancel();
+    _headForwardsSub?.cancel();
     _missedTimeOutTimer?.cancel();
     super.dispose();
   }
@@ -1084,6 +1102,15 @@ class AppState extends ChangeNotifier {
         evaluations = fsEvaluations;
       } catch (_) {
         evaluations = [];
+      }
+
+      // Items supervisors have forwarded to the Head.
+      if (role == 'Head' || role == 'Supervisor') {
+        try {
+          headForwards = await _firestoreService!.getAllHeadForwards();
+        } catch (_) {
+          headForwards = [];
+        }
       }
 
       // Applications
@@ -2672,6 +2699,9 @@ class AppState extends ChangeNotifier {
       feedback: feedback ?? old.feedback,
       attachments: old.attachments,
       academicYear: old.academicYear,
+      sentToHead: old.sentToHead,
+      sentToHeadAt: old.sentToHeadAt,
+      headAttachments: old.headAttachments,
     );
 
     _firestoreService ??= FirestoreService();
@@ -2683,6 +2713,238 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('Failed to update report status in Firestore: $e');
       return false;
+    }
+  }
+
+  /// Records an item a Supervisor forwarded to the Head, so it shows up on
+  /// the Head's dedicated "Sent to Head" screen (grouped by student)
+  /// instead of the general notification feed.
+  Future<void> _recordHeadForward({
+    required String type,
+    required String studentId,
+    required String studentName,
+    required String title,
+    required String fileName,
+    String? downloadUrl,
+  }) async {
+    _firestoreService ??= FirestoreService();
+    final forwardId = await _firestoreService!.addHeadForward(
+      HeadForward(
+        id: '',
+        type: type,
+        studentId: studentId,
+        studentName: studentName,
+        title: title,
+        fileName: fileName,
+        downloadUrl: downloadUrl,
+        sentByName: currentUser?.name ?? 'Supervisor',
+        sentById: currentUser?.id,
+        sentAt: _formattedToday(),
+      ),
+    );
+    headForwards = [
+      HeadForward(
+        id: forwardId,
+        type: type,
+        studentId: studentId,
+        studentName: studentName,
+        title: title,
+        fileName: fileName,
+        downloadUrl: downloadUrl,
+        sentByName: currentUser?.name ?? 'Supervisor',
+        sentById: currentUser?.id,
+        sentAt: _formattedToday(),
+      ),
+      ...headForwards,
+    ];
+  }
+
+  /// Head marks a forwarded item as reviewed/unreviewed on the "Sent to
+  /// Head" screen.
+  Future<void> setHeadForwardReviewed(String id, bool reviewed) async {
+    _firestoreService ??= FirestoreService();
+    try {
+      await _firestoreService!.setHeadForwardReviewed(id, reviewed);
+      headForwards = headForwards
+          .map((f) => f.id == id ? f.copyWith(reviewed: reviewed) : f)
+          .toList();
+      notifyListeners();
+    } catch (e) {
+      debugPrint('Failed to update head forward: $e');
+    }
+  }
+
+  /// Supervisor forwards an already-approved report to the Head. The
+  /// report's own attachments (uploaded when it was submitted) travel with
+  /// it — nothing needs to be re-uploaded here.
+  Future<bool> sendReportToHead(String id) async {
+    final idx = reports.indexWhere((r) => r.id == id);
+    if (idx < 0) return false;
+    final old = reports[idx];
+    if (old.status != 'Approved') return false;
+
+    final updated = Report(
+      id: old.id,
+      applicantId: old.applicantId,
+      title: old.title,
+      content: old.content,
+      studentName: old.studentName,
+      status: old.status,
+      submittedAt: old.submittedAt,
+      feedback: old.feedback,
+      attachments: old.attachments,
+      academicYear: old.academicYear,
+      sentToHead: true,
+      sentToHeadAt: _formattedToday(),
+      headAttachments: old.attachments,
+    );
+
+    _firestoreService ??= FirestoreService();
+    try {
+      await _firestoreService!.setReport(updated);
+      reports = reports.map((r) => r.id == id ? updated : r).toList();
+
+      final firstAttachment = updated.attachments.isNotEmpty
+          ? updated.attachments.first
+          : null;
+      await _recordHeadForward(
+        type: 'report',
+        studentId: updated.applicantId ?? '',
+        studentName: updated.studentName,
+        title: updated.title,
+        fileName: firstAttachment?.fileName ?? '${updated.title}.txt',
+        downloadUrl: firstAttachment?.downloadUrl,
+      );
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Failed to send report to Head in Firestore: $e');
+      rethrow;
+    }
+  }
+
+  /// Regenerates the already-submitted performance evaluation document (the
+  /// same file the "Download" button produces) and forwards it to the Head
+  /// — no manual re-upload needed.
+  Future<bool> sendEvaluationToHead(Evaluation evaluation) async {
+    if (evaluation.status != 'Submitted') return false;
+    _firestoreService ??= FirestoreService();
+    try {
+      final doc = await const PerformanceEvaluationDocumentService()
+          .generatePerformanceEvaluation(evaluation: evaluation);
+      final bytes = doc.bytes;
+      if (bytes == null || bytes.isEmpty) {
+        throw Exception('Failed to generate the evaluation document.');
+      }
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      // Reuses the 'reports/<uploaderUid>/...' path shape that the
+      // upload-document edge function already allows (it only accepts
+      // 'reports' and 'applications' as valid roots), keyed by the
+      // supervisor's own Firebase UID as the storage rules require.
+      final uploaderUid =
+          fb_auth.FirebaseAuth.instance.currentUser?.uid ?? currentUser?.id ?? 'user';
+      final storagePath = 'reports/$uploaderUid/$timestamp/${doc.fileName}';
+      final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
+        bytes: bytes,
+        path: storagePath,
+        contentType:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+
+      final updated = evaluation.copyWith(
+        sentToHead: true,
+        sentToHeadAt: _formattedToday(),
+      );
+      final withAttachment = Evaluation(
+        id: updated.id,
+        studentId: updated.studentId,
+        studentName: updated.studentName,
+        office: updated.office,
+        term: updated.term,
+        periodCovered: updated.periodCovered,
+        dateOfRating: updated.dateOfRating,
+        eligibleForRehire: updated.eligibleForRehire,
+        ratings: updated.ratings,
+        overallRating: updated.overallRating,
+        departmentHeadComments: updated.departmentHeadComments,
+        supervisorId: updated.supervisorId,
+        supervisorName: updated.supervisorName,
+        verifiedDtrHours: updated.verifiedDtrHours,
+        approvedReportCount: updated.approvedReportCount,
+        status: updated.status,
+        academicYear: updated.academicYear,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+        sentToHead: true,
+        sentToHeadAt: updated.sentToHeadAt,
+        headAttachmentName: doc.fileName,
+        headAttachmentPath: storagePath,
+        headAttachmentUrl: downloadUrl,
+      );
+
+      await _firestoreService!.setEvaluation(withAttachment);
+      evaluations = evaluations
+          .map((e) => e.id == withAttachment.id ? withAttachment : e)
+          .toList();
+
+      await _recordHeadForward(
+        type: 'evaluation',
+        studentId: withAttachment.studentId,
+        studentName: withAttachment.studentName,
+        title: 'Performance Evaluation (${withAttachment.term})',
+        fileName: doc.fileName,
+        downloadUrl: downloadUrl,
+      );
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Failed to send evaluation to Head: $e');
+      rethrow;
+    }
+  }
+
+  /// Uploads an already-generated DTR/Accomplishment report (the same bytes
+  /// the "Generate Report" button produces) and forwards it to the Head.
+  Future<bool> sendDtrReportToHead({
+    required String studentId,
+    required String studentName,
+    required String monthLabel,
+    required Uint8List bytes,
+    required String fileName,
+  }) async {
+    try {
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      // Reuses the 'reports/<uploaderUid>/...' path shape that the
+      // upload-document edge function already allows (it only accepts
+      // 'reports' and 'applications' as valid roots), keyed by the
+      // supervisor's own Firebase UID as the storage rules require.
+      final uploaderUid =
+          fb_auth.FirebaseAuth.instance.currentUser?.uid ?? currentUser?.id ?? 'user';
+      final storagePath = 'reports/$uploaderUid/$timestamp/$fileName';
+      final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
+        bytes: bytes,
+        path: storagePath,
+        contentType:
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      );
+
+      await _recordHeadForward(
+        type: 'dtr_report',
+        studentId: studentId,
+        studentName: studentName,
+        title: 'DTR/Accomplishment Report ($monthLabel)',
+        fileName: fileName,
+        downloadUrl: downloadUrl,
+      );
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      debugPrint('Failed to send DTR report to Head: $e');
+      rethrow;
     }
   }
 

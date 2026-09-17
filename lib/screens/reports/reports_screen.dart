@@ -53,11 +53,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
       return _filterStatus == 'All' || r.status == _filterStatus;
     }).toList();
 
-    final pendingCount = state.filteredReports
+    final baseReports = state.filteredReports
         .where((r) => _reportYear == null || r.academicYear == _reportYear)
         .where((r) => role != 'Student Assistant' || r.studentName == state.currentUser?.name)
-        .where((r) => r.status == 'Pending')
-        .length;
+        .toList();
+    final pendingCount = baseReports.where((r) => r.status == 'Pending').length;
+    final approvedCount = baseReports.where((r) => r.status == 'Approved').length;
+    final rejectedCount = baseReports.where((r) => r.status == 'Rejected').length;
+    final statusCounts = <String, int>{
+      'All': baseReports.length,
+      'Pending': pendingCount,
+      'Approved': approvedCount,
+      'Rejected': rejectedCount,
+    };
+    final reviewedFraction =
+        baseReports.isEmpty ? 0.0 : (baseReports.length - pendingCount) / baseReports.length;
 
     return Container(
       decoration: const BoxDecoration(
@@ -187,6 +197,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
               const SizedBox(height: 14),
             ],
 
+            if (baseReports.isNotEmpty) ...[
+              _ReportsSummary(
+                reviewedFraction: reviewedFraction,
+                total: baseReports.length,
+                pending: pendingCount,
+                approved: approvedCount,
+                rejected: rejectedCount,
+              ),
+              const SizedBox(height: 18),
+            ],
+
             // Filter chips
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
@@ -236,6 +257,24 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               fontSize: 13,
                             ),
                           ),
+                          if ((statusCounts[s] ?? 0) > 0) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                              decoration: BoxDecoration(
+                                color: selected ? Colors.white.withValues(alpha: 0.25) : color.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                '${statusCounts[s]}',
+                                style: TextStyle(
+                                  color: selected ? Colors.white : color,
+                                  fontWeight: FontWeight.w800,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -256,6 +295,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         role: role,
                         onReview: role == 'Supervisor'
                             ? () => _showReviewDialog(context, state, reports[i])
+                            : null,
+                        onSendToHead: role == 'Supervisor'
+                            ? () => _showSendToHeadDialog(context, state, reports[i])
                             : null,
                       ),
                     ),
@@ -1062,14 +1104,252 @@ class _ReportsScreenState extends State<ReportsScreen> {
       ),
     );
   }
+
+  void _showSendToHeadDialog(BuildContext context, AppState state, Report report) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                14,
+                24,
+                MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: AppTheme.slate200,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(9),
+                        decoration: BoxDecoration(
+                          color: AppTheme.maroon50,
+                          borderRadius: BorderRadius.circular(11),
+                        ),
+                        child: const Icon(Icons.send_rounded, color: AppTheme.maroon, size: 19),
+                      ),
+                      const SizedBox(width: 12),
+                      const Expanded(
+                        child: Text(
+                          'Send to Head',
+                          style: TextStyle(fontSize: 17, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close_rounded),
+                        onPressed: () => Navigator.pop(context),
+                        style: IconButton.styleFrom(
+                          backgroundColor: AppTheme.slate100,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Forward the approved report "${report.title}" by ${report.studentName} to the Head'
+                    '${report.attachments.isNotEmpty ? ', along with its attached document${report.attachments.length > 1 ? 's' : ''}' : ''}.'
+                    '\n\nTo also send the evaluated file or the DTR/Accomplishment report, use the "Send to Head" option on the Performance Evaluation or DTR/Accomplishment Report screens — no need to re-upload them here.',
+                    style: const TextStyle(fontSize: 12.5, color: AppTheme.slate500, height: 1.4),
+                  ),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Container(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppTheme.maroon.withValues(alpha: 0.3),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
+                      ),
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                                bool ok = false;
+                                String? errorText;
+                                try {
+                                  ok = await state.sendReportToHead(report.id);
+                                } catch (e) {
+                                  errorText = '$e';
+                                }
+                                if (context.mounted) Navigator.pop(context);
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        ok
+                                            ? 'Report sent to Head'
+                                            : 'Failed to send report to Head'
+                                                '${errorText != null ? ': $errorText' : ''}',
+                                      ),
+                                      backgroundColor: ok ? AppTheme.emerald500 : AppTheme.red500,
+                                      duration: const Duration(seconds: 4),
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                      margin: const EdgeInsets.all(16),
+                                    ),
+                                  );
+                                }
+                              },
+                        icon: const Icon(Icons.send_rounded, size: 17),
+                        label: const Text('Send to Head'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.maroon,
+                          foregroundColor: Colors.white,
+                          disabledBackgroundColor: AppTheme.slate200,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+      },
+    );
+  }
+}
+
+class _ReportsSummary extends StatelessWidget {
+  final double reviewedFraction;
+  final int total;
+  final int pending;
+  final int approved;
+  final int rejected;
+
+  const _ReportsSummary({
+    required this.reviewedFraction,
+    required this.total,
+    required this.pending,
+    required this.approved,
+    required this.rejected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.88)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(18),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.maroon.withValues(alpha: 0.25),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Review progress',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
+              ),
+              const Spacer(),
+              Text(
+                pending > 0 ? '$pending of $total pending' : 'All $total reviewed',
+                style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(20),
+            child: TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: reviewedFraction.clamp(0, 1)),
+              duration: const Duration(milliseconds: 500),
+              curve: Curves.easeOutCubic,
+              builder: (context, value, _) => LinearProgressIndicator(
+                value: value,
+                minHeight: 9,
+                backgroundColor: Colors.white.withValues(alpha: 0.22),
+                valueColor: const AlwaysStoppedAnimation(Colors.white),
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 18,
+            runSpacing: 8,
+            children: [
+              _miniStat(Icons.hourglass_top_rounded, pending, 'Pending'),
+              _miniStat(Icons.check_circle_rounded, approved, 'Approved'),
+              _miniStat(Icons.cancel_rounded, rejected, 'Rejected'),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _miniStat(IconData icon, int count, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(icon, size: 14, color: Colors.white70),
+      const SizedBox(width: 5),
+      Text(
+        '$count',
+        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600),
+      ),
+    ],
+  );
 }
 
 class _ReportCard extends StatefulWidget {
   final Report report;
   final String role;
   final VoidCallback? onReview;
+  final VoidCallback? onSendToHead;
 
-  const _ReportCard({required this.report, required this.role, this.onReview});
+  const _ReportCard({
+    required this.report,
+    required this.role,
+    this.onReview,
+    this.onSendToHead,
+  });
 
   @override
   State<_ReportCard> createState() => _ReportCardState();
@@ -1081,6 +1361,7 @@ class _ReportCardState extends State<_ReportCard> {
   Report get report => widget.report;
   String get role => widget.role;
   VoidCallback? get onReview => widget.onReview;
+  VoidCallback? get onSendToHead => widget.onSendToHead;
 
   Color get _statusColor {
     switch (report.status) {
@@ -1389,6 +1670,56 @@ class _ReportCardState extends State<_ReportCard> {
                       ),
                     ),
                   ],
+                  if (report.sentToHead) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(11),
+                      decoration: BoxDecoration(
+                        color: AppTheme.emerald500.withValues(alpha: 0.08),
+                        borderRadius: BorderRadius.circular(11),
+                        border: Border.all(color: AppTheme.emerald500.withValues(alpha: 0.25)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.emerald500),
+                              const SizedBox(width: 6),
+                              Text(
+                                report.sentToHeadAt != null
+                                    ? 'Sent to Head on ${report.sentToHeadAt}'
+                                    : 'Sent to Head',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppTheme.emerald500,
+                                ),
+                              ),
+                            ],
+                          ),
+                          for (final att in report.headAttachments)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6, left: 20),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.attach_file_rounded, size: 12, color: AppTheme.slate500),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: Text(
+                                      att.fileName,
+                                      style: const TextStyle(fontSize: 11.5, color: AppTheme.slate600),
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                   if (onReview != null && report.status == 'Pending') ...[
                     const SizedBox(height: 14),
                     SizedBox(
@@ -1397,6 +1728,29 @@ class _ReportCardState extends State<_ReportCard> {
                         onPressed: onReview,
                         icon: const Icon(Icons.rate_review_rounded, size: 16),
                         label: const Text('Review'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.maroon,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (onSendToHead != null &&
+                      report.status == 'Approved' &&
+                      !report.sentToHead) ...[
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: onSendToHead,
+                        icon: const Icon(Icons.send_rounded, size: 16),
+                        label: const Text('Send to Head'),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.maroon,
                           foregroundColor: Colors.white,
