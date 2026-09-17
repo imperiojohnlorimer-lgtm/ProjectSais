@@ -117,6 +117,7 @@ class _AppShellState extends State<AppShell> {
       label: 'Schedule',
       icon: Icons.calendar_today_outlined,
       activeIcon: Icons.calendar_today,
+      roles: ['Head', 'Supervisor', 'Student Assistant'],
     ),
     (
       id: 'tasks',
@@ -130,6 +131,7 @@ class _AppShellState extends State<AppShell> {
       label: 'Attendance',
       icon: Icons.access_time_outlined,
       activeIcon: Icons.access_time_filled,
+      roles: ['Head', 'Supervisor', 'Student Assistant'],
     ),
     (
       id: 'reports',

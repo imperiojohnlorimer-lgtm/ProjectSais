@@ -1583,11 +1583,24 @@ class AppState extends ChangeNotifier {
     final assignedNames = assistants
         .map((assistant) => assistant.name)
         .join(', ');
+
+    // Each assigned student only hears about their own assignment, not the
+    // whole roster.
+    for (final assistant in assistants) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().microsecondsSinceEpoch}_office_${assistant.id}',
+          userId: assistant.id,
+          title: 'Office Assignment Updated',
+          message: 'You have been assigned to ${assignedOffice.name}.',
+          type: 'office',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
+    // Heads see the full roster summary since it's their office.
     _notifyOfficeUsers(
-      [
-        ...assistants.map((assistant) => assistant.id),
-        ...assignedOffice.headIds,
-      ],
+      assignedOffice.headIds,
       title: 'Office Assignment Updated',
       message: assistants.isEmpty
           ? 'Student assistant assignments were updated for ${assignedOffice.name}.'
@@ -1606,11 +1619,23 @@ class AppState extends ChangeNotifier {
       headNames: supervisors.map((supervisor) => supervisor.name).toList(),
     );
     await saveOffice(updatedOffice);
+
+    // Each assigned supervisor only hears about their own assignment.
+    for (final supervisor in supervisors) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().microsecondsSinceEpoch}_office_${supervisor.id}',
+          userId: supervisor.id,
+          title: 'Office Assignment Updated',
+          message: 'You have been assigned to supervise ${updatedOffice.name}.',
+          type: 'office',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
+    // Assigned students just hear that the office's supervisors changed.
     _notifyOfficeUsers(
-      [
-        ...supervisors.map((supervisor) => supervisor.id),
-        ...updatedOffice.assistantIds,
-      ],
+      updatedOffice.assistantIds,
       title: 'Office Assignment Updated',
       message: supervisors.isEmpty
           ? 'Supervisors were updated for ${updatedOffice.name}.'
@@ -2310,6 +2335,27 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  void deleteNotification(String id) {
+    notifications = notifications.where((n) => n.id != id).toList();
+    _firestoreService?.deleteNotification(id).catchError((error) {
+      debugPrint('Failed to delete notification: $error');
+    });
+    notifyListeners();
+  }
+
+  Future<void> clearAllNotifications() async {
+    final userId = currentUser?.id;
+    if (userId == null) return;
+    notifications = notifications.where((n) => n.userId != userId).toList();
+    notifyListeners();
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.deleteNotificationsForUser(userId);
+    } catch (error) {
+      debugPrint('Failed to clear notifications: $error');
+    }
+  }
+
   void addStudent(Student student) {
     students = [...students, student];
     notifyListeners();
@@ -2530,6 +2576,18 @@ class AppState extends ChangeNotifier {
     );
     // Optimistically update local state for immediate UI feedback.
     tasks = [task, ...tasks];
+    if (task.assignedTo != null) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${task.assignedTo}',
+          userId: task.assignedTo!,
+          title: 'New Task Assigned',
+          message: 'You have been assigned "${task.title}".',
+          type: 'task',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
     notifyListeners();
 
     try {
@@ -2582,6 +2640,19 @@ class AppState extends ChangeNotifier {
       }
       return t;
     }).toList();
+    if (existingTask.assignedBy != null && existingTask.status != status) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${existingTask.assignedBy}',
+          userId: existingTask.assignedBy!,
+          title: 'Task Updated',
+          message:
+              '${existingTask.assignedToName ?? "A student"} marked "${existingTask.title}" as $status.',
+          type: 'task',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
     notifyListeners();
 
     try {
@@ -2708,6 +2779,19 @@ class AppState extends ChangeNotifier {
     try {
       await _firestoreService!.setReport(updated);
       reports = reports.map((r) => r.id == id ? updated : r).toList();
+      if (old.applicantId != null && (status == 'Approved' || status == 'Rejected')) {
+        _addNotification(
+          AppNotification(
+            id: 'n_${DateTime.now().millisecondsSinceEpoch}_${old.applicantId}',
+            userId: old.applicantId!,
+            title: 'Report $status',
+            message:
+                'Your report "${old.title}" was $status.${feedback != null ? " Feedback: $feedback" : ""}',
+            type: 'report',
+            createdAt: _formattedToday(),
+          ),
+        );
+      }
       notifyListeners();
       return true;
     } catch (e) {
@@ -2757,6 +2841,18 @@ class AppState extends ChangeNotifier {
       ),
       ...headForwards,
     ];
+    for (final head in users.where((u) => u.role == 'Head')) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${head.id}',
+          userId: head.id,
+          title: 'New Item Forwarded',
+          message: '${currentUser?.name ?? "A supervisor"} sent "$title" for $studentName.',
+          type: 'head_forward',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
   }
 
   /// Head marks a forwarded item as reviewed/unreviewed on the "Sent to
@@ -2768,6 +2864,21 @@ class AppState extends ChangeNotifier {
       headForwards = headForwards
           .map((f) => f.id == id ? f.copyWith(reviewed: reviewed) : f)
           .toList();
+      if (reviewed) {
+        final forward = headForwards.firstWhere((f) => f.id == id, orElse: () => headForwards.first);
+        if (forward.sentById != null) {
+          _addNotification(
+            AppNotification(
+              id: 'n_${DateTime.now().millisecondsSinceEpoch}_${forward.sentById}',
+              userId: forward.sentById!,
+              title: 'Item Reviewed',
+              message: 'The Head reviewed "${forward.title}" for ${forward.studentName}.',
+              type: 'head_forward',
+              createdAt: _formattedToday(),
+            ),
+          );
+        }
+      }
       notifyListeners();
     } catch (e) {
       debugPrint('Failed to update head forward: $e');

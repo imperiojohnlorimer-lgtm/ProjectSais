@@ -82,9 +82,12 @@ class _TasksScreenState extends State<TasksScreen> {
           stops: [0.0, 0.22],
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -263,15 +266,22 @@ class _TasksScreenState extends State<TasksScreen> {
               ),
             ),
             const SizedBox(height: 18),
-
-            Flexible(
-              child: tasks.isEmpty
-                  ? _emptyState()
-                  : SingleChildScrollView(
-                      child: Column(
-                        children: [
-                          for (int i = 0; i < tasks.length; i++) ...[
-                            _TaskCard(
+          ],
+              ),
+            ),
+          ),
+          if (tasks.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _emptyState(),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              sliver: SliverList.list(
+                children: [
+                  for (int i = 0; i < tasks.length; i++) ...[
+                    _TaskCard(
                               task: tasks[i],
                               role: role,
                               isBusy: _pendingIds.contains(tasks[i].id),
@@ -357,14 +367,12 @@ class _TasksScreenState extends State<TasksScreen> {
                                     }
                                   : null,
                             ),
-                            if (i < tasks.length - 1) const SizedBox(height: 12),
-                          ],
-                        ],
-                      ),
-                    ),
+                    if (i < tasks.length - 1) const SizedBox(height: 12),
+                  ],
+                ],
+              ),
             ),
-          ],
-        ),
+        ],
       ),
     );
   }

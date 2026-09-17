@@ -278,29 +278,7 @@ class _AnnouncementCard extends StatelessWidget {
                       spacing: 8,
                       runSpacing: 8,
                       children: announcement.requirements
-                          .map(
-                            (req) => Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppTheme.maroon.withValues(alpha: 0.08),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: AppTheme.maroon.withValues(alpha: 0.2),
-                                ),
-                              ),
-                              child: Text(
-                                req,
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.maroon,
-                                ),
-                              ),
-                            ),
-                          )
+                          .map((req) => RequirementChip(label: req))
                           .toList(),
                     ),
                   ],
@@ -554,12 +532,31 @@ class _AnnouncementCard extends StatelessWidget {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Text(
-                              req,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.slate800,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    RequirementSpec.parse(req).label,
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.slate800,
+                                    ),
+                                  ),
+                                  if (RequirementSpec.parse(req).fileTypeLabel != null)
+                                    Padding(
+                                      padding: const EdgeInsets.only(top: 2),
+                                      child: Text(
+                                        'Only ${RequirementSpec.parse(req).fileTypeLabel} accepted',
+                                        style: const TextStyle(
+                                          fontSize: 10.5,
+                                          color: AppTheme.slate500,
+                                          fontStyle: FontStyle.italic,
+                                        ),
+                                      ),
+                                    ),
+                                ],
                               ),
                             ),
                             if (uploadedDocuments.containsKey(req))
@@ -617,15 +614,28 @@ class _AnnouncementCard extends StatelessWidget {
                         const SizedBox(height: 8),
                         OutlinedButton.icon(
                           onPressed: () async {
+                            final spec = RequirementSpec.parse(req);
                             try {
                               final result = await FilePicker.platform
                                   .pickFiles(
-                                    type: FileType.any,
+                                    type: spec.allowedExtensions.isEmpty
+                                        ? FileType.any
+                                        : FileType.custom,
+                                    allowedExtensions: spec.allowedExtensions.isEmpty
+                                        ? null
+                                        : spec.allowedExtensions,
                                     allowMultiple: false,
                                     withData: true,
                                   );
                               if (result != null && result.files.isNotEmpty) {
                                 final file = result.files.single;
+                                final extension = (file.extension ?? '').toLowerCase();
+                                if (spec.allowedExtensions.isNotEmpty &&
+                                    !spec.allowedExtensions.contains(extension)) {
+                                  throw Exception(
+                                    'Only ${spec.fileTypeLabel} files are accepted for this requirement.',
+                                  );
+                                }
                                 final fileBytes = file.bytes;
                                 if (fileBytes == null) {
                                   throw Exception(
@@ -664,7 +674,7 @@ class _AnnouncementCard extends StatelessWidget {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                        '$req uploaded: ${file.name}',
+                                        '${spec.label} uploaded: ${file.name}',
                                       ),
                                       backgroundColor: AppTheme.emerald500,
                                       duration: const Duration(seconds: 2),

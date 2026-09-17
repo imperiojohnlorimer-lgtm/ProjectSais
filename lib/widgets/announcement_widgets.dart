@@ -639,6 +639,7 @@ class RequirementChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final spec = RequirementSpec.parse(label);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -646,13 +647,28 @@ class RequirementChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
         border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.2)),
       ),
-      child: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: AppTheme.maroon,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            spec.label,
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.maroon,
+            ),
+          ),
+          if (spec.fileTypeLabel != null) ...[
+            const SizedBox(width: 4),
+            Icon(
+              spec.fileType == 'image'
+                  ? Icons.image_outlined
+                  : Icons.description_outlined,
+              size: 11,
+              color: AppTheme.maroon,
+            ),
+          ],
+        ],
       ),
     );
   }

@@ -648,6 +648,47 @@ class Report {
   );
 }
 
+/// A requirement string can optionally restrict the file type a student is
+/// allowed to upload for it, encoded as "<label>::<typeCode>" (e.g.
+/// "Resume::word"). Older requirements with no "::" suffix accept any file
+/// type, same as before this restriction existed.
+class RequirementSpec {
+  final String label;
+  final String? fileType; // 'word' | 'pdf' | 'image' | null (any file)
+
+  const RequirementSpec(this.label, this.fileType);
+
+  static const Map<String, String> typeLabels = {
+    'word': 'Word document',
+    'pdf': 'PDF',
+    'image': 'Image',
+  };
+
+  static const Map<String, List<String>> typeExtensions = {
+    'word': ['doc', 'docx'],
+    'pdf': ['pdf'],
+    'image': ['jpg', 'jpeg', 'png'],
+  };
+
+  factory RequirementSpec.parse(String raw) {
+    final sepIndex = raw.lastIndexOf('::');
+    if (sepIndex != -1) {
+      final type = raw.substring(sepIndex + 2);
+      if (typeLabels.containsKey(type)) {
+        return RequirementSpec(raw.substring(0, sepIndex), type);
+      }
+    }
+    return RequirementSpec(raw, null);
+  }
+
+  String get encoded => fileType == null ? label : '$label::$fileType';
+
+  String? get fileTypeLabel => fileType == null ? null : typeLabels[fileType];
+
+  List<String> get allowedExtensions =>
+      fileType == null ? const [] : (typeExtensions[fileType] ?? const []);
+}
+
 class Announcement {
   final String id;
   final String title;

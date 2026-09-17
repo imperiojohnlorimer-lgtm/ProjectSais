@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/announcement_widgets.dart';
 
 class AdminAnnouncementsScreen extends StatefulWidget {
   const AdminAnnouncementsScreen({super.key});
@@ -449,6 +450,8 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
     );
     final slotsCtrl = TextEditingController(text: '3');
     final reqs = <String>['doc', 'docpdf'];
+    final reqCtrl = TextEditingController();
+    String reqFileType = 'any'; // 'any' | 'word' | 'pdf' | 'image'
     var acceptsApplications = true;
     var selectedOfficeId = state.offices.isNotEmpty ? state.offices.first.id : '';
 
@@ -549,79 +552,101 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
               constraints: const BoxConstraints(maxHeight: 760),
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(26),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.12),
-                    blurRadius: 30,
-                    offset: const Offset(0, 10),
+                    color: AppTheme.maroon.withValues(alpha: 0.18),
+                    blurRadius: 40,
+                    offset: const Offset(0, 16),
                   ),
                 ],
               ),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [AppTheme.maroon, AppTheme.maroonDark],
-                      ),
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(24),
-                      ),
-                    ),
-                    child: Row(
+                  ClipRRect(
+                    borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+                    child: Stack(
                       children: [
                         Container(
-                          width: 34,
-                          height: 34,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(10),
+                          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [AppTheme.maroon, AppTheme.maroonDark],
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.add_rounded,
-                            color: Colors.white,
-                            size: 18,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: const [
-                              Text(
-                                'Post Announcement',
-                                style: TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.w800,
+                          child: Row(
+                            children: [
+                              Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: const Icon(
+                                  Icons.campaign_rounded,
                                   color: Colors.white,
+                                  size: 22,
                                 ),
                               ),
-                              Text(
-                                'Create a new hiring announcement',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.white70,
+                              const SizedBox(width: 14),
+                              const Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Post Announcement',
+                                      style: TextStyle(
+                                        fontSize: 19,
+                                        fontWeight: FontWeight.w800,
+                                        color: Colors.white,
+                                        letterSpacing: -0.3,
+                                      ),
+                                    ),
+                                    SizedBox(height: 2),
+                                    Text(
+                                      'Create a new hiring announcement',
+                                      style: TextStyle(
+                                        fontSize: 12.5,
+                                        color: Colors.white70,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () => Navigator.pop(context),
+                                child: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.14),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.close_rounded,
+                                    color: Colors.white,
+                                    size: 18,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         ),
-                        GestureDetector(
-                          onTap: () => Navigator.pop(context),
-                          child: Container(
-                            width: 30,
-                            height: 30,
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.12),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.close_rounded,
-                              color: Colors.white,
-                              size: 18,
+                        Positioned(
+                          right: -30,
+                          top: -30,
+                          child: IgnorePointer(
+                            child: Container(
+                              width: 110,
+                              height: 110,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Colors.white.withValues(alpha: 0.06),
+                              ),
                             ),
                           ),
                         ),
@@ -630,65 +655,96 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                   ),
                   Flexible(
                     child: SingleChildScrollView(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
+                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+                      child: Theme(
+                        data: Theme.of(context).copyWith(
+                          inputDecorationTheme: InputDecorationTheme(
+                            filled: true,
+                            fillColor: AppTheme.slate50,
+                            labelStyle: const TextStyle(
+                              color: AppTheme.slate600,
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
+                            hintStyle: const TextStyle(
+                              color: AppTheme.slate400,
+                              fontSize: 13,
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 14,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(13),
+                              borderSide: const BorderSide(color: AppTheme.slate200),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(13),
+                              borderSide: const BorderSide(color: AppTheme.slate200),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(13),
+                              borderSide: const BorderSide(color: AppTheme.maroon, width: 1.7),
+                            ),
+                          ),
+                        ),
+                        child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppTheme.slate200),
-                            ),
-                            child: TextField(
-                              controller: titleCtrl,
-                              decoration: InputDecoration(
-                                labelText: 'Position Title',
-                                labelStyle: const TextStyle(
-                                  color: AppTheme.slate600,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                prefixIcon: const Icon(
-                                  Icons.work_outline_rounded,
-                                  color: AppTheme.maroon,
-                                  size: 17,
-                                ),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
-                                ),
+                          _sectionLabel('BASIC INFORMATION'),
+                          const SizedBox(height: 10),
+                          TextField(
+                            controller: titleCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Position Title',
+                              prefixIcon: Icon(
+                                Icons.work_outline_rounded,
+                                color: AppTheme.maroon,
+                                size: 18,
                               ),
                             ),
                           ),
                           const SizedBox(height: 14),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppTheme.slate200),
-                            ),
-                            child: TextField(
-                              controller: bodyCtrl,
-                              maxLines: 5,
-                              onChanged: (_) => setDialogState(() {}),
-                              decoration: InputDecoration(
-                                labelText: 'Description & Mention Details',
-                                labelStyle: const TextStyle(
-                                  color: AppTheme.slate600,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                                prefixIcon: const Icon(
+                          TextField(
+                            controller: bodyCtrl,
+                            maxLines: 5,
+                            onChanged: (_) => setDialogState(() {}),
+                            decoration: const InputDecoration(
+                              labelText: 'Description',
+                              hintText: 'Describe the role... type @ to mention a student, assistant, or supervisor',
+                              hintMaxLines: 3,
+                              alignLabelWithHint: true,
+                              prefixIcon: Padding(
+                                padding: EdgeInsets.only(bottom: 90),
+                                child: Icon(
                                   Icons.description_outlined,
                                   color: AppTheme.maroon,
-                                  size: 17,
-                                ),
-                                border: InputBorder.none,
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                  vertical: 14,
+                                  size: 18,
                                 ),
                               ),
+                            ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.only(top: 6, left: 4),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.alternate_email_rounded,
+                                  size: 13,
+                                  color: AppTheme.slate400,
+                                ),
+                                SizedBox(width: 5),
+                                Expanded(
+                                  child: Text(
+                                    'Tip: type @ in the description to mention and notify a specific person.',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: AppTheme.slate400,
+                                      fontStyle: FontStyle.italic,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           if (suggestions.isNotEmpty) ...[
@@ -855,151 +911,112 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                                   .toList(),
                             ),
                           ],
-                          const SizedBox(height: 14),
-                          Container(
-                            decoration: BoxDecoration(
-                              color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppTheme.slate200),
-                            ),
-                            child: DropdownButton<String>(
-                              value: selectedOfficeId.isEmpty ? null : selectedOfficeId,
-                              hint: const Padding(
-                                padding: EdgeInsets.only(left: 14),
-                                child: Text(
-                                  'Select Office',
-                                  style: TextStyle(
-                                    color: AppTheme.slate600,
-                                    fontWeight: FontWeight.w700,
-                                  ),
-                                ),
+                          const SizedBox(height: 20),
+                          _sectionLabel('AUDIENCE & SCHEDULE'),
+                          const SizedBox(height: 10),
+                          DropdownButtonFormField<String>(
+                            initialValue: selectedOfficeId.isEmpty ? null : selectedOfficeId,
+                            icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
+                            decoration: const InputDecoration(
+                              labelText: 'Select Office',
+                              prefixIcon: Icon(
+                                Icons.account_balance_outlined,
+                                color: AppTheme.maroon,
+                                size: 18,
                               ),
-                              isExpanded: true,
-                              underline: const SizedBox(),
-                              onChanged: (String? value) {
-                                setDialogState(() => selectedOfficeId = value ?? '');
-                              },
-                              items: state.offices.map((office) {
-                                return DropdownMenuItem(
-                                  value: office.id,
-                                  child: Padding(
-                                    padding: const EdgeInsets.only(left: 14),
-                                    child: Text(
-                                      office.name,
-                                      style: const TextStyle(
-                                        color: AppTheme.slate800,
-                                      ),
-                                    ),
-                                  ),
-                                );
-                              }).toList(),
                             ),
+                            onChanged: (String? value) {
+                              setDialogState(() => selectedOfficeId = value ?? '');
+                            },
+                            items: state.offices.map((office) {
+                              return DropdownMenuItem(
+                                value: office.id,
+                                child: Text(
+                                  office.name,
+                                  style: const TextStyle(color: AppTheme.slate800),
+                                ),
+                              );
+                            }).toList(),
                           ),
                           const SizedBox(height: 14),
                           Row(
                             children: [
                               Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.slate50,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: AppTheme.slate200),
-                                  ),
-                                  child: TextField(
-                                    controller: deadlineCtrl,
-                                    readOnly: true,
-                                    onTap: () async {
-                                      final now = DateTime.now();
-                                      final picked = await showDatePicker(
-                                        context: context,
-                                        initialDate: now,
-                                        firstDate: DateTime(now.year - 1),
-                                        lastDate: DateTime(now.year + 5),
-                                      );
-                                      if (picked == null) return;
-                                      final months = const [
-                                        'Jan',
-                                        'Feb',
-                                        'Mar',
-                                        'Apr',
-                                        'May',
-                                        'Jun',
-                                        'Jul',
-                                        'Aug',
-                                        'Sep',
-                                        'Oct',
-                                        'Nov',
-                                        'Dec',
-                                      ];
-                                      deadlineCtrl.text =
-                                          '${months[picked.month - 1]} ${picked.day}, ${picked.year}';
-                                    },
-                                    decoration: InputDecoration(
-                                      labelText: 'Deadline',
-                                      labelStyle: const TextStyle(
-                                        color: AppTheme.slate600,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                      prefixIcon: const Icon(
-                                        Icons.event_rounded,
-                                        color: AppTheme.maroon,
-                                        size: 17,
-                                      ),
-                                      border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 14,
-                                      ),
+                                child: TextField(
+                                  controller: deadlineCtrl,
+                                  readOnly: true,
+                                  onTap: () async {
+                                    final now = DateTime.now();
+                                    final picked = await showDatePicker(
+                                      context: context,
+                                      initialDate: now,
+                                      firstDate: DateTime(now.year - 1),
+                                      lastDate: DateTime(now.year + 5),
+                                    );
+                                    if (picked == null) return;
+                                    final months = const [
+                                      'Jan',
+                                      'Feb',
+                                      'Mar',
+                                      'Apr',
+                                      'May',
+                                      'Jun',
+                                      'Jul',
+                                      'Aug',
+                                      'Sep',
+                                      'Oct',
+                                      'Nov',
+                                      'Dec',
+                                    ];
+                                    deadlineCtrl.text =
+                                        '${months[picked.month - 1]} ${picked.day}, ${picked.year}';
+                                  },
+                                  decoration: const InputDecoration(
+                                    labelText: 'Deadline',
+                                    prefixIcon: Icon(
+                                      Icons.event_rounded,
+                                      color: AppTheme.maroon,
+                                      size: 18,
                                     ),
                                   ),
                                 ),
                               ),
                               const SizedBox(width: 12),
                               Expanded(
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: AppTheme.slate50,
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: AppTheme.slate200),
-                                  ),
-                                  child: TextField(
-                                    controller: slotsCtrl,
-                                    keyboardType: TextInputType.number,
-                                    inputFormatters: [
-                                      FilteringTextInputFormatter.digitsOnly,
-                                    ],
-                                    decoration: InputDecoration(
-                                      labelText: 'Available Slots',
-                                      labelStyle: const TextStyle(
-                                        color: AppTheme.slate600,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                      prefixIcon: const Icon(
-                                        Icons.people_outline_rounded,
-                                        color: AppTheme.maroon,
-                                        size: 17,
-                                      ),
-                                      border: InputBorder.none,
-                                      contentPadding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 14,
-                                      ),
+                                child: TextField(
+                                  controller: slotsCtrl,
+                                  keyboardType: TextInputType.number,
+                                  inputFormatters: [
+                                    FilteringTextInputFormatter.digitsOnly,
+                                  ],
+                                  decoration: const InputDecoration(
+                                    labelText: 'Available Slots',
+                                    prefixIcon: Icon(
+                                      Icons.people_outline_rounded,
+                                      color: AppTheme.maroon,
+                                      size: 18,
                                     ),
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 20),
                           Container(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 10,
+                              horizontal: 14,
+                              vertical: 12,
                             ),
                             decoration: BoxDecoration(
-                              color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppTheme.slate200),
+                              color: acceptsApplications
+                                  ? AppTheme.maroon.withValues(alpha: 0.06)
+                                  : AppTheme.slate50,
+                              borderRadius: BorderRadius.circular(13),
+                              border: Border.all(
+                                color: acceptsApplications
+                                    ? AppTheme.maroon.withValues(alpha: 0.25)
+                                    : AppTheme.slate200,
+                              ),
                             ),
                             child: Row(
                               children: [
@@ -1035,22 +1052,14 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                               ],
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'REQUIREMENTS',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.slate500,
-                              letterSpacing: 1,
-                            ),
-                          ),
+                          const SizedBox(height: 20),
+                          _sectionLabel('REQUIREMENTS'),
                           const SizedBox(height: 10),
                           Container(
-                            padding: const EdgeInsets.all(10),
+                            padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
                               color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius: BorderRadius.circular(13),
                               border: Border.all(color: AppTheme.slate200),
                             ),
                             child: Column(
@@ -1060,7 +1069,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                                     spacing: 8,
                                     runSpacing: 8,
                                     children: reqs.asMap().entries.map((entry) {
-                                      final item = entry.value;
+                                      final spec = RequirementSpec.parse(entry.value);
                                       return Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 8,
@@ -1081,7 +1090,9 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
                                             Text(
-                                              item,
+                                              spec.fileTypeLabel == null
+                                                  ? spec.label
+                                                  : '${spec.label} (${spec.fileTypeLabel})',
                                               style: const TextStyle(
                                                 fontSize: 10,
                                                 fontWeight: FontWeight.w700,
@@ -1106,12 +1117,20 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                                   ),
                                 const SizedBox(height: 10),
                                 TextField(
+                                  controller: reqCtrl,
                                   onSubmitted: (value) {
                                     final clean = value.trim();
-                                    if (clean.isEmpty || reqs.contains(clean)) {
-                                      return;
-                                    }
-                                    setDialogState(() => reqs.add(clean));
+                                    if (clean.isEmpty) return;
+                                    final spec = RequirementSpec(
+                                      clean,
+                                      reqFileType == 'any' ? null : reqFileType,
+                                    );
+                                    if (reqs.contains(spec.encoded)) return;
+                                    setDialogState(() {
+                                      reqs.add(spec.encoded);
+                                      reqCtrl.clear();
+                                      reqFileType = 'any';
+                                    });
                                   },
                                   decoration: InputDecoration(
                                     hintText: 'Add requirement (press Enter)',
@@ -1142,18 +1161,98 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                                     ),
                                   ),
                                 ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'File type:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.slate500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: SingleChildScrollView(
+                                        scrollDirection: Axis.horizontal,
+                                        child: Row(
+                                          children: [
+                                            ('any', 'Any file'),
+                                            ('word', 'Word (.doc/.docx)'),
+                                            ('pdf', 'PDF'),
+                                            ('image', 'Image'),
+                                          ].map((opt) {
+                                            final selected = reqFileType == opt.$1;
+                                            return Padding(
+                                              padding: const EdgeInsets.only(right: 6),
+                                              child: GestureDetector(
+                                                onTap: () => setDialogState(
+                                                  () => reqFileType = opt.$1,
+                                                ),
+                                                child: Container(
+                                                  padding: const EdgeInsets.symmetric(
+                                                    horizontal: 10,
+                                                    vertical: 6,
+                                                  ),
+                                                  decoration: BoxDecoration(
+                                                    color: selected
+                                                        ? AppTheme.maroon
+                                                        : Colors.white,
+                                                    borderRadius: BorderRadius.circular(16),
+                                                    border: Border.all(
+                                                      color: selected
+                                                          ? AppTheme.maroon
+                                                          : AppTheme.slate200,
+                                                    ),
+                                                  ),
+                                                  child: Text(
+                                                    opt.$2,
+                                                    style: TextStyle(
+                                                      fontSize: 10.5,
+                                                      fontWeight: FontWeight.w700,
+                                                      color: selected
+                                                          ? Colors.white
+                                                          : AppTheme.slate600,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            );
+                                          }).toList(),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ],
                             ),
                           ),
                         ],
+                        ),
                       ),
                     ),
                   ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+                  Container(
+                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                    decoration: BoxDecoration(
+                      border: Border(top: BorderSide(color: AppTheme.slate100)),
+                    ),
                     child: SizedBox(
                       width: double.infinity,
-                      child: ElevatedButton.icon(
+                      height: 50,
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(14),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.maroon.withValues(alpha: 0.3),
+                              blurRadius: 16,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        child: ElevatedButton.icon(
                         onPressed: () async {
                           final title = titleCtrl.text.trim();
                           final body = bodyCtrl.text.trim();
@@ -1257,9 +1356,10 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                           foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(vertical: 14),
                           shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius: BorderRadius.circular(14),
                           ),
                           elevation: 0,
+                        ),
                         ),
                       ),
                     ),
@@ -1272,6 +1372,16 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
       ),
     );
   }
+
+  Widget _sectionLabel(String text) => Text(
+    text,
+    style: const TextStyle(
+      fontSize: 11,
+      fontWeight: FontWeight.w800,
+      color: AppTheme.slate500,
+      letterSpacing: 1,
+    ),
+  );
 }
 
 class _AdminAnnouncementCard extends StatelessWidget {
@@ -1494,29 +1604,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                 spacing: 6,
                 runSpacing: 6,
                 children: ann.requirements
-                    .map(
-                      (req) => Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 9,
-                          vertical: 5,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppTheme.maroon.withValues(alpha: 0.06),
-                          borderRadius: BorderRadius.circular(20),
-                          border: Border.all(
-                            color: AppTheme.maroon.withValues(alpha: 0.15),
-                          ),
-                        ),
-                        child: Text(
-                          req,
-                          style: const TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.maroon,
-                          ),
-                        ),
-                      ),
-                    )
+                    .map((req) => RequirementChip(label: req))
                     .toList(),
               ),
             ),
@@ -1872,13 +1960,20 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         spacing: 8,
                         runSpacing: 8,
                         children: ann.requirements
-                            .map(
-                              (req) => _Chip(
-                                Icons.check_circle_outline,
-                                req,
+                            .map((req) {
+                              final spec = RequirementSpec.parse(req);
+                              return _Chip(
+                                spec.fileType == 'image'
+                                    ? Icons.image_outlined
+                                    : spec.fileType != null
+                                        ? Icons.description_outlined
+                                        : Icons.check_circle_outline,
+                                spec.fileTypeLabel == null
+                                    ? spec.label
+                                    : '${spec.label} (${spec.fileTypeLabel})',
                                 AppTheme.maroon,
-                              ),
-                            )
+                              );
+                            })
                             .toList(),
                       ),
                     ],

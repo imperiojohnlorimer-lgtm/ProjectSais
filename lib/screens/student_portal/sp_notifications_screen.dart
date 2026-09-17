@@ -3,6 +3,20 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
+
+Future<void> _confirmClearAll(BuildContext context, AppState state) async {
+  final ok = await showConfirmDialog(
+    context,
+    title: 'Clear All Notifications',
+    message: 'This will remove all your notifications. This cannot be undone.',
+    confirmLabel: 'Clear All',
+    confirmColor: AppTheme.red500,
+  );
+  if (ok) {
+    await state.clearAllNotifications();
+  }
+}
 
 class SpNotificationsScreen extends StatelessWidget {
   const SpNotificationsScreen({super.key});
@@ -51,18 +65,36 @@ class SpNotificationsScreen extends StatelessWidget {
                         style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
                       ),
                     ),
-                    if (unread > 0) ...[
+                    if (unread > 0 || notifs.isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      TextButton.icon(
-                        onPressed: () => state.markAllNotificationsRead(),
-                        icon: const Icon(Icons.done_all_rounded, size: 14),
-                        label: const Text('Mark all read', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppTheme.maroon,
-                          minimumSize: const Size(0, 36),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          if (unread > 0)
+                            TextButton.icon(
+                              onPressed: () => state.markAllNotificationsRead(),
+                              icon: const Icon(Icons.done_all_rounded, size: 14),
+                              label: const Text('Mark all read', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppTheme.maroon,
+                                minimumSize: const Size(0, 36),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          if (notifs.isNotEmpty)
+                            TextButton.icon(
+                              onPressed: () => _confirmClearAll(context, state),
+                              icon: const Icon(Icons.delete_sweep_outlined, size: 14),
+                              label: const Text('Clear all', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                              style: TextButton.styleFrom(
+                                foregroundColor: AppTheme.slate500,
+                                minimumSize: const Size(0, 36),
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                        ],
                       ),
                     ],
                   ],
@@ -102,19 +134,37 @@ class SpNotificationsScreen extends StatelessWidget {
                         ],
                       ),
                     ),
-                    if (unread > 0)
+                    if (unread > 0 || notifs.isNotEmpty)
                       Padding(
                         padding: EdgeInsets.only(left: isCompact ? 8 : 16, top: isCompact ? 2 : 0),
-                        child: TextButton.icon(
-                          onPressed: () => state.markAllNotificationsRead(),
-                          icon: const Icon(Icons.done_all_rounded, size: 14),
-                          label: const Text('Mark all read', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppTheme.maroon,
-                            minimumSize: const Size(0, 36),
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
+                        child: Wrap(
+                          spacing: 8,
+                          children: [
+                            if (unread > 0)
+                              TextButton.icon(
+                                onPressed: () => state.markAllNotificationsRead(),
+                                icon: const Icon(Icons.done_all_rounded, size: 14),
+                                label: const Text('Mark all read', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppTheme.maroon,
+                                  minimumSize: const Size(0, 36),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            if (notifs.isNotEmpty)
+                              TextButton.icon(
+                                onPressed: () => _confirmClearAll(context, state),
+                                icon: const Icon(Icons.delete_sweep_outlined, size: 14),
+                                label: const Text('Clear all', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+                                style: TextButton.styleFrom(
+                                  foregroundColor: AppTheme.slate500,
+                                  minimumSize: const Size(0, 36),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                   ],

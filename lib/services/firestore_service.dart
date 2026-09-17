@@ -1082,6 +1082,19 @@ class FirestoreService {
     await _notifications.doc(id).update(data);
   }
 
+  Future<void> deleteNotification(String id) async {
+    await _notifications.doc(id).delete();
+  }
+
+  Future<void> deleteNotificationsForUser(String userId) async {
+    final snap = await _notifications.where('userId', isEqualTo: userId).get();
+    final batch = _db.batch();
+    for (final doc in snap.docs) {
+      batch.delete(doc.reference);
+    }
+    await batch.commit();
+  }
+
   // Documents
   CollectionReference get _documents => _db.collection('documents');
 

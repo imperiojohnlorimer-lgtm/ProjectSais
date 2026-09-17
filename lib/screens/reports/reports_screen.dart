@@ -78,9 +78,12 @@ class _ReportsScreenState extends State<ReportsScreen> {
           stops: [0.0, 0.22],
         ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
+      child: CustomScrollView(
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+            sliver: SliverToBoxAdapter(
+              child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
@@ -283,27 +286,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
               ),
             ),
             const SizedBox(height: 18),
-
-            Expanded(
-              child: reports.isEmpty
-                  ? _emptyState()
-                  : ListView.separated(
-                      itemCount: reports.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (_, i) => _ReportCard(
-                        report: reports[i],
-                        role: role,
-                        onReview: role == 'Supervisor'
-                            ? () => _showReviewDialog(context, state, reports[i])
-                            : null,
-                        onSendToHead: role == 'Supervisor'
-                            ? () => _showSendToHeadDialog(context, state, reports[i])
-                            : null,
-                      ),
-                    ),
-            ),
           ],
-        ),
+              ),
+            ),
+          ),
+          if (reports.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _emptyState(),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+              sliver: SliverList.separated(
+                itemCount: reports.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 12),
+                itemBuilder: (_, i) => _ReportCard(
+                  report: reports[i],
+                  role: role,
+                  onReview: role == 'Supervisor'
+                      ? () => _showReviewDialog(context, state, reports[i])
+                      : null,
+                  onSendToHead: role == 'Supervisor'
+                      ? () => _showSendToHeadDialog(context, state, reports[i])
+                      : null,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1670,7 +1680,7 @@ class _ReportCardState extends State<_ReportCard> {
                       ),
                     ),
                   ],
-                  if (report.sentToHead) ...[
+                  if (report.sentToHead && role != 'Student Assistant') ...[
                     const SizedBox(height: 12),
                     Container(
                       width: double.infinity,
@@ -1680,42 +1690,20 @@ class _ReportCardState extends State<_ReportCard> {
                         borderRadius: BorderRadius.circular(11),
                         border: Border.all(color: AppTheme.emerald500.withValues(alpha: 0.25)),
                       ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      child: Row(
                         children: [
-                          Row(
-                            children: [
-                              const Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.emerald500),
-                              const SizedBox(width: 6),
-                              Text(
-                                report.sentToHeadAt != null
-                                    ? 'Sent to Head on ${report.sentToHeadAt}'
-                                    : 'Sent to Head',
-                                style: const TextStyle(
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.emerald500,
-                                ),
-                              ),
-                            ],
-                          ),
-                          for (final att in report.headAttachments)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 6, left: 20),
-                              child: Row(
-                                children: [
-                                  const Icon(Icons.attach_file_rounded, size: 12, color: AppTheme.slate500),
-                                  const SizedBox(width: 4),
-                                  Expanded(
-                                    child: Text(
-                                      att.fileName,
-                                      style: const TextStyle(fontSize: 11.5, color: AppTheme.slate600),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
+                          const Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.emerald500),
+                          const SizedBox(width: 6),
+                          Text(
+                            report.sentToHeadAt != null
+                                ? 'Sent to Head on ${report.sentToHeadAt}'
+                                : 'Sent to Head',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.emerald500,
                             ),
+                          ),
                         ],
                       ),
                     ),
