@@ -490,6 +490,11 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
         if (user.role == 'Student' || user.role == 'Student Assistant' || user.role == 'Supervisor') '@${user.name}',
     }.toList()
       ..sort();
+
+    final mentionRoles = <String, String>{
+      for (final user in state.users)
+        if (user.role == 'Student' || user.role == 'Student Assistant' || user.role == 'Supervisor') '@${user.name}': user.role,
+    };
     
     final studentMentions = <String>{
       for (final user in state.users)
@@ -841,7 +846,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                                                       ),
                                                       const SizedBox(height: 2),
                                                       Text(
-                                                        'Student',
+                                                        mentionRoles[mention] ?? 'Student',
                                                         style: const TextStyle(
                                                           fontSize: 10,
                                                           color: AppTheme.slate500,
