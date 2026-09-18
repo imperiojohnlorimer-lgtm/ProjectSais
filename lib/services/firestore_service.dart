@@ -1007,9 +1007,12 @@ class FirestoreService {
   CollectionReference get _screeningRecords =>
       _db.collection('screeningRecords');
 
+  // Deduping (by applicant + academic year) is handled by AppState, which
+  // needs to keep records from different academic years distinct instead
+  // of collapsing all of an applicant's screenings into one.
   Future<List<ScreeningRecord>> getAllScreeningRecords() async {
     final snap = await _screeningRecords.get();
-    final records = snap.docs
+    return snap.docs
         .map(
           (doc) => ScreeningRecord.fromJson({
             ...(doc.data() as Map<String, dynamic>),
@@ -1017,18 +1020,6 @@ class FirestoreService {
           }),
         )
         .toList();
-
-    final Map<String, ScreeningRecord> deduped = {};
-    for (final record in records) {
-      final key = (record.applicantId.isNotEmpty
-              ? record.applicantId
-              : record.id)
-          .trim();
-      if (key.isNotEmpty) {
-        deduped[key] = record;
-      }
-    }
-    return deduped.values.toList();
   }
 
   Future<List<ScreeningRecord>> getScreeningRecordsForApplicant(
@@ -1055,6 +1046,32 @@ class FirestoreService {
 
   Future<void> deleteScreeningRecord(String id) async {
     await _screeningRecords.doc(id).delete();
+  }
+
+  // Document Folders (Head's free-form file manager)
+
+  CollectionReference get _documentFolders =>
+      _db.collection('documentFolders');
+
+  Future<List<DocumentFolder>> getAllDocumentFolders() async {
+    final snap = await _documentFolders.get();
+    return snap.docs
+        .map(
+          (doc) => DocumentFolder.fromJson({
+            ...(doc.data() as Map<String, dynamic>),
+            'id': doc.id,
+          }),
+        )
+        .toList();
+  }
+
+  Future<String> addDocumentFolder(DocumentFolder folder) async {
+    final ref = await _documentFolders.add(folder.toJson());
+    return ref.id;
+  }
+
+  Future<void> deleteDocumentFolder(String id) async {
+    await _documentFolders.doc(id).delete();
   }
 
   // Notifications
@@ -1117,6 +1134,10 @@ class FirestoreService {
     } else {
       await _documents.add(data);
     }
+  }
+
+  Future<void> deleteDocument(String id) async {
+    await _documents.doc(id).delete();
   }
 
   /// Reads a single announcement by id, or null if missing.

@@ -862,6 +862,8 @@ class ScreeningRecord {
   final String notedByTitle;
   final String generalNotes;
   final String status;
+  final String? academicYear;
+  final String? createdAt;
 
   const ScreeningRecord({
     required this.id,
@@ -887,17 +889,26 @@ class ScreeningRecord {
     required this.notedByTitle,
     required this.generalNotes,
     this.status = 'Completed',
+    this.academicYear,
+    this.createdAt,
   });
 
+  /// Keyed by applicant + academic year so re-screening the same person in a
+  /// later academic year creates a new historical record instead of
+  /// overwriting the previous one.
   static String stableIdForApplicant({
     required String applicantId,
     String? applicationId,
     String? fallback,
+    String? academicYear,
   }) {
     final seed = applicantId.trim().isNotEmpty
         ? applicantId.trim()
         : (applicationId ?? fallback ?? DateTime.now().millisecondsSinceEpoch.toString());
-    return 'screen-$seed';
+    final yearSuffix = (academicYear ?? '').trim().isNotEmpty
+        ? '-${academicYear!.trim()}'
+        : '';
+    return 'screen-$seed$yearSuffix';
   }
 
   ScreeningRecord withId(String newId) => ScreeningRecord(
@@ -924,7 +935,38 @@ class ScreeningRecord {
     notedByTitle: notedByTitle,
     generalNotes: generalNotes,
     status: status,
+    academicYear: academicYear,
+    createdAt: createdAt,
   );
+
+  ScreeningRecord copyWithMeta({String? academicYear, String? createdAt}) =>
+      ScreeningRecord(
+        id: id,
+        applicationId: applicationId,
+        applicantId: applicantId,
+        fullName: fullName,
+        studentNumber: studentNumber,
+        academicProgram: academicProgram,
+        yearLevel: yearLevel,
+        permanentAddress: permanentAddress,
+        presentAddress: presentAddress,
+        contactInformation: contactInformation,
+        targetOfficeId: targetOfficeId,
+        targetOfficeName: targetOfficeName,
+        skills: skills,
+        skillNotes: skillNotes,
+        overall: overall,
+        overallNotes: overallNotes,
+        recommendation: recommendation,
+        interviewerName: interviewerName,
+        interviewerDate: interviewerDate,
+        notedByName: notedByName,
+        notedByTitle: notedByTitle,
+        generalNotes: generalNotes,
+        status: status,
+        academicYear: academicYear ?? this.academicYear,
+        createdAt: createdAt ?? this.createdAt,
+      );
 
   factory ScreeningRecord.fromJson(Map<String, dynamic> json) =>
       ScreeningRecord(
@@ -951,6 +993,8 @@ class ScreeningRecord {
         notedByTitle: json['notedByTitle']?.toString() ?? '',
         generalNotes: json['generalNotes']?.toString() ?? '',
         status: json['status']?.toString() ?? 'Completed',
+        academicYear: json['academicYear']?.toString(),
+        createdAt: json['createdAt']?.toString(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -977,6 +1021,8 @@ class ScreeningRecord {
     'notedByTitle': notedByTitle,
     'generalNotes': generalNotes,
     'status': status,
+    'academicYear': academicYear,
+    'createdAt': createdAt,
   };
 
   static Map<String, int> _intMap(dynamic value) => value is Map
@@ -1198,6 +1244,18 @@ class Document {
   final String? description;
   final String? filePath;
   final double? fileSize; // in MB
+  final String? downloadUrl;
+
+  /// Which folder this file lives in, in the Head's Document Folders
+  /// screen (a folder id). Null when it's attached directly to a student
+  /// instead (see [studentId]) or otherwise unfiled.
+  final String? folderId;
+
+  /// When set, this file is shown on that student's own document list
+  /// (e.g. an ad-hoc file the Head attaches to a specific student) rather
+  /// than inside a general folder.
+  final String? studentId;
+  final String? studentName;
 
   Document({
     required this.id,
@@ -1209,6 +1267,10 @@ class Document {
     this.description,
     this.filePath,
     this.fileSize,
+    this.downloadUrl,
+    this.folderId,
+    this.studentId,
+    this.studentName,
   });
 
   factory Document.fromJson(Map<String, dynamic> json) => Document(
@@ -1221,6 +1283,10 @@ class Document {
     description: json['description'],
     filePath: json['filePath'],
     fileSize: json['fileSize'],
+    downloadUrl: json['downloadUrl']?.toString(),
+    folderId: json['folderId']?.toString(),
+    studentId: json['studentId']?.toString(),
+    studentName: json['studentName']?.toString(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -1233,6 +1299,10 @@ class Document {
     'description': description,
     'filePath': filePath,
     'fileSize': fileSize,
+    'downloadUrl': downloadUrl,
+    'folderId': folderId,
+    'studentId': studentId,
+    'studentName': studentName,
   };
 }
 
@@ -1454,3 +1524,35 @@ class Evaluation {
     headAttachmentUrl: headAttachmentUrl ?? this.headAttachmentUrl,
   );
 }
+
+/// A Head-managed folder for organizing freely-uploaded documents that
+/// don't belong to an application, report, or evaluation — e.g. office
+/// memos, MOAs, or misc. files the Head wants stored in the system.
+class DocumentFolder {
+  final String id;
+  final String name;
+  final String createdBy;
+  final String createdAt;
+
+  const DocumentFolder({
+    required this.id,
+    required this.name,
+    required this.createdBy,
+    required this.createdAt,
+  });
+
+  factory DocumentFolder.fromJson(Map<String, dynamic> json) =>
+      DocumentFolder(
+        id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+        name: json['name']?.toString() ?? 'Untitled Folder',
+        createdBy: json['createdBy']?.toString() ?? '',
+        createdAt: json['createdAt']?.toString() ?? '',
+      );
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'createdBy': createdBy,
+    'createdAt': createdAt,
+  };
+}
+

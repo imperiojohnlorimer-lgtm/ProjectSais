@@ -238,6 +238,12 @@ service cloud.firestore {
       allow read, write: if isStaff();
     }
 
+    // Document Folders is the Head's free-form file manager for uploads
+    // that aren't tied to an application/report/evaluation.
+    match /documentFolders/{id} {
+      allow read, write: if isHead();
+    }
+
     match /recurringSchedules/{id} {
       allow read: if signedIn();
       allow write: if isStaff();

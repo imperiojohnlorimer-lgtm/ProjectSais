@@ -710,6 +710,10 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           ),
           const SizedBox(height: 6),
           _recordMetaRow(Icons.event_outlined, record.interviewerDate),
+          if ((record.academicYear ?? '').isNotEmpty) ...[
+            const SizedBox(height: 6),
+            _recordMetaRow(Icons.history_outlined, 'AY ${record.academicYear}'),
+          ],
           const SizedBox(height: 16),
           Row(
             children: [
@@ -2728,13 +2732,19 @@ Widget _form(AppState state) {
 
   Future<void> _save() async {
     final state = context.read<AppState>();
+    final recordYear = activeApplication?.academicYear ??
+        activeRecord?.academicYear ??
+        state.academicYear;
     final stableId = ScreeningRecord.stableIdForApplicant(
       applicantId: activeApplication?.applicantId ?? activeRecord?.applicantId ?? '',
       applicationId: activeApplication?.id ?? '',
       fallback: activeRecord?.id,
+      academicYear: recordYear,
     );
     final record = ScreeningRecord(
       id: stableId,
+      academicYear: recordYear,
+      createdAt: DateTime.now().toIso8601String(),
       applicationId: activeApplication?.id ?? '',
       applicantId: activeApplication?.applicantId ?? '',
       fullName: name.text,

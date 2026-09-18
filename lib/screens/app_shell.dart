@@ -22,6 +22,7 @@ import './student_portal/announcements_screen.dart';
 import './accounts/admin_notifications_screen.dart';
 import './accounts/head_forwards_screen.dart';
 import './accounts/student_documents_screen.dart';
+import './accounts/document_folders_screen.dart';
 import './student_portal/sp_notifications_screen.dart';
 import './supervisor/sv_announcements_screen.dart';
 import './supervisor/performance_evaluation_screen.dart';
@@ -185,6 +186,13 @@ class _AppShellState extends State<AppShell> {
       roles: ['Head'],
     ),
     (
+      id: 'document_folders',
+      label: 'Document Folders',
+      icon: Icons.folder_outlined,
+      activeIcon: Icons.folder,
+      roles: ['Head'],
+    ),
+    (
       id: 'admin_notifications',
       label: 'Notifications',
       icon: Icons.notifications_outlined,
@@ -276,6 +284,8 @@ class _AppShellState extends State<AppShell> {
         return const HeadForwardsScreen();
       case 'student_documents':
         return const StudentDocumentsScreen();
+      case 'document_folders':
+        return const DocumentFoldersScreen();
       default:
         return const DashboardScreen();
     }
@@ -323,6 +333,8 @@ class _AppShellState extends State<AppShell> {
         return 'Sent to Head';
       case 'student_documents':
         return 'Student Documents';
+      case 'document_folders':
+        return 'Document Folders';
       default:
         return 'SAIS';
     }

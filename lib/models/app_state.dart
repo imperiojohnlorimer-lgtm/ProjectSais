@@ -129,6 +129,7 @@ class AppState extends ChangeNotifier {
   List<ScreeningRecord> screeningRecords = [];
   List<AppNotification> notifications = [];
   List<Document> documents = [];
+  List<DocumentFolder> documentFolders = [];
   List<Office> offices = [];
   String academicYear = '2026-2027';
   String academicSemester = '1st Semester';
@@ -910,13 +911,16 @@ class AppState extends ChangeNotifier {
       try {
         final loadedScreeningRecords = await _firestoreService!
             .getAllScreeningRecords();
-        final byApplicant = <String, ScreeningRecord>{};
+        // Dedupe only within the same applicant + academic year, so a
+        // re-screening in a later academic year is kept as its own
+        // historical record instead of being collapsed into one row.
+        final byApplicantYear = <String, ScreeningRecord>{};
         for (final record in loadedScreeningRecords) {
           final normalizedName = record.fullName.trim().toLowerCase();
           final normalizedStudentNumber = record.studentNumber
             .trim()
             .toLowerCase();
-          final key = normalizedName.isNotEmpty &&
+          final identity = normalizedName.isNotEmpty &&
               normalizedStudentNumber.isNotEmpty
             ? '$normalizedName|$normalizedStudentNumber'
             : (record.applicantId.trim().isNotEmpty
@@ -924,15 +928,17 @@ class AppState extends ChangeNotifier {
               : (record.applicationId.trim().isNotEmpty
                   ? record.applicationId
                   : record.id));
-          final existing = byApplicant[key];
+          final key = '$identity|${record.academicYear ?? ''}';
+          final existing = byApplicantYear[key];
           if (existing == null ||
               (record.id.startsWith('screen-') &&
                   !existing.id.startsWith('screen-')) ||
               record.interviewerDate.compareTo(existing.interviewerDate) > 0) {
-            byApplicant[key] = record;
+            byApplicantYear[key] = record;
           }
         }
-        screeningRecords = byApplicant.values.toList();
+        screeningRecords = byApplicantYear.values.toList()
+          ..sort((a, b) => b.interviewerDate.compareTo(a.interviewerDate));
       } catch (_) {}
       final Map<String, User> byEmail = {};
       for (final u in firestoreUsers) {
@@ -1127,6 +1133,12 @@ class AppState extends ChangeNotifier {
         documents = fsDocs;
       } catch (_) {
         documents = [];
+      }
+      // Document Folders
+      try {
+        documentFolders = await _firestoreService!.getAllDocumentFolders();
+      } catch (_) {
+        documentFolders = [];
       }
 
       notifications = [];
@@ -1754,20 +1766,31 @@ class AppState extends ChangeNotifier {
   // ─── Applications ──────────────────────────────────
   Future<void> saveScreeningRecord(ScreeningRecord record) async {
     _firestoreService ??= FirestoreService();
-    final stableRecord = record.withId(
-      ScreeningRecord.stableIdForApplicant(
-        applicantId: record.applicantId,
-        applicationId: record.applicationId,
-        fallback: record.id,
-      ),
-    );
+    final recordYear = record.academicYear ?? academicYear;
+    final stableRecord = record
+        .withId(
+          ScreeningRecord.stableIdForApplicant(
+            applicantId: record.applicantId,
+            applicationId: record.applicationId,
+            fallback: record.id,
+            academicYear: recordYear,
+          ),
+        )
+        .copyWithMeta(
+          academicYear: recordYear,
+          createdAt: record.createdAt ?? DateTime.now().toIso8601String(),
+        );
     await _firestoreService!.setScreeningRecord(stableRecord);
+    // Only collapse duplicates raised within the SAME academic year (e.g. a
+    // legacy un-keyed record for this applicant/year); records from other
+    // academic years are left alone so screening history is preserved.
     final normalizedName = record.fullName.trim().toLowerCase();
     final normalizedStudentNumber = record.studentNumber.trim().toLowerCase();
     final duplicates = (await _firestoreService!.getAllScreeningRecords())
       .where(
         (candidate) =>
           candidate.id != stableRecord.id &&
+          (candidate.academicYear ?? '') == (stableRecord.academicYear ?? '') &&
           candidate.fullName.trim().toLowerCase() == normalizedName &&
           candidate.studentNumber.trim().toLowerCase() ==
             normalizedStudentNumber,
@@ -1782,9 +1805,79 @@ class AppState extends ChangeNotifier {
     screeningRecords = [
       stableRecord,
       ...screeningRecords.where(
-        (item) => item.applicantId != stableRecord.applicantId,
+        (item) =>
+            item.id != stableRecord.id &&
+            !duplicates.any((d) => d.id == item.id),
       ),
     ];
+    notifyListeners();
+  }
+
+  // ─── Document Folders (Head file manager) ─────────────
+  Future<void> createDocumentFolder(String name) async {
+    if (name.trim().isEmpty) return;
+    _firestoreService ??= FirestoreService();
+    final folder = DocumentFolder(
+      id: '',
+      name: name.trim(),
+      createdBy: currentUser?.name ?? '',
+      createdAt: DateTime.now().toIso8601String(),
+    );
+    final id = await _firestoreService!.addDocumentFolder(folder);
+    documentFolders = [
+      DocumentFolder(id: id, name: folder.name, createdBy: folder.createdBy, createdAt: folder.createdAt),
+      ...documentFolders,
+    ];
+    notifyListeners();
+  }
+
+  Future<void> deleteDocumentFolder(String folderId) async {
+    _firestoreService ??= FirestoreService();
+    final docsInFolder = documents.where((d) => d.folderId == folderId).toList();
+    for (final doc in docsInFolder) {
+      await _firestoreService!.deleteDocument(doc.id);
+    }
+    await _firestoreService!.deleteDocumentFolder(folderId);
+    documents = documents.where((d) => d.folderId != folderId).toList();
+    documentFolders = documentFolders.where((f) => f.id != folderId).toList();
+    notifyListeners();
+  }
+
+  /// Uploads a document either into a folder ([folderId]) or directly onto
+  /// a student's own document list ([studentId]/[studentName]).
+  Future<void> uploadManualDocument({
+    String? folderId,
+    String? studentId,
+    String? studentName,
+    required String fileName,
+    required String storagePath,
+    required String downloadUrl,
+    double? fileSize,
+  }) async {
+    _firestoreService ??= FirestoreService();
+    final doc = Document(
+      id: '',
+      name: fileName,
+      fileName: fileName,
+      uploadedBy: currentUser?.name ?? '',
+      uploadedAt: DateTime.now().toIso8601String(),
+      documentType: 'Other',
+      filePath: storagePath,
+      downloadUrl: downloadUrl,
+      fileSize: fileSize,
+      folderId: folderId,
+      studentId: studentId,
+      studentName: studentName,
+    );
+    await _firestoreService!.setDocument(doc);
+    documents = await _firestoreService!.getAllDocuments();
+    notifyListeners();
+  }
+
+  Future<void> deleteManualDocument(String documentId) async {
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.deleteDocument(documentId);
+    documents = documents.where((d) => d.id != documentId).toList();
     notifyListeners();
   }
 
@@ -2151,9 +2244,31 @@ class AppState extends ChangeNotifier {
           record.applicantId == user.id ||
           (record.fullName.trim().toLowerCase() ==
               user.name.trim().toLowerCase()),
-    );
+    ).toList();
     if (matches.isEmpty) return null;
+    matches.sort((a, b) {
+      final byYear = (a.academicYear ?? '').compareTo(b.academicYear ?? '');
+      if (byYear != 0) return byYear;
+      return a.interviewerDate.compareTo(b.interviewerDate);
+    });
     return matches.last;
+  }
+
+  /// Full screening/assessment history for [user] across all academic
+  /// years, most recent first.
+  List<ScreeningRecord> screeningHistoryForUser(User user) {
+    final matches = screeningRecords.where(
+      (record) =>
+          record.applicantId == user.id ||
+          (record.fullName.trim().toLowerCase() ==
+              user.name.trim().toLowerCase()),
+    ).toList();
+    matches.sort((a, b) {
+      final byYear = (b.academicYear ?? '').compareTo(a.academicYear ?? '');
+      if (byYear != 0) return byYear;
+      return b.interviewerDate.compareTo(a.interviewerDate);
+    });
+    return matches;
   }
 
   /// Computes a 0-100 recommendation score for assigning [user] to

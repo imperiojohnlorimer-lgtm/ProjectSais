@@ -1,3 +1,5 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -19,7 +21,7 @@ class StudentDocumentsScreen extends StatefulWidget {
   State<StudentDocumentsScreen> createState() => _StudentDocumentsScreenState();
 }
 
-enum _DocKind { requirement, contract, endorsement, report, evaluation, dtrReport }
+enum _DocKind { requirement, contract, endorsement, report, evaluation, dtrReport, uploaded }
 
 class _DocEntry {
   final String studentKey;
@@ -34,6 +36,7 @@ class _DocEntry {
   final String? storagePath;
   final bool? reviewed;
   final DateTime sortDate;
+  final String? documentId;
 
   _DocEntry({
     required this.studentKey,
@@ -48,6 +51,7 @@ class _DocEntry {
     this.downloadUrl,
     this.storagePath,
     this.reviewed,
+    this.documentId,
   });
 }
 
@@ -95,6 +99,7 @@ const Map<_DocKind, String> _kindLabels = {
   _DocKind.report: 'Report',
   _DocKind.evaluation: 'Performance Evaluation',
   _DocKind.dtrReport: 'DTR/Accomplishment Report',
+  _DocKind.uploaded: 'Uploaded File',
 };
 
 const Map<_DocKind, IconData> _kindIcons = {
@@ -104,6 +109,7 @@ const Map<_DocKind, IconData> _kindIcons = {
   _DocKind.report: Icons.description_outlined,
   _DocKind.evaluation: Icons.fact_check_outlined,
   _DocKind.dtrReport: Icons.event_note_outlined,
+  _DocKind.uploaded: Icons.upload_file_rounded,
 };
 
 const Map<_DocKind, Color> _kindColors = {
@@ -113,6 +119,7 @@ const Map<_DocKind, Color> _kindColors = {
   _DocKind.report: AppTheme.blue500,
   _DocKind.evaluation: AppTheme.blue500,
   _DocKind.dtrReport: AppTheme.emerald500,
+  _DocKind.uploaded: AppTheme.slate700,
 };
 
 class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
@@ -189,8 +196,112 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
       );
     }
 
+    for (final doc in state.documents) {
+      if (doc.folderId != null || doc.studentId == null || doc.studentId!.isEmpty) continue;
+      final key = doc.studentId!;
+      final name = doc.studentName ?? '';
+      final meta = _studentMeta(state, key, name);
+      entries.add(
+        _DocEntry(
+          studentKey: key,
+          studentName: name,
+          campus: meta.campus,
+          department: meta.department,
+          office: meta.office,
+          kind: _DocKind.uploaded,
+          title: doc.fileName,
+          subtitle: 'Uploaded by ${doc.uploadedBy.isEmpty ? 'Head' : doc.uploadedBy}',
+          sortDate: DateTime.tryParse(doc.uploadedAt) ?? DateTime(2000),
+          downloadUrl: doc.downloadUrl,
+          storagePath: doc.filePath,
+          documentId: doc.id,
+        ),
+      );
+    }
+
     entries.sort((a, b) => b.sortDate.compareTo(a.sortDate));
     return entries;
+  }
+
+  Future<void> _uploadForStudent(AppState state, String studentKey, String studentName) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      final bytes = file.bytes;
+      if (bytes == null) {
+        throw Exception('This file type is not available for upload in the current browser session.');
+      }
+
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final sanitizedName = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+      final uid = fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user';
+      final storagePath = 'reports/$uid/$timestamp/$sanitizedName';
+      final extension = file.extension?.toLowerCase();
+      final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
+        bytes: bytes,
+        path: storagePath,
+        contentType: extension == null ? null : SupabaseStorageService.contentTypeForExtension(extension),
+      );
+
+      await state.uploadManualDocument(
+        studentId: studentKey,
+        studentName: studentName,
+        fileName: file.name,
+        storagePath: storagePath,
+        downloadUrl: downloadUrl,
+        fileSize: file.size / (1024 * 1024),
+      );
+
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Uploaded ${file.name}'),
+            backgroundColor: AppTheme.emerald500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+      }
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Upload failed: $e'),
+          backgroundColor: AppTheme.amber500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
+
+  Future<void> _deleteUpload(AppState state, _DocEntry entry) async {
+    if (entry.documentId == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Delete File'),
+        content: Text('Delete "${entry.title}"? This cannot be undone.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.red500),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await state.deleteManualDocument(entry.documentId!);
+    }
   }
 
   Future<void> _download(_DocEntry entry) async {
@@ -455,10 +566,13 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
                 else
                   for (final key in studentKeys)
                     _StudentDocGroup(
+                      studentKey: key,
                       studentName: studentDisplayName[key]!,
                       items: byStudent[key]!,
                       downloadingId: _downloadingId,
                       onDownload: _download,
+                      onUpload: () => _uploadForStudent(state, key, studentDisplayName[key]!),
+                      onDelete: (entry) => _deleteUpload(state, entry),
                     ),
               ],
             ),
@@ -515,16 +629,22 @@ class _FilterDropdown extends StatelessWidget {
 }
 
 class _StudentDocGroup extends StatefulWidget {
+  final String studentKey;
   final String studentName;
   final List<_DocEntry> items;
   final String? downloadingId;
   final void Function(_DocEntry) onDownload;
+  final VoidCallback onUpload;
+  final void Function(_DocEntry) onDelete;
 
   const _StudentDocGroup({
+    required this.studentKey,
     required this.studentName,
     required this.items,
     required this.downloadingId,
     required this.onDownload,
+    required this.onUpload,
+    required this.onDelete,
   });
 
   @override
@@ -583,7 +703,13 @@ class _StudentDocGroupState extends State<_StudentDocGroup> {
                     '${widget.items.length} item${widget.items.length == 1 ? '' : 's'}',
                     style: const TextStyle(fontSize: 12, color: AppTheme.slate400, fontWeight: FontWeight.w600),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Upload a file for this student',
+                    onPressed: widget.onUpload,
+                    icon: const Icon(Icons.upload_file_rounded, size: 17, color: AppTheme.maroon),
+                    splashRadius: 18,
+                  ),
                   Icon(
                     _expanded ? Icons.expand_less_rounded : Icons.expand_more_rounded,
                     color: AppTheme.slate400,
@@ -601,6 +727,7 @@ class _StudentDocGroupState extends State<_StudentDocGroup> {
                           entry: e,
                           downloading: widget.downloadingId == '${e.studentKey}-${e.title}-${e.sortDate}',
                           onDownload: () => widget.onDownload(e),
+                          onDelete: e.documentId != null ? () => widget.onDelete(e) : null,
                         ))
                     .toList(),
               ),
@@ -615,8 +742,9 @@ class _DocTile extends StatelessWidget {
   final _DocEntry entry;
   final bool downloading;
   final VoidCallback onDownload;
+  final VoidCallback? onDelete;
 
-  const _DocTile({required this.entry, required this.downloading, required this.onDownload});
+  const _DocTile({required this.entry, required this.downloading, required this.onDownload, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -682,28 +810,49 @@ class _DocTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 10),
-                if (hasFile)
-                  ElevatedButton.icon(
-                    onPressed: downloading ? null : onDownload,
-                    icon: downloading
-                        ? const SizedBox(
-                            width: 12,
-                            height: 12,
-                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                          )
-                        : const Icon(Icons.download_rounded, size: 13),
-                    label: Text(downloading ? 'Opening...' : 'Download'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.emerald500,
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                  ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    if (hasFile)
+                      ElevatedButton.icon(
+                        onPressed: downloading ? null : onDownload,
+                        icon: downloading
+                            ? const SizedBox(
+                                width: 12,
+                                height: 12,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Icon(Icons.download_rounded, size: 13),
+                        label: Text(downloading ? 'Opening...' : 'Download'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.emerald500,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    if (onDelete != null)
+                      OutlinedButton.icon(
+                        onPressed: onDelete,
+                        icon: const Icon(Icons.delete_outline_rounded, size: 13),
+                        label: const Text('Delete'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.red500,
+                          side: const BorderSide(color: AppTheme.red500),
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                  ],
+                ),
               ],
             ),
           ),

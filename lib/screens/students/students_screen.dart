@@ -1181,6 +1181,36 @@ class _StudentRowState extends State<_StudentRow> {
                     ),
                   ),
 
+                  // ── Assessment history ────────────────────────────
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          _showHistoryDialog(context, widget.state, s);
+                        },
+                        icon: const Icon(Icons.history_rounded, size: 16),
+                        label: const Text(
+                          'View Assessment History',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.slate700,
+                          side: const BorderSide(color: AppTheme.slate200),
+                          padding: const EdgeInsets.symmetric(vertical: 13),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(13),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+
                   // ── Change Department / Remove buttons ────────────
                   if (widget.state.role == 'Head')
                     Padding(
@@ -1309,6 +1339,241 @@ class _StudentRowState extends State<_StudentRow> {
       ),
     );
   }
+
+  void _showHistoryDialog(BuildContext context, AppState state, Student s) {
+    final normalizedName = s.name.trim().toLowerCase();
+
+    final evaluations = state.evaluations
+        .where(
+          (e) =>
+              e.studentId == s.id ||
+              (s.userId != null && e.studentId == s.userId) ||
+              e.studentName.trim().toLowerCase() == normalizedName,
+        )
+        .toList()
+      ..sort((a, b) => (b.createdAt ?? '').compareTo(a.createdAt ?? ''));
+
+    final reports = state.reports
+        .where(
+          (r) =>
+              r.applicantId == s.id ||
+              (s.userId != null && r.applicantId == s.userId) ||
+              r.studentName.trim().toLowerCase() == normalizedName,
+        )
+        .toList()
+      ..sort((a, b) => (b.submittedAt ?? '').compareTo(a.submittedAt ?? ''));
+
+    final screenings = state.screeningRecords
+        .where(
+          (r) =>
+              r.applicantId == s.id ||
+              (s.userId != null && r.applicantId == s.userId) ||
+              r.fullName.trim().toLowerCase() == normalizedName,
+        )
+        .toList()
+      ..sort(
+        (a, b) {
+          final byYear = (b.academicYear ?? '').compareTo(a.academicYear ?? '');
+          if (byYear != 0) return byYear;
+          return b.interviewerDate.compareTo(a.interviewerDate);
+        },
+      );
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.45),
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 60),
+        child: Container(
+          width: 460,
+          constraints: const BoxConstraints(maxHeight: 620),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 30,
+                offset: const Offset(0, 12),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Assessment History',
+                            style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.slate900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            s.name,
+                            style: const TextStyle(fontSize: 12.5, color: AppTheme.slate500),
+                          ),
+                        ],
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded, size: 18, color: AppTheme.slate400),
+                    ),
+                  ],
+                ),
+              ),
+              const Divider(height: 1, color: AppTheme.slate200),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (evaluations.isEmpty && reports.isEmpty && screenings.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 40),
+                          child: Center(
+                            child: Column(
+                              children: [
+                                Icon(Icons.history_toggle_off_rounded, size: 34, color: AppTheme.slate300),
+                                const SizedBox(height: 10),
+                                Text(
+                                  'No assessment records yet',
+                                  style: const TextStyle(fontSize: 13, color: AppTheme.slate400, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (screenings.isNotEmpty) ...[
+                        _historySectionLabel('Applicant Screening', screenings.length),
+                        for (final r in screenings)
+                          _historyTile(
+                            icon: Icons.fact_check_outlined,
+                            color: AppTheme.blue500,
+                            title: r.recommendation,
+                            subtitle: 'By ${r.interviewerName.isEmpty ? '—' : r.interviewerName} · ${r.interviewerDate}',
+                            year: r.academicYear,
+                          ),
+                        const SizedBox(height: 14),
+                      ],
+                      if (evaluations.isNotEmpty) ...[
+                        _historySectionLabel('Performance Evaluations', evaluations.length),
+                        for (final e in evaluations)
+                          _historyTile(
+                            icon: Icons.grading_outlined,
+                            color: AppTheme.maroon,
+                            title: '${e.term} · Overall ${e.overallRating}/10',
+                            subtitle: 'By ${e.supervisorName.isEmpty ? '—' : e.supervisorName} · ${e.periodCovered}',
+                            year: e.academicYear,
+                          ),
+                        const SizedBox(height: 14),
+                      ],
+                      if (reports.isNotEmpty) ...[
+                        _historySectionLabel('DTR / Accomplishment Reports', reports.length),
+                        for (final r in reports)
+                          _historyTile(
+                            icon: Icons.event_note_outlined,
+                            color: AppTheme.emerald500,
+                            title: r.title.isEmpty ? 'Report' : r.title,
+                            subtitle: '${r.status} · ${r.submittedAt ?? 'No date'}',
+                            year: r.academicYear,
+                          ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _historySectionLabel(String label, int count) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      '$label ($count)',
+      style: const TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w800,
+        color: AppTheme.slate400,
+        letterSpacing: 0.4,
+      ),
+    ),
+  );
+
+  Widget _historyTile({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String subtitle,
+    String? year,
+  }) => Container(
+    margin: const EdgeInsets.only(bottom: 8),
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppTheme.slate50,
+      borderRadius: BorderRadius.circular(12),
+      border: Border.all(color: AppTheme.slate200),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          padding: const EdgeInsets.all(7),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.1),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(icon, size: 14, color: color),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate800),
+                overflow: TextOverflow.ellipsis,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                subtitle,
+                style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
+          ),
+        ),
+        if ((year ?? '').isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: AppTheme.slate100,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'AY $year',
+              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.slate500),
+            ),
+          ),
+      ],
+    ),
+  );
 
   void _showChangeDepartmentDialog(
     BuildContext context,
