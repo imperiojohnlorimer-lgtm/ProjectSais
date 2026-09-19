@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 
 /// Head-only screen listing everything supervisors have forwarded — approved
@@ -536,6 +537,32 @@ class _ForwardTile extends StatelessWidget {
     }
   }
 
+  // The stored downloadUrl is a Supabase signed URL that expires (~1hr), so
+  // always request a fresh one from storagePath first, falling back to the
+  // stored URL for older records that predate storagePath being saved.
+  Future<void> _download(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      String? url = item.downloadUrl;
+      if (item.storagePath != null && item.storagePath!.isNotEmpty) {
+        url = await SupabaseStorageService.instance.getDocumentUrl(item.storagePath!);
+      }
+      if (url == null || url.isEmpty) throw Exception('No file content available.');
+      final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      if (!opened) throw Exception('The browser could not open the document.');
+    } catch (e) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Unable to download: $e'),
+          backgroundColor: AppTheme.amber500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -609,12 +636,9 @@ class _ForwardTile extends StatelessWidget {
                   spacing: 8,
                   runSpacing: 8,
                   children: [
-                    if (item.downloadUrl != null)
+                    if (item.downloadUrl != null || item.storagePath != null)
                       ElevatedButton.icon(
-                        onPressed: () => launchUrl(
-                          Uri.parse(item.downloadUrl!),
-                          mode: LaunchMode.externalApplication,
-                        ),
+                        onPressed: () => _download(context),
                         icon: const Icon(Icons.download_rounded, size: 13),
                         label: const Text('Download'),
                         style: ElevatedButton.styleFrom(

@@ -939,6 +939,39 @@ class FirestoreService {
     await _headForwards.doc(id).update({'reviewed': reviewed});
   }
 
+  // Payroll: one processed record per Student Assistant per month, created
+  // by an Admin running the Payroll screen's "Process Payroll" action.
+  CollectionReference get _payrollRecords => _db.collection('payrollRecords');
+
+  Future<List<PayrollRecord>> getAllPayrollRecords() async {
+    final snap = await _payrollRecords.get();
+    return snap.docs
+        .map(
+          (d) => PayrollRecord.fromJson({
+            ...(d.data() as Map<String, dynamic>),
+            'id': d.id,
+          }),
+        )
+        .toList();
+  }
+
+  Stream<List<Map<String, dynamic>>> payrollRecordsStream() {
+    return _payrollRecords.snapshots().map(
+      (snap) => snap.docs
+          .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+          .toList(),
+    );
+  }
+
+  Future<String> addPayrollRecord(PayrollRecord record) async {
+    final ref = await _payrollRecords.add(record.toJson());
+    return ref.id;
+  }
+
+  Future<void> updatePayrollRecord(String id, Map<String, dynamic> data) async {
+    await _payrollRecords.doc(id).update(data);
+  }
+
   // Performance Evaluations
   CollectionReference get _evaluations => _db.collection('evaluations');
 

@@ -24,6 +24,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _attSub;
   StreamSubscription<List<Map<String, dynamic>>>? _appSub;
   StreamSubscription<List<Map<String, dynamic>>>? _headForwardsSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _payrollSub;
   Timer? _missedTimeOutTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
@@ -124,6 +125,7 @@ class AppState extends ChangeNotifier {
   List<Report> reports = [];
   List<Evaluation> evaluations = [];
   List<HeadForward> headForwards = [];
+  List<PayrollRecord> payrollRecords = [];
   List<Announcement> announcements = [];
   List<Application> applications = [];
   List<ScreeningRecord> screeningRecords = [];
@@ -247,6 +249,10 @@ class AppState extends ChangeNotifier {
             approvalStatus: m['approvalStatus'] ?? 'Approved',
             rejectionReason: m['rejectionReason'],
             academicYear: m['academicYear']?.toString(),
+            attachmentName: m['attachmentName'],
+            attachmentUrl: m['attachmentUrl'],
+            attachmentPath: m['attachmentPath'],
+            attachmentSize: (m['attachmentSize'] as num?)?.toDouble(),
           );
         }).toList();
         notifyListeners();
@@ -255,7 +261,8 @@ class AppState extends ChangeNotifier {
       // and admins see updates immediately without refreshing.
       _attSub?.cancel();
       final isStaffUser = role == 'Head' || role == 'Supervisor';
-      _attSub = (isStaffUser
+      final seesAllAttendance = isStaffUser || role == 'Admin';
+      _attSub = (seesAllAttendance
               ? _firestoreService!.attendanceStream()
               : _firestoreService!.attendanceStreamForStudent(currentUser!.id))
           .listen((list) {
@@ -306,6 +313,17 @@ class AppState extends ChangeNotifier {
           list,
         ) {
           headForwards = list.map((m) => HeadForward.fromJson(m)).toList();
+          notifyListeners();
+        });
+      }
+
+      // Admin: keep processed Payroll records in sync in real time.
+      _payrollSub?.cancel();
+      if (role == 'Admin') {
+        _payrollSub = _firestoreService!.payrollRecordsStream().listen((
+          list,
+        ) {
+          payrollRecords = list.map((m) => PayrollRecord.fromJson(m)).toList();
           notifyListeners();
         });
       }
@@ -372,6 +390,7 @@ class AppState extends ChangeNotifier {
     _taskSub?.cancel();
     _appSub?.cancel();
     _headForwardsSub?.cancel();
+    _payrollSub?.cancel();
     _missedTimeOutTimer?.cancel();
     super.dispose();
   }
@@ -1026,7 +1045,7 @@ class AppState extends ChangeNotifier {
 
       // Attendance
       try {
-        final rawAttendance = (role == 'Head' || role == 'Supervisor')
+        final rawAttendance = (role == 'Head' || role == 'Supervisor' || role == 'Admin')
             ? await _firestoreService!.getAllAttendance()
             : await _firestoreService!.getAttendanceForStudent(
                 currentUser!.id,
@@ -1087,7 +1106,7 @@ class AppState extends ChangeNotifier {
 
       // Reports
       try {
-        final fsReports = (role == 'Head' || role == 'Supervisor')
+        final fsReports = (role == 'Head' || role == 'Supervisor' || role == 'Admin')
             ? await _firestoreService!.getAllReports()
             : [
                 ...await _firestoreService!.getReportsForApplicant(
@@ -1238,6 +1257,10 @@ class AppState extends ChangeNotifier {
           'approvalStatus': a.approvalStatus,
           'rejectionReason': a.rejectionReason,
           'academicYear': a.academicYear ?? academicYear,
+          'attachmentName': a.attachmentName,
+          'attachmentUrl': a.attachmentUrl,
+          'attachmentPath': a.attachmentPath,
+          'attachmentSize': a.attachmentSize,
         },
       );
 
@@ -1259,6 +1282,10 @@ class AppState extends ChangeNotifier {
         approvalStatus: a.approvalStatus,
         rejectionReason: a.rejectionReason,
         academicYear: a.academicYear ?? academicYear,
+        attachmentName: a.attachmentName,
+        attachmentUrl: a.attachmentUrl,
+        attachmentPath: a.attachmentPath,
+        attachmentSize: a.attachmentSize,
       );
 
       // Update local state and notify users now that Firestore write succeeded.
@@ -1995,10 +2022,40 @@ class AppState extends ChangeNotifier {
               'Student Assistant',
             );
           }
+          await ensureStudentAssistantId(updatedApplication!.applicantId);
         }
       }
     }
     notifyListeners();
+  }
+
+  /// Assigns a unique, sequential Student Assistant Program ID (e.g.
+  /// "SA 001") the first time a user needs one, and returns it. Idempotent —
+  /// if the user already has one, it's returned unchanged. This is how
+  /// every Student Assistant automatically gets an SA ID, without a Head
+  /// having to type one in by hand.
+  Future<String?> ensureStudentAssistantId(String userId) async {
+    final index = users.indexWhere((u) => u.id == userId);
+    if (index < 0) return null;
+    final existing = users[index].saId;
+    if (existing != null && existing.trim().isNotEmpty) return existing;
+
+    final numberPattern = RegExp(r'^SA\s*0*(\d+)$');
+    var highest = 0;
+    for (final u in users) {
+      final match = numberPattern.firstMatch(u.saId?.trim() ?? '');
+      if (match == null) continue;
+      final n = int.tryParse(match.group(1)!) ?? 0;
+      if (n > highest) highest = n;
+    }
+    final newId = 'SA ${(highest + 1).toString().padLeft(3, '0')}';
+
+    final updated = users[index].copyWith(saId: newId);
+    await _upsertUser(updated);
+    if (currentUser?.id == updated.id) currentUser = updated;
+    await _saveUserProfile(updated);
+    notifyListeners();
+    return newId;
   }
 
   Future<void> generateApprovedApplicantDocuments(String applicationId) async {
@@ -2546,8 +2603,11 @@ class AppState extends ChangeNotifier {
     final period = now.period == DayPeriod.am ? 'AM' : 'PM';
     final timeOut = '$hour:$minute $period';
 
-    // Simple placeholder for hours calculation; could be improved
-    const double defaultHours = 4.0;
+    final existing = attendance.cast<AttendanceRecord?>().firstWhere(
+          (r) => r?.id == recordId,
+          orElse: () => null,
+        );
+    final totalHours = _hoursBetween(existing?.timeIn, timeOut);
 
     attendance = attendance.map((r) {
       if (r.id == recordId) {
@@ -2558,7 +2618,7 @@ class AppState extends ChangeNotifier {
           date: r.date,
           timeIn: r.timeIn,
           timeOut: timeOut,
-          totalHours: defaultHours,
+          totalHours: totalHours,
           academicYear: r.academicYear,
           isArchived: r.isArchived,
           // A late clock-out after the session window already closed
@@ -2576,11 +2636,118 @@ class AppState extends ChangeNotifier {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.updateAttendance(recordId, {
         'timeOut': timeOut,
-        'totalHours': defaultHours,
+        'totalHours': totalHours,
       });
     } catch (_) {
       // ignore
     }
+  }
+
+  /// Actual elapsed hours between a "H:MM AM/PM" time-in and time-out on
+  /// the same day. Falls back to 4.0 (the old placeholder) only if either
+  /// time string can't be parsed, so a malformed record still gets a
+  /// sensible value instead of 0 or a crash.
+  double _hoursBetween(String? timeIn, String timeOut) {
+    final inMinutes = _parseTimeOfDayMinutes(timeIn ?? '');
+    final outMinutes = _parseTimeOfDayMinutes(timeOut);
+    if (inMinutes == null || outMinutes == null) return 4.0;
+    final diff = outMinutes - inMinutes;
+    if (diff <= 0) return 4.0;
+    return diff / 60.0;
+  }
+
+  /// A Head/Supervisor manually completing a student's missed time-out —
+  /// the actual verification step the System needs before those hours can
+  /// count toward payroll. Sets a real time-out and computes real elapsed
+  /// hours (same as [clockOut]), and clears [AttendanceRecord.isInvalid]
+  /// since a human has now confirmed when the student actually left.
+  Future<void> setManualTimeOut(String recordId, String timeOut) async {
+    final existing = attendance.cast<AttendanceRecord?>().firstWhere(
+          (r) => r?.id == recordId,
+          orElse: () => null,
+        );
+    final totalHours = _hoursBetween(existing?.timeIn, timeOut);
+
+    attendance = attendance.map((r) {
+      if (r.id != recordId) return r;
+      return AttendanceRecord(
+        id: r.id,
+        studentName: r.studentName,
+        studentId: r.studentId,
+        date: r.date,
+        timeIn: r.timeIn,
+        timeOut: timeOut,
+        totalHours: totalHours,
+        academicYear: r.academicYear,
+        isArchived: r.isArchived,
+        isInvalid: false,
+      );
+    }).toList();
+    notifyListeners();
+
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.updateAttendance(recordId, {
+        'timeOut': timeOut,
+        'totalHours': totalHours,
+        'isInvalid': false,
+      });
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  /// One-time fix for attendance records saved while [clockOut] used to
+  /// hard-code every session at a flat 4.0 hours instead of computing real
+  /// elapsed time. Anything with both a time-in and a time-out already has
+  /// everything needed to recompute its true duration, so this recalculates
+  /// [AttendanceRecord.totalHours] for every completed record from its own
+  /// stored timestamps and re-saves only the ones that actually changed.
+  /// Returns how many records were corrected.
+  Future<int> recalculateAttendanceHours() async {
+    _firestoreService ??= FirestoreService();
+    final corrections = <String, double>{};
+
+    for (final r in attendance) {
+      if (r.isActive) continue; // no time-out yet — nothing to recompute.
+      final correct = _hoursBetween(r.timeIn, r.timeOut!);
+      if (r.totalHours == null || (r.totalHours! - correct).abs() > 0.01) {
+        corrections[r.id] = correct;
+      }
+    }
+
+    if (corrections.isEmpty) return 0;
+
+    attendance = attendance.map((r) {
+      final fixed = corrections[r.id];
+      if (fixed == null) return r;
+      return AttendanceRecord(
+        id: r.id,
+        studentName: r.studentName,
+        studentId: r.studentId,
+        date: r.date,
+        timeIn: r.timeIn,
+        timeOut: r.timeOut,
+        totalHours: fixed,
+        academicYear: r.academicYear,
+        isArchived: r.isArchived,
+        isInvalid: r.isInvalid,
+      );
+    }).toList();
+    notifyListeners();
+
+    for (final entry in corrections.entries) {
+      try {
+        await _firestoreService!.updateAttendance(entry.key, {
+          'totalHours': entry.value,
+        });
+      } catch (_) {
+        // Firestore unavailable for this record — local state is still
+        // fixed; a later run will retry the Firestore write.
+      }
+    }
+
+    return corrections.length;
   }
 
   /// Parses a "H:MM AM/PM" time-of-day string (the format [clockIn]/
@@ -2925,6 +3092,7 @@ class AppState extends ChangeNotifier {
     required String title,
     required String fileName,
     String? downloadUrl,
+    String? storagePath,
   }) async {
     _firestoreService ??= FirestoreService();
     final forwardId = await _firestoreService!.addHeadForward(
@@ -2936,6 +3104,7 @@ class AppState extends ChangeNotifier {
         title: title,
         fileName: fileName,
         downloadUrl: downloadUrl,
+        storagePath: storagePath,
         sentByName: currentUser?.name ?? 'Supervisor',
         sentById: currentUser?.id,
         sentAt: _formattedToday(),
@@ -2950,6 +3119,7 @@ class AppState extends ChangeNotifier {
         title: title,
         fileName: fileName,
         downloadUrl: downloadUrl,
+        storagePath: storagePath,
         sentByName: currentUser?.name ?? 'Supervisor',
         sentById: currentUser?.id,
         sentAt: _formattedToday(),
@@ -3040,6 +3210,7 @@ class AppState extends ChangeNotifier {
         title: updated.title,
         fileName: firstAttachment?.fileName ?? '${updated.title}.txt',
         downloadUrl: firstAttachment?.downloadUrl,
+        storagePath: firstAttachment?.storagePath,
       );
 
       notifyListeners();
@@ -3122,6 +3293,7 @@ class AppState extends ChangeNotifier {
         title: 'Performance Evaluation (${withAttachment.term})',
         fileName: doc.fileName,
         downloadUrl: downloadUrl,
+        storagePath: storagePath,
       );
 
       notifyListeners();
@@ -3164,6 +3336,7 @@ class AppState extends ChangeNotifier {
         title: 'DTR/Accomplishment Report ($monthLabel)',
         fileName: fileName,
         downloadUrl: downloadUrl,
+        storagePath: storagePath,
       );
 
       notifyListeners();
@@ -3825,6 +3998,299 @@ class AppState extends ChangeNotifier {
     return filteredReports
         .where((r) => r.studentName == studentName && r.status == 'Approved')
         .toList();
+  }
+
+  // ─── Payroll ───────────────────────────────────────────
+  // Parses the handful of date-string shapes this codebase already writes
+  // ("Sep 19, 2026" from attendance, "9/19/2026" from reports) so payroll
+  // can filter both by an arbitrary pay period.
+  DateTime? _parsePayrollDate(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return null;
+    final s = raw.trim();
+
+    final slash = RegExp(r'^(\d{1,2})/(\d{1,2})/(\d{4})$').firstMatch(s);
+    if (slash != null) {
+      try {
+        return DateTime(
+          int.parse(slash.group(3)!),
+          int.parse(slash.group(1)!),
+          int.parse(slash.group(2)!),
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+
+    const abbrMonths = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    const fullMonths = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    final named = RegExp(r'^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$').firstMatch(s);
+    if (named != null) {
+      final monthName = named.group(1)!;
+      var index = abbrMonths.indexOf(monthName);
+      if (index < 0) index = fullMonths.indexOf(monthName);
+      if (index < 0) return null;
+      try {
+        return DateTime(
+          int.parse(named.group(3)!),
+          index + 1,
+          int.parse(named.group(2)!),
+        );
+      } catch (_) {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  bool _dateWithinRange(String? raw, DateTime start, DateTime endInclusive) {
+    final parsed = _parsePayrollDate(raw);
+    if (parsed == null) return false;
+    final day = DateTime(parsed.year, parsed.month, parsed.day);
+    return !day.isBefore(DateTime(start.year, start.month, start.day)) &&
+        !day.isAfter(DateTime(endInclusive.year, endInclusive.month, endInclusive.day));
+  }
+
+  /// Every calendar month touched by [start]..[endInclusive] (both ends
+  /// inclusive), so a semester-long pay period can still have the 25–40
+  /// hour rule checked and capped one month at a time.
+  List<(int month, int year)> _monthsInRange(DateTime start, DateTime endInclusive) {
+    final months = <(int, int)>[];
+    var cursor = DateTime(start.year, start.month);
+    final last = DateTime(endInclusive.year, endInclusive.month);
+    while (!cursor.isAfter(last)) {
+      months.add((cursor.month, cursor.year));
+      cursor = DateTime(cursor.year, cursor.month + 1);
+    }
+    return months;
+  }
+
+  /// This student's verified (timed-out, non-archived) attendance hours
+  /// within [start]..[endInclusive], broken down by calendar month so each
+  /// month's payable hours can be capped at [PayrollRecord.maximumMonthlyHours]
+  /// individually before the semester total is summed. Isn't scoped to the
+  /// current viewer's role since only an Admin runs payroll.
+  /// Every name this user's attendance/report rows might be logged under —
+  /// their own account name plus any linked Student roster name — lowercase
+  /// and trimmed, the same identity-matching approach [effectiveStudents]
+  /// already uses, since attendance is matched by studentName string rather
+  /// than a stable id and the two records can drift apart (e.g. a Student
+  /// roster entry created with slightly different spacing/capitalization).
+  Set<String> _nameKeysFor(User user) {
+    final keys = <String>{user.name.trim().toLowerCase()};
+    for (final s in students) {
+      final matchesById = s.userId != null && s.userId == user.id;
+      final matchesByEmail = s.email.trim().toLowerCase() == user.email.trim().toLowerCase();
+      if (matchesById || matchesByEmail) {
+        keys.add(s.name.trim().toLowerCase());
+      }
+    }
+    return keys;
+  }
+
+  List<PayrollMonthBreakdown> monthlyHoursInPeriod(
+    Set<String> studentNameKeys,
+    DateTime start,
+    DateTime endInclusive,
+  ) {
+    return _monthsInRange(start, endInclusive).map((entry) {
+      final (month, year) = entry;
+      final monthStart = DateTime(year, month, 1);
+      final monthEndInclusive = DateTime(year, month + 1, 0);
+      final rangeStart = monthStart.isBefore(start) ? start : monthStart;
+      final rangeEnd = monthEndInclusive.isAfter(endInclusive) ? endInclusive : monthEndInclusive;
+
+      final hours = attendance
+          .where(
+            (a) =>
+                studentNameKeys.contains(a.studentName.trim().toLowerCase()) &&
+                !a.isArchived &&
+                !a.isActive &&
+                _dateWithinRange(a.date, rangeStart, rangeEnd),
+          )
+          .fold<double>(0, (sum, a) => sum + (a.totalHours ?? 0));
+
+      return PayrollMonthBreakdown(
+        month: month,
+        year: year,
+        hoursWorked: hours,
+        payableHours: hours.clamp(0, PayrollRecord.maximumMonthlyHours).toDouble(),
+      );
+    }).toList();
+  }
+
+  /// Whether an approved accomplishment report — standing in for the
+  /// broader "payroll requirements" (the DTR/Accomplishment Report bundle
+  /// a supervisor forwards to the Head) — exists for this student anywhere
+  /// within the given period.
+  bool hasApprovedReportInPeriod(
+    Set<String> studentNameKeys,
+    DateTime start,
+    DateTime endInclusive,
+  ) {
+    return reports.any(
+      (r) =>
+          studentNameKeys.contains(r.studentName.trim().toLowerCase()) &&
+          r.status == 'Approved' &&
+          _dateWithinRange(r.submittedAt, start, endInclusive),
+    );
+  }
+
+  /// Builds a payroll preview for every active Student Assistant for the
+  /// pay period [start]..[endInclusive] (typically a whole semester, not a
+  /// single month) — purely computed for anyone not yet approved. Once a
+  /// student has a persisted [PayrollRecord] for this exact period (status
+  /// 'Approved' or 'Released'), that persisted record is returned as-is
+  /// instead of recomputing, so an approved amount stays fixed even if
+  /// attendance data changes afterward. Retrieves and verifies each
+  /// student's DTR records and accomplishment report before marking them
+  /// 'Ready' to approve; anyone missing either is 'Incomplete'.
+  List<PayrollRecord> buildPayrollPreview({
+    required DateTime start,
+    required DateTime endInclusive,
+    required String periodLabel,
+  }) {
+    final isoStart = _isoDate(start);
+    final isoEnd = _isoDate(endInclusive);
+    final existingByStudent = {
+      for (final p in payrollRecords)
+        if (p.periodStart == isoStart && p.periodEnd == isoEnd) p.studentId: p,
+    };
+
+    final assistants = users.where(
+      (u) => u.role == 'Student Assistant' && u.status == 'Active',
+    );
+
+    return assistants.map((user) {
+      final existing = existingByStudent[user.id];
+      if (existing != null) return existing;
+
+      final nameKeys = _nameKeysFor(user);
+      final breakdown = monthlyHoursInPeriod(nameKeys, start, endInclusive);
+      final hoursWorked = breakdown.fold<double>(0, (sum, m) => sum + m.hoursWorked);
+      final payableHours = breakdown.fold<double>(0, (sum, m) => sum + m.payableHours);
+      final dtrVerified = hoursWorked > 0;
+      final reportVerified = hasApprovedReportInPeriod(nameKeys, start, endInclusive);
+      final office = officesForUser(user).isNotEmpty
+          ? officesForUser(user).first.name
+          : (user.department ?? '');
+
+      return PayrollRecord(
+        id: '',
+        studentId: user.id,
+        studentName: user.name,
+        saId: user.saId,
+        office: office,
+        campus: user.campus,
+        department: user.department,
+        periodStart: isoStart,
+        periodEnd: isoEnd,
+        periodLabel: periodLabel,
+        monthlyBreakdown: breakdown,
+        hoursWorked: hoursWorked,
+        payableHours: payableHours,
+        grossPay: payableHours * PayrollRecord.ratePerHour,
+        dtrVerified: dtrVerified,
+        reportVerified: reportVerified,
+        status: dtrVerified && reportVerified ? 'Ready' : 'Incomplete',
+      );
+    }).toList();
+  }
+
+  String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Administrators approve payroll: computes the payable amount from
+  /// total hours rendered for every currently-'Ready' entry in [preview]
+  /// and records it in the payroll records with status 'Approved' —
+  /// skipping anything 'Incomplete', already 'Approved', or 'Released'.
+  /// Does not notify students yet; that happens on [releasePayroll].
+  Future<(int count, double total)> approvePayroll(
+    List<PayrollRecord> preview,
+  ) async {
+    _firestoreService ??= FirestoreService();
+    final today = _formattedToday();
+    var count = 0;
+    var total = 0.0;
+
+    for (final record in preview) {
+      if (record.status != 'Ready') continue;
+      final toSave = record.copyWith(
+        status: 'Approved',
+        approvedAt: today,
+        approvedBy: currentUser?.name ?? 'Admin',
+      );
+      final docId = await _firestoreService!.addPayrollRecord(toSave);
+      payrollRecords = [toSave.copyWith(id: docId), ...payrollRecords];
+      count++;
+      total += record.grossPay;
+    }
+
+    notifyListeners();
+    return (count, total);
+  }
+
+  /// Administrators release payroll: marks every 'Approved' record for the
+  /// pay period [start]..[endInclusive] as 'Released' (the actual payout
+  /// moment) and notifies each Student Assistant that their pay has been
+  /// released.
+  Future<(int count, double total)> releasePayroll({
+    required DateTime start,
+    required DateTime endInclusive,
+  }) async {
+    _firestoreService ??= FirestoreService();
+    final today = _formattedToday();
+    var count = 0;
+    var total = 0.0;
+    final isoStart = _isoDate(start);
+    final isoEnd = _isoDate(endInclusive);
+
+    final toRelease = payrollRecords.where(
+      (p) => p.periodStart == isoStart && p.periodEnd == isoEnd && p.status == 'Approved',
+    );
+
+    for (final record in toRelease) {
+      final releasedBy = currentUser?.name ?? 'Admin';
+      await _firestoreService!.updatePayrollRecord(record.id, {
+        'status': 'Released',
+        'releasedAt': today,
+        'releasedBy': releasedBy,
+      });
+      payrollRecords = payrollRecords
+          .map(
+            (p) => p.id == record.id
+                ? p.copyWith(
+                    status: 'Released',
+                    releasedAt: today,
+                    releasedBy: releasedBy,
+                  )
+                : p,
+          )
+          .toList();
+      count++;
+      total += record.grossPay;
+
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${record.studentId}',
+          userId: record.studentId,
+          title: 'Payout Released',
+          message:
+              'Your pay for ${record.periodLabel} (${record.payableHours.toStringAsFixed(1)} hrs · '
+              '₱${record.grossPay.toStringAsFixed(2)}) has been released.',
+          type: 'payroll',
+          createdAt: today,
+        ),
+      );
+    }
+
+    notifyListeners();
+    return (count, total);
   }
 
   /// This student's saved weekly class schedule rows (used to auto-fill

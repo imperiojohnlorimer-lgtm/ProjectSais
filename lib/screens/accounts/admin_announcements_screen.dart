@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/services.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/announcement_widgets.dart';
 
@@ -454,6 +457,26 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
     String reqFileType = 'any'; // 'any' | 'word' | 'pdf' | 'image'
     var acceptsApplications = true;
     var selectedOfficeId = state.offices.isNotEmpty ? state.offices.first.id : '';
+    PlatformFile? attachedFile;
+    bool uploadingAttachment = false;
+    String? attachmentUrl;
+    String? attachmentPath;
+
+    Future<void> pickAttachment(void Function(void Function()) setDialogState) async {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowMultiple: false,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+      final file = result.files.single;
+      if (file.bytes == null) return;
+      setDialogState(() {
+        attachedFile = file;
+        attachmentUrl = null;
+        attachmentPath = null;
+      });
+    }
 
     String mentionQuery = '';
     String selectedMentionTab = 'All';
@@ -1233,6 +1256,73 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                               ],
                             ),
                           ),
+                          const SizedBox(height: 20),
+                          _sectionLabel('ATTACHMENT'),
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppTheme.slate50,
+                              borderRadius: BorderRadius.circular(13),
+                              border: Border.all(color: AppTheme.slate200),
+                            ),
+                            child: attachedFile == null
+                                ? OutlinedButton.icon(
+                                    onPressed: () => pickAttachment(setDialogState),
+                                    icon: const Icon(
+                                      Icons.attach_file_rounded,
+                                      size: 16,
+                                    ),
+                                    label: const Text('Attach a file for download'),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: AppTheme.maroon,
+                                      side: const BorderSide(color: AppTheme.maroon),
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                    ),
+                                  )
+                                : Row(
+                                    children: [
+                                      const Icon(
+                                        Icons.description_outlined,
+                                        size: 18,
+                                        color: AppTheme.maroon,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          attachedFile!.name,
+                                          style: const TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.slate700,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      if (uploadingAttachment)
+                                        const SizedBox(
+                                          width: 16,
+                                          height: 16,
+                                          child: CircularProgressIndicator(strokeWidth: 2),
+                                        )
+                                      else
+                                        GestureDetector(
+                                          onTap: () => setDialogState(() {
+                                            attachedFile = null;
+                                            attachmentUrl = null;
+                                            attachmentPath = null;
+                                          }),
+                                          child: const Icon(
+                                            Icons.close_rounded,
+                                            size: 16,
+                                            color: AppTheme.slate400,
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                          ),
                         ],
                         ),
                       ),
@@ -1299,6 +1389,60 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                             return;
                           }
 
+                          final messenger = ScaffoldMessenger.of(context);
+                          if (attachedFile != null && attachmentUrl == null) {
+                            setDialogState(() => uploadingAttachment = true);
+                            try {
+                              final bytes = attachedFile!.bytes!;
+                              final uid = fb_auth
+                                      .FirebaseAuth.instance.currentUser?.uid ??
+                                  state.currentUser?.id ??
+                                  'user';
+                              final timestamp =
+                                  DateTime.now().millisecondsSinceEpoch;
+                              final sanitizedName = attachedFile!.name
+                                  .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+                              // 'announcements' is a public root in the
+                              // upload-document edge function: any signed-in
+                              // user (not just the uploader or Head/
+                              // Supervisor staff) can refresh a download
+                              // link for it once the original signed URL
+                              // expires, which matters since Students view
+                              // announcements posted under the Head's uid.
+                              final path =
+                                  'announcements/$uid/$timestamp/$sanitizedName';
+                              final extension =
+                                  attachedFile!.extension?.toLowerCase();
+                              final url =
+                                  await SupabaseStorageService.instance
+                                      .uploadDocument(
+                                bytes: bytes,
+                                path: path,
+                                contentType: extension == null
+                                    ? null
+                                    : SupabaseStorageService
+                                        .contentTypeForExtension(extension),
+                              );
+                              attachmentUrl = url;
+                              attachmentPath = path;
+                            } catch (e) {
+                              setDialogState(() => uploadingAttachment = false);
+                              messenger.showSnackBar(
+                                SnackBar(
+                                  content: Text('Attachment upload failed: $e'),
+                                  backgroundColor: AppTheme.red500,
+                                  behavior: SnackBarBehavior.floating,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  margin: const EdgeInsets.all(16),
+                                ),
+                              );
+                              return;
+                            }
+                            setDialogState(() => uploadingAttachment = false);
+                          }
+
                           final today =
                               '${DateTime.now().month}/${DateTime.now().day}/${DateTime.now().year}';
                           final ok = await state.postAnnouncement(
@@ -1314,6 +1458,12 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                               slots: slotsText.isEmpty ? null : slotsText,
                               requirements: reqs,
                               acceptsApplications: acceptsApplications,
+                              attachmentName: attachedFile?.name,
+                              attachmentUrl: attachmentUrl,
+                              attachmentPath: attachmentPath,
+                              attachmentSize: attachedFile == null
+                                  ? null
+                                  : attachedFile!.size / (1024 * 1024),
                             ),
                           );
                           if (!context.mounted) return;
@@ -1612,6 +1762,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
                     .map((req) => RequirementChip(label: req))
                     .toList(),
               ),
+            ),
+          if (ann.hasAttachment)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: AnnouncementAttachmentTile(announcement: ann),
             ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -1981,6 +2136,10 @@ class _AdminAnnouncementCard extends StatelessWidget {
                             })
                             .toList(),
                       ),
+                    ],
+                    if (ann.hasAttachment) ...[
+                      const SizedBox(height: 18),
+                      AnnouncementAttachmentTile(announcement: ann),
                     ],
                     const SizedBox(height: 18),
                     Wrap(

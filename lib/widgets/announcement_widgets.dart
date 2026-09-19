@@ -1,6 +1,89 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
+import '../services/supabase_storage_service.dart';
 import '../theme/app_theme.dart';
+
+// The stored attachmentUrl is a Supabase signed URL that expires (~1hr), so
+// always request a fresh one from attachmentPath first — the edge function
+// treats the 'announcements' storage root as public, so any signed-in
+// viewer can refresh it, not just the Head who uploaded it.
+Future<void> _openAttachment(BuildContext context, Announcement announcement) async {
+  if (!announcement.hasAttachment) return;
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    String? url = announcement.attachmentUrl;
+    if (announcement.attachmentPath != null && announcement.attachmentPath!.isNotEmpty) {
+      url = await SupabaseStorageService.instance.getDocumentUrl(announcement.attachmentPath!);
+    }
+    if (url == null || url.isEmpty) throw Exception('No file content available.');
+    final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    if (!opened) throw Exception('The browser could not open the file.');
+  } catch (e) {
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text('Unable to download: $e'),
+        backgroundColor: AppTheme.amber500,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+}
+
+class AnnouncementAttachmentTile extends StatelessWidget {
+  final Announcement announcement;
+
+  const AnnouncementAttachmentTile({super.key, required this.announcement});
+
+  @override
+  Widget build(BuildContext context) {
+    if (!announcement.hasAttachment) return const SizedBox.shrink();
+    return Material(
+      color: AppTheme.slate50,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: () => _openAttachment(context, announcement),
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.slate200),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.attach_file_rounded,
+                size: 16,
+                color: AppTheme.maroon,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  announcement.attachmentName ?? 'Attached file',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.slate700,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.download_rounded,
+                size: 16,
+                color: AppTheme.maroon,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
 
 class AnnouncementCard extends StatelessWidget {
   final Announcement announcement;
@@ -147,6 +230,10 @@ class AnnouncementCard extends StatelessWidget {
                   .map((req) => RequirementChip(label: req))
                   .toList(),
             ),
+          ],
+          if (announcement.hasAttachment) ...[
+            const SizedBox(height: 12),
+            AnnouncementAttachmentTile(announcement: announcement),
           ],
           if (announcement.isRejected &&
               announcement.rejectionReason != null &&
@@ -402,6 +489,10 @@ class AnnouncementDetailsDialog extends StatelessWidget {
                             .map((req) => RequirementChip(label: req))
                             .toList(),
                       ),
+                    ],
+                    if (announcement.hasAttachment) ...[
+                      const SizedBox(height: 20),
+                      AnnouncementAttachmentTile(announcement: announcement),
                     ],
                     const SizedBox(height: 20),
                     Wrap(

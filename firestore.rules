@@ -71,7 +71,9 @@ service cloud.firestore {
     }
 
     match /students/{id} {
-      allow read: if isStaff()
+      // Admin reads these too now, to match Payroll records to students
+      // whose account name and roster name differ.
+      allow read: if isStaff() || isAdmin()
         || (
           signedIn()
           && resource.data.userId == request.auth.uid
@@ -103,7 +105,9 @@ service cloud.firestore {
     // Head still reads all reports (used for org-wide hours totals) but
     // doesn't approve/edit/delete individual reports through the UI.
     match /reports/{id} {
-      allow read: if isHead() || isSupervisor()
+      // Admin reads these too now, to verify accomplishment reports before
+      // processing Payroll.
+      allow read: if isHead() || isSupervisor() || isAdmin()
         || (
           signedIn()
           && (
@@ -119,7 +123,9 @@ service cloud.firestore {
     }
 
     match /attendance/{id} {
-      allow read: if isStaff()
+      // Admin reads these too now, to retrieve and verify DTR records
+      // before processing Payroll.
+      allow read: if isStaff() || isAdmin()
         || (
           signedIn()
           && resource.data.studentId == request.auth.uid
@@ -227,6 +233,17 @@ service cloud.firestore {
       allow update: if isHead()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reviewed']);
       allow delete: if isHead();
+    }
+
+    // Payroll: an Admin initiates processing; each record is also readable
+    // by the Student Assistant it was paid to.
+    match /payrollRecords/{id} {
+      allow read: if isAdmin()
+        || (
+          signedIn()
+          && resource.data.studentId == request.auth.uid
+        );
+      allow create, update, delete: if isAdmin();
     }
 
     // Applicant Screening is Head-exclusive.

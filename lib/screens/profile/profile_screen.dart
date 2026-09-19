@@ -861,6 +861,20 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
           ],
         ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: _readonlyField(
+                'SA ID',
+                (user?.saId?.isEmpty ?? true) ? '—' : user!.saId!,
+                Icons.badge_outlined,
+              ),
+            ),
+            const SizedBox(width: 16),
+            const Expanded(child: SizedBox()),
+          ],
+        ),
       ],
     );
   }

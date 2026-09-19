@@ -224,6 +224,25 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                   ),
                                 ),
                                 const SizedBox(height: 16),
+                                if (state.role == 'Head' || state.role == 'Supervisor')
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton.icon(
+                                      onPressed: () async {
+                                        final fixed = await state.recalculateAttendanceHours();
+                                        if (!context.mounted) return;
+                                        _snack(
+                                          context,
+                                          fixed == 0
+                                              ? 'All completed records already have correct hours'
+                                              : 'Recalculated hours for $fixed record(s)',
+                                          AppTheme.emerald500,
+                                        );
+                                      },
+                                      icon: const Icon(Icons.calculate_outlined, size: 16),
+                                      label: const Text('Recalculate Hours'),
+                                    ),
+                                  ),
                                 Align(
                                   alignment: Alignment.centerRight,
                                   child: TextButton.icon(
@@ -283,6 +302,35 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                                     _snack(
                                                       context,
                                                       'Clocked out!',
+                                                      AppTheme.emerald500,
+                                                    );
+                                                  }
+                                                : null,
+                                            onSetTimeOut: r.isActive &&
+                                                    (state.role == 'Head' ||
+                                                        state.role == 'Supervisor')
+                                                ? () async {
+                                                    final picked = await showTimePicker(
+                                                      context: context,
+                                                      initialTime: TimeOfDay.now(),
+                                                    );
+                                                    if (picked == null || !context.mounted) return;
+                                                    final hour = picked.hourOfPeriod == 0
+                                                        ? 12
+                                                        : picked.hourOfPeriod;
+                                                    final minute = picked.minute
+                                                        .toString()
+                                                        .padLeft(2, '0');
+                                                    final period =
+                                                        picked.period == DayPeriod.am ? 'AM' : 'PM';
+                                                    await state.setManualTimeOut(
+                                                      r.id,
+                                                      '$hour:$minute $period',
+                                                    );
+                                                    if (!context.mounted) return;
+                                                    _snack(
+                                                      context,
+                                                      'Time-out recorded and verified',
                                                       AppTheme.emerald500,
                                                     );
                                                   }
@@ -1134,12 +1182,14 @@ class _RecordCard extends StatelessWidget {
   final bool canDelete;
   final VoidCallback? onDelete;
   final VoidCallback? onClockOut;
+  final VoidCallback? onSetTimeOut;
 
   const _RecordCard({
     required this.record,
     required this.canDelete,
     this.onDelete,
     this.onClockOut,
+    this.onSetTimeOut,
   });
 
   @override
@@ -1341,6 +1391,27 @@ class _RecordCard extends StatelessWidget {
                         icon: const Icon(Icons.logout_rounded, size: 14),
                         label: const Text(
                           "Clock Out",
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                  if (onSetTimeOut != null) ...[
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: onSetTimeOut,
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.red500,
+                          side: const BorderSide(color: AppTheme.red500),
+                        ),
+                        icon: const Icon(Icons.edit_calendar_outlined, size: 14),
+                        label: const Text(
+                          "Set Time-Out & Verify",
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w700,

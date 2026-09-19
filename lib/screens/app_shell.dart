@@ -13,6 +13,7 @@ import './accounts/applications_screen.dart';
 import './accounts/applicant_screening_screen.dart';
 import './accounts/admin_announcements_screen.dart';
 import './accounts/create_department_screen.dart';
+import './accounts/payroll_screen.dart';
 import './accounts/skills_screen.dart';
 import './profile/profile_screen.dart';
 import './settings/academic_year_settings_screen.dart';
@@ -63,6 +64,13 @@ class _AppShellState extends State<AppShell> {
       label: 'Departments',
       icon: Icons.business_outlined,
       activeIcon: Icons.business,
+      roles: ['Admin'],
+    ),
+    (
+      id: 'payroll',
+      label: 'Payroll',
+      icon: Icons.payments_outlined,
+      activeIcon: Icons.payments,
       roles: ['Admin'],
     ),
     (
@@ -154,7 +162,7 @@ class _AppShellState extends State<AppShell> {
       label: 'DTR/Accomplishment Report',
       icon: Icons.description_outlined,
       activeIcon: Icons.description,
-      roles: ['Supervisor'],
+      roles: ['Head', 'Supervisor'],
     ),
     // Announcements & Notifications: separate supervisor submission flow.
     (
@@ -246,6 +254,8 @@ class _AppShellState extends State<AppShell> {
         return const AccountsScreen();
       case 'departments':
         return const CreateDepartmentScreen();
+      case 'payroll':
+        return const PayrollScreen();
       case 'skills':
         return const SkillsScreen();
       case 'offices':
@@ -305,6 +315,8 @@ class _AppShellState extends State<AppShell> {
         return 'Applicant Screening';
       case 'departments':
         return 'Departments';
+      case 'payroll':
+        return 'Payroll';
       case 'offices':
         return 'Offices';
       case 'settings':

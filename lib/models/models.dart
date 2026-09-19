@@ -151,6 +151,10 @@ class User {
   final String? studentId;
   final String? courseProgram;
   final String? yearLevel;
+  // Unique Student Assistant Program ID (e.g. "SA 001"), auto-assigned once
+  // the first time a user becomes a Student Assistant — distinct from
+  // studentId, which is the university-issued school ID.
+  final String? saId;
 
   User({
     required this.id,
@@ -167,6 +171,7 @@ class User {
     this.studentId,
     this.courseProgram,
     this.yearLevel,
+    this.saId,
   });
 
   User copyWith({
@@ -183,6 +188,7 @@ class User {
     String? studentId,
     String? courseProgram,
     String? yearLevel,
+    String? saId,
   }) => User(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -198,6 +204,7 @@ class User {
     studentId: studentId ?? this.studentId,
     courseProgram: courseProgram ?? this.courseProgram,
     yearLevel: yearLevel ?? this.yearLevel,
+    saId: saId ?? this.saId,
   );
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -217,6 +224,7 @@ class User {
     studentId: json['studentId'],
     courseProgram: json['courseProgram'],
     yearLevel: json['yearLevel'],
+    saId: json['saId'],
   );
 
   Map<String, dynamic> toJson() => {
@@ -234,6 +242,7 @@ class User {
     'studentId': studentId,
     'courseProgram': courseProgram,
     'yearLevel': yearLevel,
+    'saId': saId,
   };
 
   String get initials {
@@ -716,6 +725,13 @@ class Announcement {
   final String? rejectionReason;
   final String? academicYear;
 
+  /// Optional downloadable file attached to the announcement (e.g. a memo
+  /// or form uploaded by a Head), stored in Supabase storage.
+  final String? attachmentName;
+  final String? attachmentUrl;
+  final String? attachmentPath;
+  final double? attachmentSize;
+
   Announcement({
     required this.id,
     required this.title,
@@ -734,7 +750,14 @@ class Announcement {
     this.approvalStatus = 'Approved',
     this.rejectionReason,
     this.academicYear,
+    this.attachmentName,
+    this.attachmentUrl,
+    this.attachmentPath,
+    this.attachmentSize,
   });
+
+  bool get hasAttachment =>
+      attachmentUrl != null && attachmentUrl!.isNotEmpty;
 
   bool get isPending => approvalStatus == 'Pending';
   bool get isApproved => approvalStatus == 'Approved';
@@ -766,6 +789,10 @@ class Announcement {
     approvalStatus: approvalStatus ?? this.approvalStatus,
     rejectionReason: rejectionReason ?? this.rejectionReason,
     academicYear: academicYear ?? this.academicYear,
+    attachmentName: attachmentName,
+    attachmentUrl: attachmentUrl,
+    attachmentPath: attachmentPath,
+    attachmentSize: attachmentSize,
   );
 }
 
@@ -1173,6 +1200,10 @@ class HeadForward {
   final String title;
   final String fileName;
   final String? downloadUrl;
+  // Supabase storage path for the file. The stored downloadUrl is a signed
+  // URL that expires (~1hr), so downloads should always request a fresh
+  // signed URL from this path rather than opening downloadUrl directly.
+  final String? storagePath;
   final String sentByName;
   final String? sentById;
   final String sentAt;
@@ -1186,6 +1217,7 @@ class HeadForward {
     required this.title,
     required this.fileName,
     this.downloadUrl,
+    this.storagePath,
     required this.sentByName,
     this.sentById,
     required this.sentAt,
@@ -1200,6 +1232,7 @@ class HeadForward {
     title: json['title'] ?? '',
     fileName: json['fileName'] ?? '',
     downloadUrl: json['downloadUrl'],
+    storagePath: json['storagePath'],
     sentByName: json['sentByName'] ?? '',
     sentById: json['sentById'],
     sentAt: json['sentAt'] ?? '',
@@ -1213,6 +1246,7 @@ class HeadForward {
     'title': title,
     'fileName': fileName,
     'downloadUrl': downloadUrl,
+    'storagePath': storagePath,
     'sentByName': sentByName,
     'sentById': sentById,
     'sentAt': sentAt,
@@ -1554,5 +1588,260 @@ class DocumentFolder {
     'createdBy': createdBy,
     'createdAt': createdAt,
   };
+}
+
+/// One row of the batch endorsement letter's Student Assistant table.
+class EndorsementEntry {
+  final String saNumber;
+  final String name;
+  final String office;
+  final String supervisor;
+
+  const EndorsementEntry({
+    required this.saNumber,
+    required this.name,
+    required this.office,
+    required this.supervisor,
+  });
+}
+
+/// Fills the "Endorsement of Student Assistants for Deployment" letter sent
+/// to the VP for Student Affairs and Services — a single-page summary
+/// listing every Approved applicant, for the Head to submit as a batch
+/// instead of one endorsement per student.
+class EndorsementData {
+  final String date;
+  final String semester;
+  final String academicYear;
+  final String effectivePeriod;
+  final String batchLabel;
+  final String vpName;
+  final String campusDirectorName;
+  final String headSwsName;
+  final String preparedByName;
+  final String preparedByTitle;
+  final List<EndorsementEntry> entries;
+
+  const EndorsementData({
+    required this.date,
+    required this.semester,
+    required this.academicYear,
+    required this.effectivePeriod,
+    required this.batchLabel,
+    required this.vpName,
+    required this.campusDirectorName,
+    required this.headSwsName,
+    required this.preparedByName,
+    required this.preparedByTitle,
+    required this.entries,
+  });
+
+  String get semesterLabel => '$semester, AY $academicYear';
+  String get semesterLabelLong => '$semester, Academic Year $academicYear';
+}
+
+/// One calendar month's worth of a Student Assistant's payroll period, so
+/// the 25–40 hour/month rule can still be checked and capped monthly even
+/// though the pay period itself spans a whole semester.
+class PayrollMonthBreakdown {
+  final int month;
+  final int year;
+  final double hoursWorked;
+  final double payableHours;
+
+  const PayrollMonthBreakdown({
+    required this.month,
+    required this.year,
+    required this.hoursWorked,
+    required this.payableHours,
+  });
+
+  bool get meetsMinimumHours => hoursWorked >= PayrollRecord.minimumMonthlyHours;
+  bool get withinMaximumHours => hoursWorked <= PayrollRecord.maximumMonthlyHours;
+
+  factory PayrollMonthBreakdown.fromJson(Map<String, dynamic> json) =>
+      PayrollMonthBreakdown(
+        month: (json['month'] as num?)?.toInt() ?? 1,
+        year: (json['year'] as num?)?.toInt() ?? DateTime.now().year,
+        hoursWorked: (json['hoursWorked'] as num?)?.toDouble() ?? 0,
+        payableHours: (json['payableHours'] as num?)?.toDouble() ?? 0,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'month': month,
+    'year': year,
+    'hoursWorked': hoursWorked,
+    'payableHours': payableHours,
+  };
+}
+
+/// One Student Assistant's payroll line for a full pay period — a semester,
+/// not a single month — built by [AppState.buildPayrollPreview] and
+/// persisted only once an Admin actually runs [AppState.approvePayroll] for
+/// that period.
+///
+/// Work-schedule/compensation policy: a Student Assistant should work
+/// between 25.0 and 40.0 hours per month, paid at a flat rate of ₱25.00 per
+/// verified hour actually worked. Since the pay period can span several
+/// months, that cap is applied per calendar month (see
+/// [PayrollMonthBreakdown]) and the capped monthly amounts are summed for
+/// the semester total.
+class PayrollRecord {
+  static const double ratePerHour = 25.0;
+  static const double minimumMonthlyHours = 25.0;
+  static const double maximumMonthlyHours = 40.0;
+
+  final String id;
+  final String studentId;
+  final String studentName;
+  final String? saId;
+  final String office;
+  final String? campus;
+  final String? department;
+  // ISO 8601 (yyyy-MM-dd) — the pay period's inclusive start/end dates,
+  // e.g. a whole semester rather than one calendar month.
+  final String periodStart;
+  final String periodEnd;
+  final String periodLabel;
+  final List<PayrollMonthBreakdown> monthlyBreakdown;
+  // Sum of actual verified (timed-out, non-archived) attendance hours
+  // across the whole period — never clamped, so under/over-hours can still
+  // be surfaced.
+  final double hoursWorked;
+  // Sum of each month's hoursWorked clamped to [0, maximumMonthlyHours] —
+  // what's actually paid.
+  final double payableHours;
+  final double grossPay;
+  // Whether the System found and could verify DTR (attendance) records for
+  // this student in this period at all.
+  final bool dtrVerified;
+  // Whether the System found an approved accomplishment report (and, more
+  // generally, the payroll requirements it stands in for) for this period.
+  final bool reportVerified;
+  // 'Ready' | 'Incomplete' — computed-only preview states, never persisted.
+  // 'Approved' — an Admin reviewed and approved this amount; recorded in
+  // payroll records, but not yet paid out.
+  // 'Released' — the Admin released the payout; this is the moment the
+  // Student Assistant is notified.
+  final String status;
+  final String? approvedAt;
+  final String? approvedBy;
+  final String? releasedAt;
+  final String? releasedBy;
+
+  const PayrollRecord({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    this.saId,
+    required this.office,
+    this.campus,
+    this.department,
+    required this.periodStart,
+    required this.periodEnd,
+    required this.periodLabel,
+    this.monthlyBreakdown = const [],
+    required this.hoursWorked,
+    required this.payableHours,
+    required this.grossPay,
+    required this.dtrVerified,
+    required this.reportVerified,
+    required this.status,
+    this.approvedAt,
+    this.approvedBy,
+    this.releasedAt,
+    this.releasedBy,
+  });
+
+  bool get meetsMinimumHours =>
+      monthlyBreakdown.isNotEmpty &&
+      monthlyBreakdown.every((m) => m.meetsMinimumHours);
+  bool get withinMaximumHours =>
+      monthlyBreakdown.every((m) => m.withinMaximumHours);
+  bool get isEligible => dtrVerified && reportVerified;
+
+  PayrollRecord copyWith({
+    String? id,
+    String? status,
+    String? approvedAt,
+    String? approvedBy,
+    String? releasedAt,
+    String? releasedBy,
+  }) => PayrollRecord(
+    id: id ?? this.id,
+    studentId: studentId,
+    studentName: studentName,
+    saId: saId,
+    office: office,
+    campus: campus,
+    department: department,
+    periodStart: periodStart,
+    periodEnd: periodEnd,
+    periodLabel: periodLabel,
+    monthlyBreakdown: monthlyBreakdown,
+    hoursWorked: hoursWorked,
+    payableHours: payableHours,
+    grossPay: grossPay,
+    dtrVerified: dtrVerified,
+    reportVerified: reportVerified,
+    status: status ?? this.status,
+    approvedAt: approvedAt ?? this.approvedAt,
+    approvedBy: approvedBy ?? this.approvedBy,
+    releasedAt: releasedAt ?? this.releasedAt,
+    releasedBy: releasedBy ?? this.releasedBy,
+  );
+
+  factory PayrollRecord.fromJson(Map<String, dynamic> json) => PayrollRecord(
+    id: json['_id'] ?? json['id'] ?? '',
+    studentId: json['studentId'] ?? '',
+    studentName: json['studentName'] ?? '',
+    saId: json['saId'],
+    office: json['office'] ?? '',
+    campus: json['campus'],
+    department: json['department'],
+    periodStart: json['periodStart'] ?? '',
+    periodEnd: json['periodEnd'] ?? '',
+    periodLabel: json['periodLabel'] ?? '',
+    monthlyBreakdown:
+        (json['monthlyBreakdown'] as List<dynamic>?)
+            ?.map(
+              (m) => PayrollMonthBreakdown.fromJson(m as Map<String, dynamic>),
+            )
+            .toList() ??
+        const [],
+    hoursWorked: (json['hoursWorked'] as num?)?.toDouble() ?? 0,
+    payableHours: (json['payableHours'] as num?)?.toDouble() ?? 0,
+    grossPay: (json['grossPay'] as num?)?.toDouble() ?? 0,
+    dtrVerified: json['dtrVerified'] == true,
+    reportVerified: json['reportVerified'] == true,
+    status: json['status'] ?? 'Approved',
+    approvedAt: json['approvedAt'],
+    approvedBy: json['approvedBy'],
+    releasedAt: json['releasedAt'],
+    releasedBy: json['releasedBy'],
+  );
+
+  Map<String, dynamic> toJson() => {
+    'studentId': studentId,
+    'studentName': studentName,
+    'saId': saId,
+    'office': office,
+    'campus': campus,
+    'department': department,
+    'periodStart': periodStart,
+    'periodEnd': periodEnd,
+    'periodLabel': periodLabel,
+    'monthlyBreakdown': monthlyBreakdown.map((m) => m.toJson()).toList(),
+    'hoursWorked': hoursWorked,
+    'payableHours': payableHours,
+    'grossPay': grossPay,
+    'dtrVerified': dtrVerified,
+    'reportVerified': reportVerified,
+    'status': status,
+    'approvedAt': approvedAt,
+    'approvedBy': approvedBy,
+    'releasedAt': releasedAt,
+    'releasedBy': releasedBy,
+  }..removeWhere((_, v) => v == null);
 }
 
