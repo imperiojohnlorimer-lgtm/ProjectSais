@@ -153,7 +153,9 @@ class SupabaseStorageService {
     final validPathShape = pathParts.length == 4 ||
         (pathParts[0] == 'applications' && pathParts.length == 5);
     if (!validPathShape ||
-        (pathParts[0] != 'reports' && pathParts[0] != 'applications') ||
+        (pathParts[0] != 'reports' &&
+            pathParts[0] != 'applications' &&
+            pathParts[0] != 'announcements') ||
         pathParts.any((part) => part.isEmpty || part == '.' || part == '..') ||
         pathParts.skip(1).any(
           (part) => !RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(part),
