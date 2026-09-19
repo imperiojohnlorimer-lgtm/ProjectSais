@@ -752,109 +752,126 @@ class _DocTile extends StatelessWidget {
     final hasFile = (entry.downloadUrl != null && entry.downloadUrl!.isNotEmpty) ||
         (entry.storagePath != null && entry.storagePath!.isNotEmpty);
 
+    // A BoxDecoration can't combine borderRadius with a Border whose sides
+    // have different colors/widths (Flutter throws "A borderRadius can only
+    // be given on borders with uniform colors" and fails to paint the whole
+    // decoration+child) — so the accent left edge is a Positioned overlay
+    // in a Stack instead of part of this Container's border. (Deliberately
+    // not a stretched Row sibling either, to keep this tile's height
+    // resolution simple and unambiguous regardless of the parent's
+    // constraints.)
     return Container(
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: AppTheme.slate50,
         borderRadius: BorderRadius.circular(12),
-        border: Border(
-          top: BorderSide(color: accent.withValues(alpha: 0.28)),
-          right: BorderSide(color: accent.withValues(alpha: 0.28)),
-          bottom: BorderSide(color: accent.withValues(alpha: 0.28)),
-          left: BorderSide(color: accent, width: 4),
-        ),
+        border: Border.all(color: accent.withValues(alpha: 0.28)),
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Container(
-            padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(_kindIcons[entry.kind], size: 15, color: accent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _kindLabels[entry.kind]!,
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: accent, letterSpacing: 0.3),
-                      ),
-                    ),
-                    if (entry.reviewed == false)
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
-                      ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: accent.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(_kindIcons[entry.kind], size: 15, color: accent),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  entry.title,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate800),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  entry.subtitle,
-                  style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (hasFile)
-                      ElevatedButton.icon(
-                        onPressed: downloading ? null : onDownload,
-                        icon: downloading
-                            ? const SizedBox(
-                                width: 12,
-                                height: 12,
-                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                              )
-                            : const Icon(Icons.download_rounded, size: 13),
-                        label: Text(downloading ? 'Opening...' : 'Download'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.emerald500,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _kindLabels[entry.kind]!,
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: accent, letterSpacing: 0.3),
+                            ),
+                          ),
+                          if (entry.reviewed == false)
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
+                            ),
+                        ],
                       ),
-                    if (onDelete != null)
-                      OutlinedButton.icon(
-                        onPressed: onDelete,
-                        icon: const Icon(Icons.delete_outline_rounded, size: 13),
-                        label: const Text('Delete'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: AppTheme.red500,
-                          side: const BorderSide(color: AppTheme.red500),
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
+                      const SizedBox(height: 3),
+                      Text(
+                        entry.title,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate800),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                  ],
+                      const SizedBox(height: 4),
+                      Text(
+                        entry.subtitle,
+                        style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (hasFile)
+                            ElevatedButton.icon(
+                              onPressed: downloading ? null : onDownload,
+                              icon: downloading
+                                  ? const SizedBox(
+                                      width: 12,
+                                      height: 12,
+                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                    )
+                                  : const Icon(Icons.download_rounded, size: 13),
+                              label: Text(downloading ? 'Opening...' : 'Download'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.emerald500,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          if (onDelete != null)
+                            OutlinedButton.icon(
+                              onPressed: onDelete,
+                              icon: const Icon(Icons.delete_outline_rounded, size: 13),
+                              label: const Text('Delete'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.red500,
+                                side: const BorderSide(color: AppTheme.red500),
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            child: Container(color: accent),
           ),
         ],
       ),

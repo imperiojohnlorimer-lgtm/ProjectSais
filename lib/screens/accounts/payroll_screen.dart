@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 /// Admin screen: approve and release payroll for a pay period — a whole
 /// semester, not a single month.
@@ -96,41 +97,20 @@ class _PayrollScreenState extends State<PayrollScreen> {
     if (ready.isEmpty) return;
     final total = ready.fold<double>(0, (sum, p) => sum + p.grossPay);
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Approve Payroll',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        content: Text(
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Approve Payroll',
+      message:
           'This will approve and record pay for ${ready.length} Student '
           'Assistant(s) for $_periodLabel, totaling '
           '₱${total.toStringAsFixed(2)}. Payout is not released to students '
           'until you separately click "Release Payout".\n\n'
           '${preview.length - ready.length} student(s) with incomplete '
           'requirements will be skipped.',
-          style: const TextStyle(fontSize: 13.5, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.maroon,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Approve'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Approve',
+      confirmColor: AppTheme.maroon,
     );
-    if (confirmed != true || !context.mounted) return;
+    if (!confirmed || !context.mounted) return;
 
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -172,39 +152,18 @@ class _PayrollScreenState extends State<PayrollScreen> {
     if (approved.isEmpty) return;
     final total = approved.fold<double>(0, (sum, p) => sum + p.grossPay);
 
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text(
-          'Release Payout',
-          style: TextStyle(fontWeight: FontWeight.w800),
-        ),
-        content: Text(
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Release Payout',
+      message:
           'This will release payout to ${approved.length} Student '
           'Assistant(s) for $_periodLabel, totaling '
           '₱${total.toStringAsFixed(2)}, and notify each of them. This '
           'cannot be undone.',
-          style: const TextStyle(fontSize: 13.5, height: 1.5),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.emerald500,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-            ),
-            child: const Text('Release'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Release',
+      confirmColor: AppTheme.emerald500,
     );
-    if (confirmed != true || !context.mounted) return;
+    if (!confirmed || !context.mounted) return;
 
     setState(() => _busy = true);
     final messenger = ScaffoldMessenger.of(context);
@@ -358,6 +317,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         width: 170,
                         child: DropdownButtonFormField<String>(
                           initialValue: _semester,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Semester',
                             isDense: true,
@@ -415,6 +375,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         width: 190,
                         child: DropdownButtonFormField<String>(
                           initialValue: _campusFilter,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Campus',
                             isDense: true,
@@ -429,6 +390,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         width: 190,
                         child: DropdownButtonFormField<String>(
                           initialValue: _departmentFilter,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Department',
                             isDense: true,
@@ -443,6 +405,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         width: 190,
                         child: DropdownButtonFormField<String>(
                           initialValue: _officeFilter,
+                          isExpanded: true,
                           decoration: const InputDecoration(
                             labelText: 'Office',
                             isDense: true,

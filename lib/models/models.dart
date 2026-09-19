@@ -1704,14 +1704,6 @@ class PayrollRecord {
   final String periodEnd;
   final String periodLabel;
   final List<PayrollMonthBreakdown> monthlyBreakdown;
-  // Sum of actual verified (timed-out, non-archived) attendance hours
-  // across the whole period — never clamped, so under/over-hours can still
-  // be surfaced.
-  final double hoursWorked;
-  // Sum of each month's hoursWorked clamped to [0, maximumMonthlyHours] —
-  // what's actually paid.
-  final double payableHours;
-  final double grossPay;
   // Whether the System found and could verify DTR (attendance) records for
   // this student in this period at all.
   final bool dtrVerified;
@@ -1741,9 +1733,6 @@ class PayrollRecord {
     required this.periodEnd,
     required this.periodLabel,
     this.monthlyBreakdown = const [],
-    required this.hoursWorked,
-    required this.payableHours,
-    required this.grossPay,
     required this.dtrVerified,
     required this.reportVerified,
     required this.status,
@@ -1753,12 +1742,13 @@ class PayrollRecord {
     this.releasedBy,
   });
 
-  bool get meetsMinimumHours =>
-      monthlyBreakdown.isNotEmpty &&
-      monthlyBreakdown.every((m) => m.meetsMinimumHours);
-  bool get withinMaximumHours =>
-      monthlyBreakdown.every((m) => m.withinMaximumHours);
-  bool get isEligible => dtrVerified && reportVerified;
+  // Derived from monthlyBreakdown rather than stored separately, so the
+  // totals can never drift from the per-month figures they're built from.
+  double get hoursWorked =>
+      monthlyBreakdown.fold<double>(0, (sum, m) => sum + m.hoursWorked);
+  double get payableHours =>
+      monthlyBreakdown.fold<double>(0, (sum, m) => sum + m.payableHours);
+  double get grossPay => payableHours * ratePerHour;
 
   PayrollRecord copyWith({
     String? id,
@@ -1779,9 +1769,6 @@ class PayrollRecord {
     periodEnd: periodEnd,
     periodLabel: periodLabel,
     monthlyBreakdown: monthlyBreakdown,
-    hoursWorked: hoursWorked,
-    payableHours: payableHours,
-    grossPay: grossPay,
     dtrVerified: dtrVerified,
     reportVerified: reportVerified,
     status: status ?? this.status,
@@ -1809,9 +1796,6 @@ class PayrollRecord {
             )
             .toList() ??
         const [],
-    hoursWorked: (json['hoursWorked'] as num?)?.toDouble() ?? 0,
-    payableHours: (json['payableHours'] as num?)?.toDouble() ?? 0,
-    grossPay: (json['grossPay'] as num?)?.toDouble() ?? 0,
     dtrVerified: json['dtrVerified'] == true,
     reportVerified: json['reportVerified'] == true,
     status: json['status'] ?? 'Approved',
@@ -1832,9 +1816,6 @@ class PayrollRecord {
     'periodEnd': periodEnd,
     'periodLabel': periodLabel,
     'monthlyBreakdown': monthlyBreakdown.map((m) => m.toJson()).toList(),
-    'hoursWorked': hoursWorked,
-    'payableHours': payableHours,
-    'grossPay': grossPay,
     'dtrVerified': dtrVerified,
     'reportVerified': reportVerified,
     'status': status,

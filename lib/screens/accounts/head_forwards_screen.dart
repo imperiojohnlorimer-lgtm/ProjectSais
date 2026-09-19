@@ -565,18 +565,22 @@ class _ForwardTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A BoxDecoration can't combine borderRadius with a Border whose sides
+    // have different colors/widths (Flutter throws "A borderRadius can only
+    // be given on borders with uniform colors" and fails to paint the whole
+    // decoration+child) — so the maroon-accent left edge is a Positioned
+    // overlay in a Stack instead of part of this Container's border.
+    // (Deliberately not a stretched Row sibling either, to keep this tile's
+    // height resolution simple and unambiguous regardless of the parent's
+    // constraints.)
+    final sideColor = item.reviewed ? AppTheme.slate200 : _accent.withValues(alpha: 0.28);
     return Container(
       margin: const EdgeInsets.only(top: 10),
-      padding: const EdgeInsets.all(12),
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: item.reviewed ? AppTheme.slate50 : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border(
-          top: BorderSide(color: item.reviewed ? AppTheme.slate200 : _accent.withValues(alpha: 0.28)),
-          right: BorderSide(color: item.reviewed ? AppTheme.slate200 : _accent.withValues(alpha: 0.28)),
-          bottom: BorderSide(color: item.reviewed ? AppTheme.slate200 : _accent.withValues(alpha: 0.28)),
-          left: BorderSide(color: _accent, width: 4),
-        ),
+        border: Border.all(color: sideColor),
         boxShadow: item.reviewed
             ? null
             : [
@@ -587,92 +591,106 @@ class _ForwardTile extends StatelessWidget {
                 ),
               ],
       ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          Container(
-            padding: const EdgeInsets.all(7),
-            decoration: BoxDecoration(
-              color: _accent.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(_icon, size: 15, color: _accent),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _typeLabel,
-                        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: _accent, letterSpacing: 0.3),
-                      ),
-                    ),
-                    if (!item.reviewed)
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
-                      ),
-                  ],
+                Container(
+                  padding: const EdgeInsets.all(7),
+                  decoration: BoxDecoration(
+                    color: _accent.withValues(alpha: 0.1),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Icon(_icon, size: 15, color: _accent),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  item.title,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate800),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'From ${item.sentByName} · ${item.sentAt}',
-                  style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    if (item.downloadUrl != null || item.storagePath != null)
-                      ElevatedButton.icon(
-                        onPressed: () => _download(context),
-                        icon: const Icon(Icons.download_rounded, size: 13),
-                        label: const Text('Download'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.emerald500,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                          textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _typeLabel,
+                              style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: _accent, letterSpacing: 0.3),
+                            ),
+                          ),
+                          if (!item.reviewed)
+                            Container(
+                              width: 7,
+                              height: 7,
+                              decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
+                            ),
+                        ],
                       ),
-                    OutlinedButton.icon(
-                      onPressed: () => state.setHeadForwardReviewed(item.id, !item.reviewed),
-                      icon: Icon(
-                        item.reviewed ? Icons.check_circle_rounded : Icons.check_circle_outline_rounded,
-                        size: 13,
+                      const SizedBox(height: 3),
+                      Text(
+                        item.title,
+                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate800),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      label: Text(item.reviewed ? 'Reviewed' : 'Mark reviewed'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: item.reviewed ? AppTheme.slate500 : AppTheme.maroon,
-                        side: BorderSide(color: item.reviewed ? AppTheme.slate300 : AppTheme.maroon, width: 1.2),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
-                        minimumSize: Size.zero,
-                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      const SizedBox(height: 4),
+                      Text(
+                        'From ${item.sentByName} · ${item.sentAt}',
+                        style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          if (item.downloadUrl != null || item.storagePath != null)
+                            ElevatedButton.icon(
+                              onPressed: () => _download(context),
+                              icon: const Icon(Icons.download_rounded, size: 13),
+                              label: const Text('Download'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.emerald500,
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          OutlinedButton.icon(
+                            onPressed: () => state.setHeadForwardReviewed(item.id, !item.reviewed),
+                            icon: Icon(
+                              item.reviewed ? Icons.check_circle_rounded : Icons.check_circle_outline_rounded,
+                              size: 13,
+                            ),
+                            label: Text(item.reviewed ? 'Reviewed' : 'Mark reviewed'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: item.reviewed ? AppTheme.slate500 : AppTheme.maroon,
+                              side: BorderSide(color: item.reviewed ? AppTheme.slate300 : AppTheme.maroon, width: 1.2),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
+          ),
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: 4,
+            child: Container(color: _accent),
           ),
         ],
       ),

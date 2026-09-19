@@ -2736,16 +2736,18 @@ class AppState extends ChangeNotifier {
     }).toList();
     notifyListeners();
 
-    for (final entry in corrections.entries) {
-      try {
-        await _firestoreService!.updateAttendance(entry.key, {
-          'totalHours': entry.value,
-        });
-      } catch (_) {
-        // Firestore unavailable for this record — local state is still
-        // fixed; a later run will retry the Firestore write.
-      }
-    }
+    // Each correction targets a different document, so fire them
+    // concurrently instead of paying one round trip at a time.
+    await Future.wait(
+      corrections.entries.map(
+        (entry) => _firestoreService!
+            .updateAttendance(entry.key, {'totalHours': entry.value})
+            .catchError((_) {
+          // Firestore unavailable for this record — local state is still
+          // fixed; a later run will retry the Firestore write.
+        }),
+      ),
+    );
 
     return corrections.length;
   }
@@ -4078,26 +4080,35 @@ class AppState extends ChangeNotifier {
   /// Every name this user's attendance/report rows might be logged under —
   /// their own account name plus any linked Student roster name — lowercase
   /// and trimmed, the same identity-matching approach [effectiveStudents]
-  /// already uses, since attendance is matched by studentName string rather
-  /// than a stable id and the two records can drift apart (e.g. a Student
-  /// roster entry created with slightly different spacing/capitalization).
-  Set<String> _nameKeysFor(User user) {
+  /// already uses, since older attendance/report rows may only have a
+  /// studentName string rather than a stable studentId. [studentsByUserId]/
+  /// [studentsByEmail] are precomputed once by the caller (typically
+  /// [buildPayrollPreview], over every active assistant) rather than
+  /// rescanning the full [students] roster per user.
+  Set<String> _nameKeysFor(
+    User user, {
+    required Map<String, Student> studentsByUserId,
+    required Map<String, Student> studentsByEmail,
+  }) {
     final keys = <String>{user.name.trim().toLowerCase()};
-    for (final s in students) {
-      final matchesById = s.userId != null && s.userId == user.id;
-      final matchesByEmail = s.email.trim().toLowerCase() == user.email.trim().toLowerCase();
-      if (matchesById || matchesByEmail) {
-        keys.add(s.name.trim().toLowerCase());
-      }
-    }
+    final linked = studentsByUserId[user.id] ?? studentsByEmail[user.email.trim().toLowerCase()];
+    if (linked != null) keys.add(linked.name.trim().toLowerCase());
     return keys;
   }
 
+  /// [studentId], when attendance/report rows have one, is preferred over
+  /// the fuzzy [studentNameKeys] match — it's the stable identity clockIn()
+  /// already records, whereas studentName is free text that can drift from
+  /// the account name (case, spacing, a roster rename).
   List<PayrollMonthBreakdown> monthlyHoursInPeriod(
+    String studentId,
     Set<String> studentNameKeys,
     DateTime start,
     DateTime endInclusive,
   ) {
+    bool belongsToStudent(AttendanceRecord a) =>
+        a.studentId == studentId || studentNameKeys.contains(a.studentName.trim().toLowerCase());
+
     return _monthsInRange(start, endInclusive).map((entry) {
       final (month, year) = entry;
       final monthStart = DateTime(year, month, 1);
@@ -4108,7 +4119,7 @@ class AppState extends ChangeNotifier {
       final hours = attendance
           .where(
             (a) =>
-                studentNameKeys.contains(a.studentName.trim().toLowerCase()) &&
+                belongsToStudent(a) &&
                 !a.isArchived &&
                 !a.isActive &&
                 _dateWithinRange(a.date, rangeStart, rangeEnd),
@@ -4166,18 +4177,31 @@ class AppState extends ChangeNotifier {
       (u) => u.role == 'Student Assistant' && u.status == 'Active',
     );
 
+    // Built once for the whole preview rather than rescanning `students`
+    // per assistant inside `_nameKeysFor`.
+    final studentsByUserId = {
+      for (final s in students)
+        if (s.userId != null) s.userId!: s,
+    };
+    final studentsByEmail = {
+      for (final s in students) s.email.trim().toLowerCase(): s,
+    };
+
     return assistants.map((user) {
       final existing = existingByStudent[user.id];
       if (existing != null) return existing;
 
-      final nameKeys = _nameKeysFor(user);
-      final breakdown = monthlyHoursInPeriod(nameKeys, start, endInclusive);
-      final hoursWorked = breakdown.fold<double>(0, (sum, m) => sum + m.hoursWorked);
-      final payableHours = breakdown.fold<double>(0, (sum, m) => sum + m.payableHours);
-      final dtrVerified = hoursWorked > 0;
+      final nameKeys = _nameKeysFor(
+        user,
+        studentsByUserId: studentsByUserId,
+        studentsByEmail: studentsByEmail,
+      );
+      final breakdown = monthlyHoursInPeriod(user.id, nameKeys, start, endInclusive);
+      final dtrVerified = breakdown.any((m) => m.hoursWorked > 0);
       final reportVerified = hasApprovedReportInPeriod(nameKeys, start, endInclusive);
-      final office = officesForUser(user).isNotEmpty
-          ? officesForUser(user).first.name
+      final assignedOffices = officesForUser(user);
+      final office = assignedOffices.isNotEmpty
+          ? assignedOffices.first.name
           : (user.department ?? '');
 
       return PayrollRecord(
@@ -4192,9 +4216,6 @@ class AppState extends ChangeNotifier {
         periodEnd: isoEnd,
         periodLabel: periodLabel,
         monthlyBreakdown: breakdown,
-        hoursWorked: hoursWorked,
-        payableHours: payableHours,
-        grossPay: payableHours * PayrollRecord.ratePerHour,
         dtrVerified: dtrVerified,
         reportVerified: reportVerified,
         status: dtrVerified && reportVerified ? 'Ready' : 'Incomplete',
