@@ -747,11 +747,21 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  bool get isGoogleAccountLinked =>
-      fb_auth.FirebaseAuth.instance.currentUser?.providerData.any(
-        (provider) => provider.providerId == 'google.com',
-      ) ??
-      false;
+  /// Whether the signed-in account has Google linked.
+  ///
+  /// Reports false rather than throwing when Firebase is not initialised:
+  /// this is read while building the profile screen, and a widget tree
+  /// should not fall over because auth is not up yet.
+  bool get isGoogleAccountLinked {
+    try {
+      return fb_auth.FirebaseAuth.instance.currentUser?.providerData.any(
+            (provider) => provider.providerId == 'google.com',
+          ) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<String?> linkGoogleAccount() async {
     final authUser = fb_auth.FirebaseAuth.instance.currentUser;

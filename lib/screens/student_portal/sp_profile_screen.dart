@@ -5,8 +5,8 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/shared_widgets.dart';
 import '../../widgets/avatar_editor.dart';
+import '../../widgets/profile_widgets.dart';
 
 class SpProfileScreen extends StatefulWidget {
   const SpProfileScreen({super.key});
@@ -46,9 +46,7 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
     final messenger = ScaffoldMessenger.maybeOf(context);
 
     try {
-      final picked = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
-      );
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
       if (!mounted || picked == null) return;
 
       final bytes = await picked.readAsBytes();
@@ -89,468 +87,231 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
     }
   }
 
+  void _toggleEditing(AppState state) {
+    if (_isEditing) {
+      state.updateProfile(
+        name: _nameCtrl.text.trim(),
+        phone: _phoneCtrl.text.trim(),
+        address: _addressCtrl.text.trim(),
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Profile updated.'),
+          backgroundColor: AppTheme.emerald500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+    setState(() => _isEditing = !_isEditing);
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final user = state.currentUser;
     final myApps = state.myApplications;
-    final isMobile = MediaQuery.of(context).size.width < 900;
-    final hPad = MediaQuery.of(context).size.width < 600 ? 16.0 : 32.0;
+    final width = MediaQuery.sizeOf(context).width;
+    final isMobile = width < 900;
 
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 28),
+      padding: EdgeInsets.symmetric(
+        horizontal: width < 600 ? 16 : 32,
+        vertical: isMobile ? 20 : 28,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Page heading — identical to profile_screen
-          Row(
-            children: [
-              Container(
-                width: 4,
-                height: 32,
-                decoration: BoxDecoration(
-                  color: AppTheme.maroon,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+          ProfilePageHeading(
+            title: "${user?.name ?? 'Student'}'s Profile",
+            subtitle: 'Manage your personal information and account settings',
+            isMobile: isMobile,
+          ),
+          SizedBox(height: isMobile ? 20 : 28),
+
+          if (isMobile)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _identityCard(user, state),
+                const SizedBox(height: 20),
+                _detailsCard(user, state),
+                const SizedBox(height: 20),
+                _accountCard(user, state),
+                const SizedBox(height: 20),
+                _applicationsCard(myApps),
+              ],
+            )
+          else
+            Column(
+              children: [
+                Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      "${user?.name ?? 'Student'}'s Profile",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.slate900,
-                        letterSpacing: -0.3,
+                    SizedBox(
+                      width: 280,
+                      child: Column(
+                        children: [
+                          _identityCard(user, state),
+                          const SizedBox(height: 20),
+                          _accountCard(user, state),
+                        ],
                       ),
                     ),
-                    const Text(
-                      'Manage your personal information and account settings',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.slate400,
-                        fontWeight: FontWeight.w400,
-                      ),
-                    ),
+                    const SizedBox(width: 20),
+                    Expanded(child: _detailsCard(user, state)),
                   ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 28),
-
-          // Cards — same layout as profile_screen (side-by-side on desktop)
-          isMobile
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _buildProfileCard(user, state),
-                    const SizedBox(height: 20),
-                    _buildInfoCard(user, state),
-                    const SizedBox(height: 20),
-                    _buildApplicationsCard(myApps),
-                  ],
-                )
-              : Column(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        SizedBox(
-                          width: 260,
-                          child: _buildProfileCard(user, state),
-                        ),
-                        const SizedBox(width: 20),
-                        Expanded(child: _buildInfoCard(user, state)),
-                      ],
-                    ),
-                    const SizedBox(height: 20),
-                    _buildApplicationsCard(myApps),
-                  ],
-                ),
-        ],
-      ),
-    );
-  }
-
-  // ── Left: profile avatar card — matches profile_screen exactly ───────
-  Widget _buildProfileCard(User? user, AppState state) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.maroon.withValues(alpha: 0.07),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 6,
-            offset: const Offset(0, 1),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Gradient banner
-          Container(
-            height: 72,
-            decoration: const BoxDecoration(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              gradient: LinearGradient(
-                colors: [AppTheme.maroon, AppTheme.maroonDark],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-          ),
-          // Avatar overlapping banner
-          Transform.translate(
-            offset: const Offset(0, -44),
-            child: Column(
-              children: [
-                SizedBox(
-                  width: 88,
-                  height: 88,
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: 88,
-                        height: 88,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white, width: 3),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.maroon.withValues(alpha: 0.25),
-                              blurRadius: 16,
-                              offset: const Offset(0, 4),
-                            ),
-                          ],
-                        ),
-                        child: ClipOval(
-                          child: UserAvatar(
-                            avatarUrl: user?.avatar,
-                            initials: user?.initials ?? '?',
-                            size: 88,
-                          ),
-                        ),
-                      ),
-                      Positioned(
-                        bottom: 2,
-                        right: 2,
-                        child: Material(
-                          color: Colors.transparent,
-                          child: InkWell(
-                            onTap: _pickProfileImage,
-                            borderRadius: BorderRadius.circular(999),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: AppTheme.gold400,
-                                border: Border.all(
-                                  color: Colors.white,
-                                  width: 2,
-                                ),
-                              ),
-                              child: const Icon(
-                                Icons.camera_alt_rounded,
-                                size: 12,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  user?.name ?? 'Student',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slate900,
-                    letterSpacing: -0.2,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                const SizedBox(height: 5),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 4,
-                  ),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [AppTheme.maroon, AppTheme.maroonDark],
-                    ),
-                    borderRadius: BorderRadius.all(Radius.circular(20)),
-                  ),
-                  child: Text(
-                    state.role.toUpperCase(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1.2,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Contact info
-          Transform.translate(
-            offset: const Offset(0, -28),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Column(
-                children: [
-                  Container(height: 1, color: AppTheme.slate100),
-                  const SizedBox(height: 14),
-                  _contactRow(Icons.email_outlined, user?.email ?? '—'),
-                  const SizedBox(height: 10),
-                  _contactRow(
-                    Icons.phone_outlined,
-                    user?.phone?.isEmpty ?? true ? '—' : user!.phone!,
-                  ),
-                  const SizedBox(height: 10),
-                  _contactRow(
-                    Icons.location_on_outlined,
-                    user?.address?.isEmpty ?? true ? '—' : user!.address!,
-                  ),
-                  const SizedBox(height: 20),
-                ],
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _contactRow(IconData icon, String value) => Row(
-    children: [
-      Container(
-        padding: const EdgeInsets.all(7),
-        decoration: BoxDecoration(
-          color: AppTheme.maroon50,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Icon(icon, size: 14, color: AppTheme.maroon),
-      ),
-      const SizedBox(width: 10),
-      Expanded(
-        child: Text(
-          value,
-          style: const TextStyle(
-            fontSize: 12,
-            color: AppTheme.slate600,
-            fontWeight: FontWeight.w500,
-          ),
-          overflow: TextOverflow.ellipsis,
-        ),
-      ),
-    ],
-  );
-
-  // ── Right: Personal info card — mirrors profile_screen ───────────────
-  Widget _buildInfoCard(User? user, AppState state) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Card header band
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-            decoration: const BoxDecoration(
-              color: AppTheme.slate50,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              border: Border(bottom: BorderSide(color: AppTheme.slate100)),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: AppTheme.maroon50,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(
-                          Icons.badge_outlined,
-                          size: 16,
-                          color: AppTheme.maroon,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Personal Information',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.slate900,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                _editButton(state),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              children: [
-                _isEditing ? _editingFields() : _viewFields(user),
-                const SizedBox(height: 20),
-                _skillsSection(
-                  user,
-                  state,
-                  canEditSkills:
-                      state.role != 'Admin' && state.role != 'Supervisor',
                 ),
                 const SizedBox(height: 20),
-                _googleAccountButton(state),
+                _applicationsCard(myApps),
               ],
             ),
-          ),
         ],
       ),
     );
   }
 
-  Widget _googleAccountButton(AppState state) {
-    final linked = state.isGoogleAccountLinked;
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: linked
-            ? null
-            : () async {
-                final error = await state.linkGoogleAccount();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      error ?? 'Google account linked successfully.',
-                    ),
-                    backgroundColor: error == null
-                        ? AppTheme.emerald500
-                        : AppTheme.red500,
-                    behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                );
-              },
-        icon: Icon(linked ? Icons.check_circle_outline : Icons.link, size: 17),
-        label: Text(linked ? 'Google Account Linked' : 'Link Google Account'),
+  Widget _identityCard(User? user, AppState state) {
+    return ProfileIdentityCard(
+      avatarUrl: user?.avatar,
+      initials: user?.initials ?? '?',
+      name: user?.name ?? 'Student',
+      role: state.role,
+      onEditPhoto: _pickProfileImage,
+      contacts: [
+        ProfileContact(Icons.email_outlined, user?.email ?? '—'),
+        ProfileContact(
+          Icons.phone_outlined,
+          (user?.phone?.isEmpty ?? true) ? '—' : user!.phone!,
+        ),
+        ProfileContact(
+          Icons.location_on_outlined,
+          (user?.address?.isEmpty ?? true) ? '—' : user!.address!,
+        ),
+      ],
+    );
+  }
+
+  Widget _detailsCard(User? user, AppState state) {
+    return ProfileCard(
+      icon: Icons.badge_outlined,
+      title: 'Personal Information',
+      trailing: ProfileEditButton(
+        isEditing: _isEditing,
+        onPressed: () => _toggleEditing(state),
+      ),
+      child: _isEditing ? _editingFields() : _viewFields(user),
+    );
+  }
+
+  Widget _viewFields(User? user) {
+    String orDash(String? value) =>
+        (value == null || value.isEmpty) ? '—' : value;
+
+    return ProfileFieldGrid(
+      fields: [
+        ProfileFieldData('Full name', orDash(user?.name), Icons.person_outline),
+        ProfileFieldData(
+          'Email address',
+          orDash(user?.email),
+          Icons.email_outlined,
+        ),
+        ProfileFieldData(
+          'Phone number',
+          orDash(user?.phone),
+          Icons.phone_outlined,
+        ),
+        ProfileFieldData(
+          'Department',
+          orDash(user?.department),
+          Icons.business_outlined,
+        ),
+        ProfileFieldData(
+          'Campus',
+          orDash(user?.campus),
+          Icons.location_city_outlined,
+        ),
+        ProfileFieldData(
+          'Home address',
+          orDash(user?.address),
+          Icons.location_on_outlined,
+        ),
+        ProfileFieldData(
+          'Student ID',
+          orDash(user?.studentId),
+          Icons.badge_outlined,
+        ),
+        ProfileFieldData(
+          'Course/Program',
+          orDash(user?.courseProgram),
+          Icons.school_outlined,
+        ),
+        ProfileFieldData(
+          'Year level',
+          orDash(user?.yearLevel),
+          Icons.timeline_outlined,
+        ),
+      ],
+    );
+  }
+
+  Widget _editingFields() {
+    return Column(
+      children: [
+        ProfileTextField(
+          label: 'Full name',
+          controller: _nameCtrl,
+          icon: Icons.person_outline,
+        ),
+        const SizedBox(height: 16),
+        ProfileTextField(
+          label: 'Phone number',
+          controller: _phoneCtrl,
+          icon: Icons.phone_outlined,
+        ),
+        const SizedBox(height: 16),
+        ProfileTextField(
+          label: 'Home address',
+          controller: _addressCtrl,
+          icon: Icons.location_on_outlined,
+        ),
+      ],
+    );
+  }
+
+  /// Skills and the Google link are about the account rather than the person,
+  /// so they sit in their own card instead of trailing the details.
+  Widget _accountCard(User? user, AppState state) {
+    return ProfileCard(
+      icon: Icons.manage_accounts_outlined,
+      title: 'Account',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _skillsSection(user, state),
+          const SizedBox(height: 12),
+          _googleAccountButton(state),
+        ],
       ),
     );
   }
 
-  Widget _editButton(AppState state) {
-    return GestureDetector(
-      onTap: () {
-        if (_isEditing) {
-          state.updateProfile(
-            name: _nameCtrl.text.trim(),
-            phone: _phoneCtrl.text.trim(),
-            address: _addressCtrl.text.trim(),
-          );
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Profile updated!'),
-              backgroundColor: AppTheme.emerald500,
-              behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-          );
-        }
-        setState(() => _isEditing = !_isEditing);
-      },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        decoration: BoxDecoration(
-          color: _isEditing ? AppTheme.emerald500 : AppTheme.maroon,
-          borderRadius: BorderRadius.circular(10),
-          boxShadow: [
-            BoxShadow(
-              color: (_isEditing ? AppTheme.emerald500 : AppTheme.maroon)
-                  .withValues(alpha: 0.3),
-              blurRadius: 8,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              _isEditing ? Icons.check_rounded : Icons.edit_outlined,
-              size: 14,
-              color: Colors.white,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              _isEditing ? 'Save Changes' : 'Edit Profile',
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-                fontSize: 12,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _skillsSection(
-    User? user,
-    AppState state, {
-    required bool canEditSkills,
-  }) {
+  /// Read-only here: a student can see their skills, but a Head or Supervisor
+  /// sets them during screening.
+  Widget _skillsSection(User? user, AppState state) {
     if (user == null) return const SizedBox.shrink();
     final selectedSkills = {...state.skillsForUser(user)};
     final availableSkills = {...state.skills, ...selectedSkills}.toList()
       ..sort();
-    return StatefulBuilder(
-      builder: (context, setState) => ExpansionTile(
+
+    return Theme(
+      // Drops the ExpansionTile's default divider lines, which cut right
+      // across the card.
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
         tilePadding: EdgeInsets.zero,
         childrenPadding: const EdgeInsets.only(bottom: 4),
         leading: const Icon(Icons.stars_outlined, color: AppTheme.maroon),
@@ -577,22 +338,10 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
                     (skill) => CheckboxListTile(
                       dense: true,
                       contentPadding: EdgeInsets.zero,
-                      title: Text(skill),
+                      activeColor: AppTheme.maroon,
+                      title: Text(skill, style: const TextStyle(fontSize: 13)),
                       value: selectedSkills.contains(skill),
-                      onChanged: !canEditSkills
-                          ? null
-                          : (checked) async {
-                              setState(() {
-                                if (checked == true) {
-                                  selectedSkills.add(skill);
-                                } else {
-                                  selectedSkills.remove(skill);
-                                }
-                              });
-                              await state.updateProfile(
-                                skills: selectedSkills.toList(),
-                              );
-                            },
+                      onChanged: null,
                     ),
                   )
                   .toList(),
@@ -600,393 +349,111 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
     );
   }
 
-  Widget _viewFields(User? user) => LayoutBuilder(
-    builder: (context, constraints) {
-      final isNarrow = constraints.maxWidth < 520;
-      return Column(
-        children: [
-          if (isNarrow) ...[
-            _readonlyField(
-              'FULL NAME',
-              user?.name ?? '—',
-              Icons.person_outline,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'EMAIL ADDRESS',
-              user?.email ?? '—',
-              Icons.email_outlined,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'PHONE NUMBER',
-              user?.phone?.isEmpty ?? true ? '—' : user!.phone!,
-              Icons.phone_outlined,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'DEPARTMENT',
-              user?.department ?? '—',
-              Icons.business_outlined,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'CAMPUS',
-              user?.campus ?? '—',
-              Icons.location_city_outlined,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'STUDENT ID',
-              user?.studentId?.isEmpty ?? true ? '—' : user!.studentId!,
-              Icons.badge_outlined,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'COURSE/PROGRAM',
-              user?.courseProgram?.isEmpty ?? true ? '—' : user!.courseProgram!,
-              Icons.school_outlined,
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'YEAR LEVEL',
-              user?.yearLevel?.isEmpty ?? true ? '—' : user!.yearLevel!,
-              Icons.timeline_outlined,
-            ),
-          ] else ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _readonlyField(
-                    'FULL NAME',
-                    user?.name ?? '—',
-                    Icons.person_outline,
+  Widget _googleAccountButton(AppState state) {
+    final linked = state.isGoogleAccountLinked;
+    return SizedBox(
+      width: double.infinity,
+      child: OutlinedButton.icon(
+        onPressed: linked
+            ? null
+            : () async {
+                final error = await state.linkGoogleAccount();
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      error ?? 'Google account linked successfully.',
+                    ),
+                    backgroundColor: error == null
+                        ? AppTheme.emerald500
+                        : AppTheme.red500,
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    margin: const EdgeInsets.all(16),
                   ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _readonlyField(
-                    'EMAIL ADDRESS',
-                    user?.email ?? '—',
-                    Icons.email_outlined,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _readonlyField(
-                    'PHONE NUMBER',
-                    user?.phone?.isEmpty ?? true ? '—' : user!.phone!,
-                    Icons.phone_outlined,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _readonlyField(
-                    'DEPARTMENT',
-                    user?.department ?? '—',
-                    Icons.business_outlined,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _readonlyField(
-                    'CAMPUS',
-                    user?.campus ?? '—',
-                    Icons.location_city_outlined,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _readonlyField(
-                    'HOME ADDRESS',
-                    user?.address?.isEmpty ?? true ? '—' : user!.address!,
-                    Icons.location_on_outlined,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(
-                  child: _readonlyField(
-                    'STUDENT ID',
-                    user?.studentId?.isEmpty ?? true ? '—' : user!.studentId!,
-                    Icons.badge_outlined,
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _readonlyField(
-                    'COURSE/PROGRAM',
-                    user?.courseProgram?.isEmpty ?? true ? '—' : user!.courseProgram!,
-                    Icons.school_outlined,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _readonlyField(
-              'YEAR LEVEL',
-              user?.yearLevel?.isEmpty ?? true ? '—' : user!.yearLevel!,
-              Icons.timeline_outlined,
-            ),
-          ],
-          if (isNarrow) ...[
-            const SizedBox(height: 16),
-            _readonlyField(
-              'HOME ADDRESS',
-              user?.address?.isEmpty ?? true ? '—' : user!.address!,
-              Icons.location_on_outlined,
-            ),
-          ],
-        ],
-      );
-    },
-  );
-
-  Widget _readonlyField(String label, String value, IconData icon) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        label,
-        style: const TextStyle(
-          fontSize: 9,
-          fontWeight: FontWeight.w700,
-          color: AppTheme.slate400,
-          letterSpacing: 1.0,
-        ),
+                );
+              },
+        icon: Icon(linked ? Icons.check_circle_outline : Icons.link, size: 17),
+        label: Text(linked ? 'Google account linked' : 'Link Google account'),
       ),
-      const SizedBox(height: 6),
-      Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-        decoration: BoxDecoration(
-          color: AppTheme.slate50,
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.slate200),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 14, color: AppTheme.slate400),
-            const SizedBox(width: 8),
-            Expanded(
+    );
+  }
+
+  Widget _applicationsCard(List<Application> apps) {
+    return ProfileCard(
+      icon: Icons.assignment_outlined,
+      title: 'My Applications',
+      padding: EdgeInsets.zero,
+      trailing: apps.isEmpty
+          ? null
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.maroon,
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Text(
-                value,
+                '${apps.length}',
                 style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: AppTheme.slate700,
+                  fontSize: 11,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w700,
                 ),
-                overflow: TextOverflow.ellipsis,
               ),
             ),
-          ],
-        ),
-      ),
-    ],
-  );
-
-  Widget _editingFields() => LayoutBuilder(
-    builder: (context, constraints) {
-      final isNarrow = constraints.maxWidth < 520;
-      return Column(
-        children: [
-          _editField('Full Name', _nameCtrl, Icons.person_outline),
-          const SizedBox(height: 14),
-          if (isNarrow) ...[
-            _editField('Phone Number', _phoneCtrl, Icons.phone_outlined),
-            const SizedBox(height: 14),
-            _editField(
-              'Home Address',
-              _addressCtrl,
-              Icons.location_on_outlined,
-            ),
-          ] else ...[
-            Row(
-              children: [
-                Expanded(
-                  child: _editField(
-                    'Phone Number',
-                    _phoneCtrl,
-                    Icons.phone_outlined,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: _editField(
-                    'Home Address',
-                    _addressCtrl,
-                    Icons.location_on_outlined,
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      );
-    },
-  );
-
-  Widget _editField(String label, TextEditingController ctrl, IconData icon) =>
-      TextField(
-        controller: ctrl,
-        style: const TextStyle(
-          fontSize: 13,
-          color: AppTheme.slate800,
-          fontWeight: FontWeight.w500,
-        ),
-        decoration: InputDecoration(
-          prefixIcon: Icon(icon, color: AppTheme.maroon, size: 17),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.slate200),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.slate200),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
-          ),
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 14,
-            vertical: 13,
-          ),
-        ),
-      );
-
-  // ── Application history card ─────────────────────────────────────────
-  Widget _buildApplicationsCard(List<Application> apps) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 20,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
-            decoration: const BoxDecoration(
-              color: AppTheme.slate50,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-              border: Border(bottom: BorderSide(color: AppTheme.slate100)),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: AppTheme.maroon50,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.assignment_outlined,
-                    size: 16,
-                    color: AppTheme.maroon,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                const Text(
-                  'My Applications',
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slate900,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                if (apps.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.maroon,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Text(
-                      '${apps.length}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (apps.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 40),
-              child: Column(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(14),
-                    decoration: const BoxDecoration(
-                      color: AppTheme.slate100,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.assignment_outlined,
-                      size: 26,
-                      color: AppTheme.slate300,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  const Center(
-                    child: Text(
-                      'No applications yet',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.slate400,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Center(
-                    child: Text(
-                      'Applications you submit will appear here.',
-                      style: TextStyle(fontSize: 12, color: AppTheme.slate300),
-                    ),
-                  ),
-                ],
-              ),
+      child: apps.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.symmetric(vertical: 40),
+              child: _EmptyApplications(),
             )
-          else
-            ListView.separated(
+          : ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               itemCount: apps.length,
-              separatorBuilder: (_, __) =>
+              separatorBuilder: (_, _) =>
                   Container(height: 1, color: AppTheme.slate100),
               itemBuilder: (_, i) => _AppRow(application: apps[i]),
             ),
-        ],
-      ),
+    );
+  }
+}
+
+class _EmptyApplications extends StatelessWidget {
+  const _EmptyApplications();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(14),
+          decoration: const BoxDecoration(
+            color: AppTheme.slate100,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.assignment_outlined,
+            size: 26,
+            color: AppTheme.slate300,
+          ),
+        ),
+        const SizedBox(height: 12),
+        const Text(
+          'No applications yet',
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.slate400,
+          ),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'Applications you submit will appear here.',
+          style: TextStyle(fontSize: 12, color: AppTheme.slate300),
+        ),
+      ],
     );
   }
 }
@@ -1011,7 +478,7 @@ class _AppRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
           Container(
@@ -1060,6 +527,7 @@ class _AppRow extends StatelessWidget {
               ],
             ),
           ),
+          const SizedBox(width: 10),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
