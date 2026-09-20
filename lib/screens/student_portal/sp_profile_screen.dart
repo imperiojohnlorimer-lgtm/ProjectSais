@@ -6,6 +6,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
+import '../../widgets/avatar_editor.dart';
 
 class SpProfileScreen extends StatefulWidget {
   const SpProfileScreen({super.key});
@@ -36,133 +37,54 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
     super.dispose();
   }
 
+  /// Picks an image, lets the user frame it, then stores the crop.
+  ///
+  /// There is no "are you sure" step before the picker any more: the editor
+  /// is itself the confirmation, and the old sheet just added a tap.
   Future<void> _pickProfileImage() async {
     final appState = context.read<AppState>();
     final messenger = ScaffoldMessenger.maybeOf(context);
 
-    final shouldContinue = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (sheetContext) {
-        final theme = Theme.of(sheetContext);
-        return Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(24),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.08),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
-                ),
-              ],
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 58,
-                    height: 58,
-                    decoration: BoxDecoration(
-                      color: AppTheme.maroon.withValues(alpha: 0.12),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      Icons.photo_camera_outlined,
-                      size: 28,
-                      color: AppTheme.maroon,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Change your profile photo?',
-                    style: theme.textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Pick a new image from your gallery to refresh your account look.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: AppTheme.slate500,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      TextButton(
-                        onPressed: () => Navigator.of(sheetContext).pop(false),
-                        child: const Text('Cancel'),
-                      ),
-                      const SizedBox(width: 8),
-                      FilledButton.icon(
-                        onPressed: () => Navigator.of(sheetContext).pop(true),
-                        icon: const Icon(Icons.arrow_forward_ios, size: 14),
-                        label: const Text('Continue'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-
-    if (!mounted) return;
-    if (shouldContinue != true) return;
-
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
+      final picked = await ImagePicker().pickImage(
         source: ImageSource.gallery,
-        imageQuality: 85,
       );
-
-      if (!mounted) return;
-      if (picked == null) {
-        messenger?.showSnackBar(
-          SnackBar(content: Text('No image selected.'),
-        backgroundColor: AppTheme.amber500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-        );
-        return;
-      }
+      if (!mounted || picked == null) return;
 
       final bytes = await picked.readAsBytes();
-      final extension = picked.name.split('.').last.toLowerCase();
-      final mimeType = extension == 'jpg' || extension == 'jpeg'
-          ? 'image/jpeg'
-          : 'image/$extension';
-      final dataUrl = 'data:$mimeType;base64,${base64Encode(bytes)}';
-      appState.updateProfile(avatar: dataUrl);
+      if (!mounted) return;
+
+      final cropped = await showAvatarEditor(context, bytes);
+      if (!mounted || cropped == null) return;
+
+      await appState.updateProfile(
+        avatar: 'data:image/png;base64,${base64Encode(cropped)}',
+      );
+      if (!mounted) return;
 
       messenger?.showSnackBar(
-        SnackBar(content: Text('Profile picture updated.'),
-        backgroundColor: AppTheme.emerald500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        const SnackBar(
+          content: Text('Profile picture updated.'),
+          backgroundColor: AppTheme.emerald500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(10)),
+          ),
+          margin: EdgeInsets.all(16),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       messenger?.showSnackBar(
-        SnackBar(content: Text('Could not update profile picture: $e'),
-        backgroundColor: AppTheme.red500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        SnackBar(
+          content: Text('Could not update profile picture: $e'),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          shape: const RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(10)),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     }
   }
