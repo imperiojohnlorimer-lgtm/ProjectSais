@@ -5,6 +5,16 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
+/// Formats a due date the way tasks store it everywhere else in the app
+/// ("Mon D, YYYY", e.g. "Sep 19, 2026").
+String _formatDueDate(DateTime d) {
+  const months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+  return '${months[d.month - 1]} ${d.day}, ${d.year}';
+}
+
 class TasksScreen extends StatefulWidget {
   const TasksScreen({super.key});
   @override
@@ -461,7 +471,8 @@ class _TasksScreenState extends State<TasksScreen> {
         ? state.taskCategories.first
         : 'General';
     String? assignedTo;
-    String dueDate = 'May 25, 2026';
+    // Defaults to a week from today; the supervisor can pick any date.
+    DateTime dueDate = DateTime.now().add(const Duration(days: 7));
     List<String> checklistItems = [];
 
     final students = state.filteredStudents;
@@ -612,6 +623,38 @@ class _TasksScreenState extends State<TasksScreen> {
                   ),
                   const SizedBox(height: 12),
                   _dialogField(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(12),
+                      onTap: () async {
+                        final today = DateTime.now();
+                        final picked = await showDatePicker(
+                          context: ctx,
+                          initialDate: dueDate,
+                          firstDate: DateTime(today.year, today.month, today.day),
+                          lastDate: DateTime(today.year + 5, 12, 31),
+                        );
+                        if (picked != null) setSt(() => dueDate = picked);
+                      },
+                      child: InputDecorator(
+                        decoration: const InputDecoration(
+                          labelText: 'Due Date',
+                          border: InputBorder.none,
+                          suffixIcon: Icon(
+                            Icons.calendar_today_outlined,
+                            size: 18,
+                            color: AppTheme.slate400,
+                          ),
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 14,
+                          ),
+                        ),
+                        child: Text(_formatDueDate(dueDate)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _dialogField(
                     child: TextFormField(
                       controller: itemCtrl,
                       decoration: const InputDecoration(
@@ -698,7 +741,7 @@ class _TasksScreenState extends State<TasksScreen> {
                             description: descCtrl.text.trim(),
                             status: 'Not Started',
                             priority: priority,
-                            dueDate: dueDate,
+                            dueDate: _formatDueDate(dueDate),
                             assignedTo: student?.id,
                             assignedToName: student?.name,
                             category: category,

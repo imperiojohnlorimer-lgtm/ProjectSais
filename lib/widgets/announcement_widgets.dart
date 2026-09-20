@@ -565,6 +565,11 @@ class AnnouncementDialog extends StatelessWidget {
   final Widget submitButton;
   final VoidCallback? onClose;
 
+  /// Optional message shown between the scrollable form and the submit
+  /// button. Snackbars render on the page *behind* a dialog, so feedback that
+  /// must be seen while the dialog is open has to live inside it.
+  final Widget? notice;
+
   const AnnouncementDialog({
     super.key,
     required this.title,
@@ -573,6 +578,7 @@ class AnnouncementDialog extends StatelessWidget {
     required this.fields,
     required this.submitButton,
     this.onClose,
+    this.notice,
   });
 
   @override
@@ -666,6 +672,11 @@ class AnnouncementDialog extends StatelessWidget {
                 ),
               ),
             ),
+            if (notice != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 0),
+                child: notice,
+              ),
             Padding(
               padding: const EdgeInsets.all(20),
               child: SizedBox(width: double.infinity, child: submitButton),

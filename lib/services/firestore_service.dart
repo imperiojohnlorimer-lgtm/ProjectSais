@@ -51,16 +51,32 @@ class FirestoreService {
     return await _announcements.add(data);
   }
 
-  /// Streams announcements ordered by `createdAt` descending.
+  /// Streams announcements, newest first by `createdAt`.
+  ///
+  /// Sorted on the client rather than with a server-side `orderBy`: Firestore
+  /// silently drops documents that lack the ordered field, so announcements
+  /// without `createdAt` (added by hand or by older versions) would vanish.
+  /// Those sort last.
   Stream<List<Map<String, dynamic>>> announcementsStream() {
-    return _announcements
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
-              .toList(),
-        );
+    return _announcements.snapshots().map((snap) {
+      final list = snap.docs
+          .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+          .toList();
+      DateTime? created(Map<String, dynamic> m) {
+        final v = m['createdAt'];
+        return v is Timestamp ? v.toDate() : null;
+      }
+
+      list.sort((a, b) {
+        final ca = created(a);
+        final cb = created(b);
+        if (ca == null && cb == null) return 0;
+        if (ca == null) return 1;
+        if (cb == null) return -1;
+        return cb.compareTo(ca);
+      });
+      return list;
+    });
   }
 
   /// Streams attendance documents ordered by `createdAt` descending.

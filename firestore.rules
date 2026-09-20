@@ -58,13 +58,31 @@ service cloud.firestore {
         && request.auth.uid == uid
         && request.resource.data.role == 'Student';
 
-      // Role/status changes (Accounts screen) stay Admin-only.
+      // Role/status changes (Accounts screen) stay Admin-only, with one
+      // exception: approving an application (Applications screen, Head) must
+      // promote the applicant from Student to Student Assistant and record
+      // their SA ID and skills. A Head may only write a profile that keeps
+      // the role as-is or moves Student -> Student Assistant, and may not
+      // change status or email.
       allow update: if isAdmin()
         || (
           signedIn()
           && request.auth.uid == uid
           && request.resource.data.role == resource.data.role
           && request.resource.data.status == resource.data.status
+        )
+        || (
+          isHead()
+          && resource.data.role in ['Student', 'Student Assistant']
+          && (
+            request.resource.data.role == resource.data.role
+            || (
+              resource.data.role == 'Student'
+              && request.resource.data.role == 'Student Assistant'
+            )
+          )
+          && request.resource.data.status == resource.data.status
+          && request.resource.data.email == resource.data.email
         );
 
       allow delete: if isAdmin();

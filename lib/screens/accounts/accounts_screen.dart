@@ -761,7 +761,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                           context,
                           title: 'Archive Account',
                           message:
-                              "Archive ${users[i].name}'s account? They'll be unable to sign in, and can be restored later.",
+                              "Archive ${users[i].name}'s account? They'll be unable to log in, and can be restored later.",
                           confirmLabel: 'Archive',
                           confirmColor: AppTheme.amber500,
                         );

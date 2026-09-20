@@ -150,7 +150,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       SnackBar(
         content: const Text(
           'Account created! We sent a verification link to your email — '
-          'please verify it before signing in.',
+          'please verify it before logging in.',
         ),
         backgroundColor: AppTheme.emerald500,
         behavior: SnackBarBehavior.floating,
@@ -617,7 +617,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 children: [
                   TextSpan(
-                    text: 'Sign in',
+                    text: 'Log in',
                     style: TextStyle(
                       color: AppTheme.maroon,
                       fontWeight: FontWeight.w700,

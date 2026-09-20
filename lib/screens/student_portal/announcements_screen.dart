@@ -458,6 +458,12 @@ class _AnnouncementCard extends StatelessWidget {
     final skillsCtrl = TextEditingController();
     final selectedSkills = <String>{};
     final Map<String, Map<String, dynamic>> uploadedDocuments = {};
+    // Requirements currently uploading, and the in-dialog message. Snackbars
+    // would be hidden behind the dialog, so feedback is shown inside it.
+    final uploadingReqs = <String>{};
+    String? noticeMessage;
+    var noticeIsError = false;
+    var submitting = false;
 
     showDialog(
       context: context,
@@ -467,6 +473,53 @@ class _AnnouncementCard extends StatelessWidget {
           subtitle: 'Fill out the form below to apply',
           icon: Icons.send_outlined,
           onClose: () => Navigator.pop(context),
+          notice: noticeMessage == null
+              ? null
+              : Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: noticeIsError
+                        ? AppTheme.red500.withValues(alpha: 0.08)
+                        : AppTheme.emerald50,
+                    border: Border.all(
+                      color: noticeIsError
+                          ? AppTheme.red500
+                          : AppTheme.emerald500,
+                    ),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(
+                        noticeIsError
+                            ? Icons.error_outline_rounded
+                            : Icons.check_circle_outline_rounded,
+                        size: 16,
+                        color: noticeIsError
+                            ? AppTheme.red500
+                            : AppTheme.emerald500,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          noticeMessage!,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: noticeIsError
+                                ? AppTheme.red500
+                                : AppTheme.emerald500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
           fields: [
             Container(
               width: double.infinity,
@@ -613,8 +666,11 @@ class _AnnouncementCard extends StatelessWidget {
                           ),
                         const SizedBox(height: 8),
                         OutlinedButton.icon(
-                          onPressed: () async {
+                          onPressed: uploadingReqs.contains(req) || submitting
+                              ? null
+                              : () async {
                             final spec = RequirementSpec.parse(req);
+                            var uploadStarted = false;
                             try {
                               final result = await FilePicker.platform
                                   .pickFiles(
@@ -650,6 +706,12 @@ class _AnnouncementCard extends StatelessWidget {
                                 );
                                 final storagePath =
                                   'applications/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/$safeName';
+                                if (!context.mounted) return;
+                                setState(() {
+                                  uploadStarted = true;
+                                  uploadingReqs.add(req);
+                                  noticeMessage = null;
+                                });
                                 final downloadUrl = await SupabaseStorageService
                                     .instance
                                     .uploadDocument(
@@ -660,7 +722,9 @@ class _AnnouncementCard extends StatelessWidget {
                                             file.extension ?? '',
                                           ),
                                     );
+                                if (!context.mounted) return;
                                 setState(() {
+                                  uploadingReqs.remove(req);
                                   uploadedDocuments[req] = {
                                     'fileName': file.name,
                                     'fileSize': file.size,
@@ -669,40 +733,37 @@ class _AnnouncementCard extends StatelessWidget {
                                     'storagePath': storagePath,
                                     'downloadUrl': downloadUrl,
                                   };
+                                  noticeIsError = false;
+                                  noticeMessage =
+                                      '${spec.label} uploaded: ${file.name}';
                                 });
-                                if (context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: Text(
-                                        '${spec.label} uploaded: ${file.name}',
-                                      ),
-                                      backgroundColor: AppTheme.emerald500,
-                                      duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                                  );
-                                }
                               }
                             } catch (e) {
                               if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text('Error uploading file: $e'),
-        backgroundColor: AppTheme.red500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                                );
+                                setState(() {
+                                  if (uploadStarted) uploadingReqs.remove(req);
+                                  noticeIsError = true;
+                                  noticeMessage = 'Error uploading file: $e';
+                                });
                               }
                             }
                           },
-                          icon: const Icon(
-                            Icons.upload_file_outlined,
-                            size: 16,
-                          ),
+                          icon: uploadingReqs.contains(req)
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.upload_file_outlined,
+                                  size: 16,
+                                ),
                           label: Text(
-                            uploadedDocuments.containsKey(req)
+                            uploadingReqs.contains(req)
+                                ? 'Uploading...'
+                                : uploadedDocuments.containsKey(req)
                                 ? 'Replace File'
                                 : 'Upload Document',
                           ),
@@ -902,21 +963,22 @@ class _AnnouncementCard extends StatelessWidget {
               ],
             ),
             child: ElevatedButton(
-              onPressed: () async {
+              onPressed: uploadingReqs.isNotEmpty || submitting
+                  ? null
+                  : () async {
                 if (ann.requirements.isNotEmpty &&
                     uploadedDocuments.length < ann.requirements.length) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Please upload all required documents before submitting',
-                      ),
-                      backgroundColor: AppTheme.red500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                  );
+                  setState(() {
+                    noticeIsError = true;
+                    noticeMessage =
+                        'Please upload all required documents before submitting';
+                  });
                   return;
                 }
+                setState(() {
+                  submitting = true;
+                  noticeMessage = null;
+                });
                 final typedSkills = skillsCtrl.text.trim().isEmpty
                     ? <String>[]
                     : skillsCtrl.text
@@ -970,17 +1032,22 @@ class _AnnouncementCard extends StatelessWidget {
                 );
                 final submitted = await state.submitApplication(app);
                 if (!context.mounted) return;
+                if (!submitted) {
+                  // Keep the dialog open so the uploaded files aren't lost.
+                  setState(() {
+                    submitting = false;
+                    noticeIsError = true;
+                    noticeMessage =
+                        'Application could not be saved. Please try again.';
+                  });
+                  return;
+                }
+                final messenger = ScaffoldMessenger.of(context);
                 Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(
+                messenger.showSnackBar(
                   SnackBar(
-                    content: Text(
-                      submitted
-                          ? 'Application submitted successfully!'
-                          : 'Application could not be saved. Please try again.',
-                    ),
-                    backgroundColor: submitted
-                        ? AppTheme.emerald500
-                        : Colors.red,
+                    content: const Text('Application submitted successfully!'),
+                    backgroundColor: AppTheme.emerald500,
                     behavior: SnackBarBehavior.floating,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
@@ -991,25 +1058,44 @@ class _AnnouncementCard extends StatelessWidget {
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.transparent,
+                disabledBackgroundColor: Colors.transparent,
                 shadowColor: Colors.transparent,
                 minimumSize: const Size(double.infinity, 48),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
               ),
-              child: const Row(
+              child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Text(
-                    'Submit Application',
-                    style: TextStyle(
+                    submitting
+                        ? 'Submitting...'
+                        : uploadingReqs.isNotEmpty
+                        ? 'Uploading file...'
+                        : 'Submit Application',
+                    style: const TextStyle(
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
                       color: Colors.white,
                     ),
                   ),
-                  SizedBox(width: 8),
-                  Icon(Icons.arrow_forward, size: 16, color: Colors.white),
+                  const SizedBox(width: 8),
+                  if (submitting || uploadingReqs.isNotEmpty)
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  else
+                    const Icon(
+                      Icons.arrow_forward,
+                      size: 16,
+                      color: Colors.white,
+                    ),
                 ],
               ),
             ),

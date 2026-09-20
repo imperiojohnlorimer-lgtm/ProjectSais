@@ -211,6 +211,14 @@ class AppState extends ChangeNotifier {
     await _initializeFirebaseAuthUser();
     await _ensureSeeded();
     await _loadNotificationsForCurrentUser();
+    _startRealtimeListeners();
+  }
+
+  /// (Re)starts the Firestore listeners. Called on app start and again after
+  /// login: the rules require a signed-in user, so listeners started before
+  /// sign-in fail with permission-denied and would otherwise stay dead
+  /// (leaving lists like announcements empty) until the app is restarted.
+  void _startRealtimeListeners() {
     // Start listening to Firestore announcements (if available).
     try {
       _firestoreService ??= FirestoreService();
@@ -256,6 +264,8 @@ class AppState extends ChangeNotifier {
           );
         }).toList();
         notifyListeners();
+      }, onError: (Object error) {
+        debugPrint('Announcements stream error: $error');
       });
       // Start listening to attendance collection in real-time so supervisors
       // and admins see updates immediately without refreshing.
@@ -547,6 +557,7 @@ class AppState extends ChangeNotifier {
     // Without this, login can briefly show empty lists until a browser refresh.
     await _loadAllFromFirestore();
     await _loadNotificationsForCurrentUser();
+    _startRealtimeListeners();
     notifyListeners();
     return true;
   }
@@ -594,12 +605,12 @@ class AppState extends ChangeNotifier {
           .signInWithEmailAndPassword(email: email, password: password);
       final authUser = credential.user;
       if (authUser == null) {
-        return 'Unable to sign in. Please try again.';
+        return 'Unable to log in. Please try again.';
       }
 
       if (!authUser.emailVerified) {
         await fb_auth.FirebaseAuth.instance.signOut();
-        return 'Please verify your email address before signing in. A verification link was sent.';
+        return 'Please verify your email address before logging in. A verification link was sent.';
       }
 
       User? existing = await _loadUserProfile(uid: authUser.uid);
@@ -651,7 +662,7 @@ class AppState extends ChangeNotifier {
     try {
       final googleUser = await _googleSignIn.signIn();
       if (googleUser == null) {
-        return 'Google sign-in was cancelled.';
+        return 'Google login was cancelled.';
       }
 
       final googleAuth = await googleUser.authentication;
@@ -670,12 +681,18 @@ class AppState extends ChangeNotifier {
         );
         final authUser = result.user;
         if (authUser == null) {
-          return 'Google sign-in failed. Please try again.';
+          return 'Google login failed. Please try again.';
         }
 
         final email = authUser.email?.toLowerCase() ?? '';
         // Prefer Firestore profile first to avoid local seeded data conflicts.
-        User? existing = await _loadUserProfile(email: email);
+        // Look up by uid first: registered accounts are stored under their
+        // Firebase uid, and the Firestore rules only let a non-staff user read
+        // their own document (an email query is denied for them).
+        User? existing = await _loadUserProfile(
+          uid: authUser.uid,
+          email: email,
+        );
         if (existing == null) {
           try {
             existing = users.firstWhere((u) => u.email.toLowerCase() == email);
@@ -684,17 +701,27 @@ class AppState extends ChangeNotifier {
           }
         }
 
+        // Google sign-in must not create accounts. Firebase has just created
+        // (or reused) an auth user for this Google account, but if nobody
+        // registered it in SAIS there is no profile, so reject the sign-in
+        // the same way email/password login does.
         if (existing == null) {
-          existing = User(
-            id: authUser.uid,
-            name: authUser.displayName?.trim().isNotEmpty == true
-                ? authUser.displayName!
-                : email.split('@').first,
-            email: authUser.email ?? '',
-            role: 'Student',
-          );
-          await _saveUserProfile(existing);
-          await _upsertUser(existing);
+          final isNewAuthUser = result.additionalUserInfo?.isNewUser ?? false;
+          try {
+            if (isNewAuthUser) {
+              // Don't leave an orphan auth user behind for an unregistered
+              // Google account.
+              await authUser.delete();
+            }
+          } catch (_) {}
+          try {
+            await fb_auth.FirebaseAuth.instance.signOut();
+          } catch (_) {}
+          try {
+            await _googleSignIn.signOut();
+          } catch (_) {}
+          return 'No account found for this Google account. '
+              'Please register first, then log in.';
         }
 
         if (existing.status == 'Archived') {
@@ -713,10 +740,10 @@ class AppState extends ChangeNotifier {
           );
           return linkedError;
         }
-        return e.message ?? 'Google sign-in failed: ${e.code}';
+        return e.message ?? 'Google login failed: ${e.code}';
       }
     } catch (error) {
-      return 'Google sign-in failed: $error';
+      return 'Google login failed: $error';
     }
   }
 
@@ -729,7 +756,7 @@ class AppState extends ChangeNotifier {
   Future<String?> linkGoogleAccount() async {
     final authUser = fb_auth.FirebaseAuth.instance.currentUser;
     if (authUser == null) {
-      return 'Please sign in before linking a Google account.';
+      return 'Please log in before linking a Google account.';
     }
     if (isGoogleAccountLinked) {
       return 'A Google account is already linked to this account.';
@@ -769,7 +796,7 @@ class AppState extends ChangeNotifier {
     String email,
     fb_auth.AuthCredential googleCredential,
   ) async {
-    return 'Google sign-in failed because this account exists with a different credential. Please use the existing sign-in provider for this account.';
+    return 'Google login failed because this account exists with a different credential. Please use the existing login provider for this account.';
   }
 
   Future<String?> registerWithEmail(User user, String password) async {
