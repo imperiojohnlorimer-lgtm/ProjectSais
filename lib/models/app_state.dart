@@ -749,17 +749,19 @@ class AppState extends ChangeNotifier {
 
   /// Whether the signed-in account has Google linked.
   ///
-  /// Reports false rather than throwing when Firebase is not initialised:
-  /// this is read while building the profile screen, and a widget tree
-  /// should not fall over because auth is not up yet.
+  /// Unlike the sign-in methods below, this is read while *building* the
+  /// profile screen, so throwing here takes the screen down rather than
+  /// failing an action the user asked for. Before Firebase is initialised
+  /// it reports false instead; every other Firebase error still surfaces.
   bool get isGoogleAccountLinked {
     try {
       return fb_auth.FirebaseAuth.instance.currentUser?.providerData.any(
             (provider) => provider.providerId == 'google.com',
           ) ??
           false;
-    } catch (_) {
-      return false;
+    } on FirebaseException catch (e) {
+      if (e.code == 'no-app') return false;
+      rethrow;
     }
   }
 

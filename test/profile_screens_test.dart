@@ -7,6 +7,7 @@ import 'package:projectsais/screens/profile/profile_screen.dart';
 import 'package:projectsais/screens/student_portal/sp_profile_screen.dart';
 import 'package:projectsais/theme/app_theme.dart';
 import 'package:projectsais/widgets/profile_widgets.dart';
+import 'package:projectsais/widgets/shared_widgets.dart';
 
 User _user({String role = 'Supervisor'}) => User(
   id: 'u_1',
@@ -144,6 +145,57 @@ void main() {
       );
       await tester.pumpAndSettle();
       expect(find.textContaining('Loading profile'), findsOneWidget);
+    });
+  });
+
+  group('ProfileIdentityCard photo control', () {
+    Future<int Function()> pumpCard(WidgetTester tester) async {
+      var taps = 0;
+      tester.view.physicalSize = const Size(400, 700);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.theme,
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 280,
+                child: ProfileIdentityCard(
+                  avatarUrl: null,
+                  initials: 'JC',
+                  name: 'Juan dela Cruz',
+                  role: 'Supervisor',
+                  onEditPhoto: () => taps++,
+                  contacts: const [],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return () => taps;
+    }
+
+    testWidgets('tapping the picture itself asks to change it', (
+      tester,
+    ) async {
+      final taps = await pumpCard(tester);
+      await tester.tap(find.byType(UserAvatar));
+      await tester.pumpAndSettle();
+      expect(taps(), 1);
+    });
+
+    testWidgets('tapping the camera badge asks to change it', (tester) async {
+      // The badge sits in the half of the avatar that overhangs the banner.
+      // Flutter bounds hit testing by a parent's size, so this fails if the
+      // stack around the banner is not tall enough to contain the avatar —
+      // the badge paints but cannot be tapped.
+      final taps = await pumpCard(tester);
+      await tester.tap(find.byIcon(Icons.photo_camera_rounded));
+      await tester.pumpAndSettle();
+      expect(taps(), 1);
     });
   });
 

@@ -219,39 +219,51 @@ class ProfileIdentityCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Banner with the avatar hanging over its lower edge. A Stack with
-          // clipBehavior none rather than a negative Transform, so the
-          // following widgets keep their natural positions.
-          Stack(
-            clipBehavior: Clip.none,
-            alignment: Alignment.topCenter,
-            children: [
-              Container(
-                height: _bannerHeight,
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppTheme.maroon, AppTheme.maroonDark],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  border: Border(
-                    bottom: BorderSide(color: AppTheme.gold400, width: 3),
+          // Banner with the avatar hanging over its lower edge.
+          //
+          // The Stack is sized to contain the whole avatar, not just the
+          // banner. Flutter bounds hit testing by a parent's size, so a
+          // banner-height Stack would paint the overhanging half (with
+          // clipBehavior none) but never let it be tapped — and the camera
+          // button sits in exactly that half.
+          SizedBox(
+            height: _bannerHeight + _avatarSize / 2,
+            child: Stack(
+              children: [
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: _bannerHeight,
+                  child: const DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [AppTheme.maroon, AppTheme.maroonDark],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      border: Border(
+                        bottom: BorderSide(color: AppTheme.gold400, width: 3),
+                      ),
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                top: _bannerHeight - _avatarSize / 2,
-                child: _AvatarWithEditButton(
-                  avatarUrl: avatarUrl,
-                  initials: initials,
-                  onEditPhoto: onEditPhoto,
+                Positioned(
+                  top: _bannerHeight - _avatarSize / 2,
+                  left: 0,
+                  right: 0,
+                  child: Center(
+                    child: _AvatarWithEditButton(
+                      avatarUrl: avatarUrl,
+                      initials: initials,
+                      onEditPhoto: onEditPhoto,
+                    ),
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-          // Room for the half of the avatar that overhangs the banner.
-          const SizedBox(height: _avatarSize / 2 + 14),
+          const SizedBox(height: 14),
 
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 22),
@@ -382,10 +394,26 @@ class _AvatarWithEditButton extends StatelessWidget {
               ],
             ),
             child: ClipOval(
-              child: UserAvatar(
-                avatarUrl: avatarUrl,
-                initials: initials,
-                size: _avatarSize,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  UserAvatar(
+                    avatarUrl: avatarUrl,
+                    initials: initials,
+                    size: _avatarSize,
+                  ),
+                  // The whole picture is the target, not only the little
+                  // badge: reaching for the photo is the obvious gesture.
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: onEditPhoto,
+                      hoverColor: Colors.black.withValues(alpha: 0.18),
+                      splashColor: Colors.black.withValues(alpha: 0.12),
+                      child: const SizedBox.expand(),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
