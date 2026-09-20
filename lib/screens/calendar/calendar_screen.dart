@@ -103,6 +103,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
     final selected = _selectedDay ?? _focusedDay;
     final events = scheduleService.eventsForDay(ownerName, selected);
+
+    // Header figures for this owner's calendar.
+    final now = DateTime.now();
+    final todayCount = scheduleService.eventsForDay(ownerName, now).length;
+    final upcomingCount =
+        List.generate(
+          7,
+          (offset) => now.add(Duration(days: offset + 1)),
+        ).fold<int>(
+          0,
+          (running, day) =>
+              running + scheduleService.eventsForDay(ownerName, day).length,
+        );
+    final allEventCount = scheduleService.eventsFor(ownerName).length;
     final isToday = isSameDay(selected, DateTime.now());
     final isLoading = scheduleService.isLoading(ownerName);
 
@@ -120,20 +134,44 @@ class _CalendarScreenState extends State<CalendarScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Header ──────────────────────────────────────────
-          // On mobile the title and the action buttons no longer share one
-          // Row (that squeezed 'Schedule' down to a sliver and forced the
-          // text to wrap letter-by-letter). Instead the title sits on its
-          // own line and the actions become a compact, horizontally
-          // scrollable chip row underneath — a common, modern mobile
-          // pattern that never overflows regardless of screen width.
-          _titleBlock(isViewingOther),
-          SizedBox(height: isMobile ? 14 : 18),
-          _actionBar(
-            context: context,
-            scheduleService: scheduleService,
-            ownerName: ownerName,
-            isViewingOther: isViewingOther,
+          HeroBanner(
             isMobile: isMobile,
+            icon: Icons.calendar_month_rounded,
+            title: 'Schedule',
+            subtitle: isViewingOther
+                ? "Viewing $_viewingName's schedule"
+                : 'View and manage your upcoming events',
+            stats: [
+              HeroStatData(
+                label: 'Today',
+                value: '$todayCount',
+                icon: Icons.today_rounded,
+              ),
+              HeroStatData(
+                label: 'Selected day',
+                value: '${events.length}',
+                icon: Icons.event_available_rounded,
+              ),
+              HeroStatData(
+                label: 'Next 7 days',
+                value: '$upcomingCount',
+                icon: Icons.upcoming_rounded,
+              ),
+              HeroStatData(
+                label: 'All events',
+                value: '$allEventCount',
+                icon: Icons.event_note_rounded,
+              ),
+            ],
+            filters: [
+              _actionBar(
+                context: context,
+                scheduleService: scheduleService,
+                ownerName: ownerName,
+                isViewingOther: isViewingOther,
+                isMobile: isMobile,
+              ),
+            ],
           ),
 
           if (canViewOthers) ...[
@@ -447,11 +485,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         ),
                         actions: [
                           TextButton(
-                            onPressed: () => Navigator.of(dialogContext).pop(false),
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(false),
                             child: const Text('Cancel'),
                           ),
                           TextButton(
-                            onPressed: () => Navigator.of(dialogContext).pop(true),
+                            onPressed: () =>
+                                Navigator.of(dialogContext).pop(true),
                             child: const Text('Remove'),
                           ),
                         ],
@@ -488,8 +528,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<List<RecurringScheduleRule>> _loadRules(String ownerName) =>
       _rulesRepository.loadRules(ownerName);
 
-  Future<void> _saveRules(String ownerName, List<RecurringScheduleRule> rules) =>
-      _rulesRepository.saveRules(ownerName, rules);
+  Future<void> _saveRules(
+    String ownerName,
+    List<RecurringScheduleRule> rules,
+  ) => _rulesRepository.saveRules(ownerName, rules);
 
   /// Same as [_saveRules], but surfaces a failure (e.g. a Firestore
   /// permission error on this collection) as a visible SnackBar instead of
@@ -507,11 +549,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Could not save schedule: $e'),
-        backgroundColor: AppTheme.red500,
+            backgroundColor: AppTheme.red500,
             duration: const Duration(seconds: 8),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
       }
       return false;
@@ -584,7 +629,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
     await _saveRulesOrShowError(ownerName, rules);
   }
 
-  static const _recurringWeekdayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  static const _recurringWeekdayShort = [
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+  ];
   static const _recurringColorOptions = [
     AppTheme.maroon,
     AppTheme.gold400,
@@ -599,58 +651,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
   ];
 
   // ── Header helpers (responsive) ─────────────────────────────────────
-
-  /// Title + subtitle. Kept in its own Row (no longer squeezed against
-  /// the action buttons) so it always has full width to lay out in.
-  Widget _titleBlock(bool isViewingOther) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 4,
-          height: 32,
-          margin: const EdgeInsets.only(top: 2),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [AppTheme.maroon, AppTheme.maroon.withOpacity(0.55)],
-            ),
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Schedule',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                isViewingOther
-                    ? "Viewing $_viewingName's schedule"
-                    : 'View and manage your upcoming events',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.slate400,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
   /// "Add Schedule" / "Add Subject" / "Add Event" / manage-schedules.
   ///
@@ -686,8 +686,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         icon: Icons.menu_book_outlined,
         label: 'Add Subject',
         dense: isMobile,
-        onTap: () =>
-            _showAddSubjectDialog(context, scheduleService, ownerName),
+        onTap: () => _showAddSubjectDialog(context, scheduleService, ownerName),
       ),
       if (!isViewingOther) ...[
         SizedBox(width: isMobile ? 8 : 10),
@@ -696,8 +695,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           label: 'Add Event',
           filled: true,
           dense: isMobile,
-          onTap: () =>
-              _showAddEventDialog(context, scheduleService, ownerName),
+          onTap: () => _showAddEventDialog(context, scheduleService, ownerName),
         ),
       ],
       SizedBox(width: isMobile ? 6 : 10),
@@ -830,8 +828,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
       text: existingRule?.label ?? 'Class Schedule',
     );
     int weekday = existingRule?.weekday ?? DateTime.monday;
-    TimeOfDay start = existingRule?.startTime ?? const TimeOfDay(hour: 8, minute: 0);
-    TimeOfDay end = existingRule?.endTime ?? const TimeOfDay(hour: 17, minute: 0);
+    TimeOfDay start =
+        existingRule?.startTime ?? const TimeOfDay(hour: 8, minute: 0);
+    TimeOfDay end =
+        existingRule?.endTime ?? const TimeOfDay(hour: 17, minute: 0);
     Color color = existingRule?.color ?? _recurringColorOptions.first;
     IconData icon = existingRule?.icon ?? _recurringIconOptions.first;
     String mode = existingRule?.mode ?? 'Face-to-Face';
@@ -843,8 +843,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           builder: (context, setDialogState) {
             return Dialog(
               backgroundColor: Colors.white,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 400),
                 child: Column(
@@ -855,7 +860,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       title: isEditing ? 'Edit Schedule' : 'Add Schedule',
                       accent: color,
                       onClose: () => Navigator.of(dialogContext).pop(),
-                      subtitle: 'Repeats automatically every week until the end '
+                      subtitle:
+                          'Repeats automatically every week until the end '
                           'of the semester, skipping holidays. Different from '
                           '"Add Event", which is a single one-time entry.',
                     ),
@@ -885,7 +891,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   label: _recurringWeekdayShort[i],
                                   selected: weekday == d,
                                   accent: color,
-                                  onTap: () => setDialogState(() => weekday = d),
+                                  onTap: () =>
+                                      setDialogState(() => weekday = d),
                                 );
                               }),
                             ),
@@ -899,7 +906,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'Face-to-Face',
                                     selected: mode == 'Face-to-Face',
                                     accent: color,
-                                    onTap: () => setDialogState(() => mode = 'Face-to-Face'),
+                                    onTap: () => setDialogState(
+                                      () => mode = 'Face-to-Face',
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -908,7 +917,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'Online',
                                     selected: mode == 'Online',
                                     accent: color,
-                                    onTap: () => setDialogState(() => mode = 'Online'),
+                                    onTap: () =>
+                                        setDialogState(() => mode = 'Online'),
                                   ),
                                 ),
                               ],
@@ -921,8 +931,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'Start',
                                     time: start,
                                     onTap: () async {
-                                      final picked = await showTimePicker(context: context, initialTime: start);
-                                      if (picked != null) setDialogState(() => start = picked);
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: start,
+                                      );
+                                      if (picked != null)
+                                        setDialogState(() => start = picked);
                                     },
                                   ),
                                 ),
@@ -932,8 +946,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'End',
                                     time: end,
                                     onTap: () async {
-                                      final picked = await showTimePicker(context: context, initialTime: end);
-                                      if (picked != null) setDialogState(() => end = picked);
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: end,
+                                      );
+                                      if (picked != null)
+                                        setDialogState(() => end = picked);
                                     },
                                   ),
                                 ),
@@ -944,14 +962,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             const SizedBox(height: 10),
                             Row(
                               children: _recurringColorOptions
-                                  .map((c) => Padding(
-                                        padding: const EdgeInsets.only(right: 12),
-                                        child: _ColorSwatch(
-                                          color: c,
-                                          selected: color == c,
-                                          onTap: () => setDialogState(() => color = c),
-                                        ),
-                                      ))
+                                  .map(
+                                    (c) => Padding(
+                                      padding: const EdgeInsets.only(right: 12),
+                                      child: _ColorSwatch(
+                                        color: c,
+                                        selected: color == c,
+                                        onTap: () =>
+                                            setDialogState(() => color = c),
+                                      ),
+                                    ),
+                                  )
                                   .toList(),
                             ),
                             const SizedBox(height: 18),
@@ -961,12 +982,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               spacing: 10,
                               runSpacing: 10,
                               children: _recurringIconOptions
-                                  .map((i) => _IconTile(
-                                        icon: i,
-                                        selected: icon == i,
-                                        accent: color,
-                                        onTap: () => setDialogState(() => icon = i),
-                                      ))
+                                  .map(
+                                    (i) => _IconTile(
+                                      icon: i,
+                                      selected: icon == i,
+                                      accent: color,
+                                      onTap: () =>
+                                          setDialogState(() => icon = i),
+                                    ),
+                                  )
                                   .toList(),
                             ),
                             const SizedBox(height: 14),
@@ -979,14 +1003,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(Icons.info_outline_rounded, size: 15, color: color),
+                                  Icon(
+                                    Icons.info_outline_rounded,
+                                    size: 15,
+                                    color: color,
+                                  ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       'Repeats every ${_recurringWeekdayShort[weekday - 1]} ($mode) until '
                                       '${academicYearEnd.month}/${academicYearEnd.day}/${academicYearEnd.year}, '
                                       'automatically skipping official holidays.',
-                                      style: const TextStyle(fontSize: 11.5, color: AppTheme.slate600, fontWeight: FontWeight.w500, height: 1.4),
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppTheme.slate600,
+                                        fontWeight: FontWeight.w500,
+                                        height: 1.4,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1003,7 +1036,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       onConfirm: () async {
                         if (labelCtrl.text.trim().isEmpty) return;
                         final rule = RecurringScheduleRule(
-                          id: existingRule?.id ??
+                          id:
+                              existingRule?.id ??
                               'r${DateTime.now().microsecondsSinceEpoch}',
                           ownerName: ownerName,
                           label: labelCtrl.text.trim(),
@@ -1018,12 +1052,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         Navigator.of(dialogContext).pop();
                         final rules = isEditing
                             ? existingRules
-                                .map((r) => r.id == rule.id ? rule : r)
-                                .toList()
+                                  .map((r) => r.id == rule.id ? rule : r)
+                                  .toList()
                             : [...existingRules, rule];
-                        final ok = await _saveRulesOrShowError(ownerName, rules);
+                        final ok = await _saveRulesOrShowError(
+                          ownerName,
+                          rules,
+                        );
                         if (!ok) return;
-                        await _regenerateOccurrences(scheduleService, ownerName, rule);
+                        await _regenerateOccurrences(
+                          scheduleService,
+                          ownerName,
+                          rule,
+                        );
                         if (mounted) setState(() {});
                       },
                     ),
@@ -1059,8 +1100,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final labelCtrl = TextEditingController(text: existingRule?.label ?? '');
     final unitsCtrl = TextEditingController(text: existingRule?.units ?? '');
     int weekday = existingRule?.weekday ?? DateTime.monday;
-    TimeOfDay start = existingRule?.startTime ?? const TimeOfDay(hour: 8, minute: 0);
-    TimeOfDay end = existingRule?.endTime ?? const TimeOfDay(hour: 17, minute: 0);
+    TimeOfDay start =
+        existingRule?.startTime ?? const TimeOfDay(hour: 8, minute: 0);
+    TimeOfDay end =
+        existingRule?.endTime ?? const TimeOfDay(hour: 17, minute: 0);
     Color color = existingRule?.color ?? _recurringColorOptions.first;
     IconData icon = existingRule?.icon ?? Icons.menu_book_outlined;
     String mode = existingRule?.mode ?? 'Face-to-Face';
@@ -1072,8 +1115,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           builder: (context, setDialogState) {
             return Dialog(
               backgroundColor: Colors.white,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 400),
                 child: Column(
@@ -1084,7 +1132,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       title: isEditing ? 'Edit Subject' : 'Add Subject',
                       accent: color,
                       onClose: () => Navigator.of(dialogContext).pop(),
-                      subtitle: 'Adds a recurring class subject — repeats every '
+                      subtitle:
+                          'Adds a recurring class subject — repeats every '
                           'week until the end of the semester — and fills the '
                           'Course/Subject and Units columns on the DTR/Report '
                           'automatically.',
@@ -1124,7 +1173,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   label: _recurringWeekdayShort[i],
                                   selected: weekday == d,
                                   accent: color,
-                                  onTap: () => setDialogState(() => weekday = d),
+                                  onTap: () =>
+                                      setDialogState(() => weekday = d),
                                 );
                               }),
                             ),
@@ -1138,7 +1188,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'Face-to-Face',
                                     selected: mode == 'Face-to-Face',
                                     accent: color,
-                                    onTap: () => setDialogState(() => mode = 'Face-to-Face'),
+                                    onTap: () => setDialogState(
+                                      () => mode = 'Face-to-Face',
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 10),
@@ -1147,7 +1199,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'Online',
                                     selected: mode == 'Online',
                                     accent: color,
-                                    onTap: () => setDialogState(() => mode = 'Online'),
+                                    onTap: () =>
+                                        setDialogState(() => mode = 'Online'),
                                   ),
                                 ),
                               ],
@@ -1160,8 +1213,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'Start',
                                     time: start,
                                     onTap: () async {
-                                      final picked = await showTimePicker(context: context, initialTime: start);
-                                      if (picked != null) setDialogState(() => start = picked);
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: start,
+                                      );
+                                      if (picked != null)
+                                        setDialogState(() => start = picked);
                                     },
                                   ),
                                 ),
@@ -1171,8 +1228,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     label: 'End',
                                     time: end,
                                     onTap: () async {
-                                      final picked = await showTimePicker(context: context, initialTime: end);
-                                      if (picked != null) setDialogState(() => end = picked);
+                                      final picked = await showTimePicker(
+                                        context: context,
+                                        initialTime: end,
+                                      );
+                                      if (picked != null)
+                                        setDialogState(() => end = picked);
                                     },
                                   ),
                                 ),
@@ -1183,14 +1244,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             const SizedBox(height: 10),
                             Row(
                               children: _recurringColorOptions
-                                  .map((c) => Padding(
-                                        padding: const EdgeInsets.only(right: 12),
-                                        child: _ColorSwatch(
-                                          color: c,
-                                          selected: color == c,
-                                          onTap: () => setDialogState(() => color = c),
-                                        ),
-                                      ))
+                                  .map(
+                                    (c) => Padding(
+                                      padding: const EdgeInsets.only(right: 12),
+                                      child: _ColorSwatch(
+                                        color: c,
+                                        selected: color == c,
+                                        onTap: () =>
+                                            setDialogState(() => color = c),
+                                      ),
+                                    ),
+                                  )
                                   .toList(),
                             ),
                             const SizedBox(height: 18),
@@ -1200,12 +1264,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               spacing: 10,
                               runSpacing: 10,
                               children: _recurringIconOptions
-                                  .map((i) => _IconTile(
-                                        icon: i,
-                                        selected: icon == i,
-                                        accent: color,
-                                        onTap: () => setDialogState(() => icon = i),
-                                      ))
+                                  .map(
+                                    (i) => _IconTile(
+                                      icon: i,
+                                      selected: icon == i,
+                                      accent: color,
+                                      onTap: () =>
+                                          setDialogState(() => icon = i),
+                                    ),
+                                  )
                                   .toList(),
                             ),
                             const SizedBox(height: 14),
@@ -1218,14 +1285,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Icon(Icons.info_outline_rounded, size: 15, color: color),
+                                  Icon(
+                                    Icons.info_outline_rounded,
+                                    size: 15,
+                                    color: color,
+                                  ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
                                       'Repeats every ${_recurringWeekdayShort[weekday - 1]} ($mode) until '
                                       '${academicYearEnd.month}/${academicYearEnd.day}/${academicYearEnd.year}, '
                                       'automatically skipping official holidays.',
-                                      style: const TextStyle(fontSize: 11.5, color: AppTheme.slate600, fontWeight: FontWeight.w500, height: 1.4),
+                                      style: const TextStyle(
+                                        fontSize: 11.5,
+                                        color: AppTheme.slate600,
+                                        fontWeight: FontWeight.w500,
+                                        height: 1.4,
+                                      ),
                                     ),
                                   ),
                                 ],
@@ -1244,7 +1320,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         final label = labelCtrl.text.trim();
                         final units = unitsCtrl.text.trim();
                         final rule = RecurringScheduleRule(
-                          id: existingRule?.id ??
+                          id:
+                              existingRule?.id ??
                               'r${DateTime.now().microsecondsSinceEpoch}',
                           ownerName: ownerName,
                           label: label,
@@ -1264,16 +1341,27 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         // label) reflects the same unit count regardless of
                         // which weekday's rule it reads it from.
                         var rules = isEditing
-                            ? existingRules.map((r) => r.id == rule.id ? rule : r).toList()
+                            ? existingRules
+                                  .map((r) => r.id == rule.id ? rule : r)
+                                  .toList()
                             : [...existingRules, rule];
                         rules = rules
-                            .map((r) => r.label == label && r.id != rule.id
-                                ? r.copyWith(units: units)
-                                : r)
+                            .map(
+                              (r) => r.label == label && r.id != rule.id
+                                  ? r.copyWith(units: units)
+                                  : r,
+                            )
                             .toList();
-                        final ok = await _saveRulesOrShowError(ownerName, rules);
+                        final ok = await _saveRulesOrShowError(
+                          ownerName,
+                          rules,
+                        );
                         if (!ok) return;
-                        await _regenerateOccurrences(scheduleService, ownerName, rule);
+                        await _regenerateOccurrences(
+                          scheduleService,
+                          ownerName,
+                          rule,
+                        );
                         if (mounted) setState(() {});
                       },
                     ),
@@ -1302,10 +1390,16 @@ class _CalendarScreenState extends State<CalendarScreen> {
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Text(
             'Recurring Schedules',
-            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: AppTheme.slate900),
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 18,
+              color: AppTheme.slate900,
+            ),
           ),
           content: SizedBox(
             width: 340,
@@ -1330,22 +1424,42 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     color: rule.color.withValues(alpha: 0.12),
                                     borderRadius: BorderRadius.circular(8),
                                   ),
-                                  child: Icon(rule.icon, color: rule.color, size: 16),
+                                  child: Icon(
+                                    rule.icon,
+                                    color: rule.color,
+                                    size: 16,
+                                  ),
                                 ),
                                 const SizedBox(width: 10),
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
-                                      Text(rule.label,
-                                          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slate900)),
-                                      Text('Every ${rule.weekdayName} · ${rule.timeRange} · ${rule.mode}',
-                                          style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500)),
+                                      Text(
+                                        rule.label,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 13,
+                                          color: AppTheme.slate900,
+                                        ),
+                                      ),
+                                      Text(
+                                        'Every ${rule.weekdayName} · ${rule.timeRange} · ${rule.mode}',
+                                        style: const TextStyle(
+                                          fontSize: 11.5,
+                                          color: AppTheme.slate500,
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.slate500),
+                                  icon: const Icon(
+                                    Icons.edit_outlined,
+                                    size: 18,
+                                    color: AppTheme.slate500,
+                                  ),
                                   tooltip: 'Edit',
                                   onPressed: () {
                                     Navigator.of(dialogContext).pop();
@@ -1358,10 +1472,18 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   },
                                 ),
                                 IconButton(
-                                  icon: const Icon(Icons.delete_outline, size: 18, color: AppTheme.red500),
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                    color: AppTheme.red500,
+                                  ),
                                   tooltip: 'Delete',
                                   onPressed: () async {
-                                    await _deleteRule(scheduleService, ownerName, rule);
+                                    await _deleteRule(
+                                      scheduleService,
+                                      ownerName,
+                                      rule,
+                                    );
                                     rules = await _loadRules(ownerName);
                                     setDialogState(() {});
                                     if (mounted) setState(() {});
@@ -1385,7 +1507,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 );
                 if (removed > 0 && mounted) setState(() {});
               },
-              child: const Text('Clean up stray events', style: TextStyle(color: AppTheme.slate500)),
+              child: const Text(
+                'Clean up stray events',
+                style: TextStyle(color: AppTheme.slate500),
+              ),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -1429,11 +1554,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
     if (!mounted) return 0;
     if (orphans.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No stray events found — everything here matches a current schedule.'),
-        backgroundColor: AppTheme.blue500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        SnackBar(
+          content: Text(
+            'No stray events found — everything here matches a current schedule.',
+          ),
+          backgroundColor: AppTheme.blue500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
       return 0;
     }
@@ -1467,11 +1598,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Removed ${orphans.length} stray event${orphans.length == 1 ? '' : 's'}.'),
-        backgroundColor: AppTheme.blue500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        SnackBar(
+          content: Text(
+            'Removed ${orphans.length} stray event${orphans.length == 1 ? '' : 's'}.',
+          ),
+          backgroundColor: AppTheme.blue500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     }
     return orphans.length;
@@ -1511,8 +1648,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
           builder: (context, setDialogState) {
             return Dialog(
               backgroundColor: Colors.white,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+              insetPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 24,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(24),
+              ),
               child: ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 400),
                 child: Column(
@@ -1593,7 +1735,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                       ),
                                     ),
                                     const Spacer(),
-                                    const Icon(Icons.chevron_right_rounded, size: 18, color: AppTheme.slate400),
+                                    const Icon(
+                                      Icons.chevron_right_rounded,
+                                      size: 18,
+                                      color: AppTheme.slate400,
+                                    ),
                                   ],
                                 ),
                               ),
@@ -1609,7 +1755,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                       child: _ColorSwatch(
                                         color: c,
                                         selected: pickedColor == c,
-                                        onTap: () => setDialogState(() => pickedColor = c),
+                                        onTap: () => setDialogState(
+                                          () => pickedColor = c,
+                                        ),
                                       ),
                                     ),
                                   )
@@ -1627,7 +1775,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                       icon: i,
                                       selected: pickedIcon == i,
                                       accent: pickedColor,
-                                      onTap: () => setDialogState(() => pickedIcon = i),
+                                      onTap: () =>
+                                          setDialogState(() => pickedIcon = i),
                                     ),
                                   )
                                   .toList(),
@@ -2769,7 +2918,11 @@ class _DialogHeader extends StatelessWidget {
                 color: AppTheme.slate100,
                 shape: BoxShape.circle,
               ),
-              child: const Icon(Icons.close, size: 16, color: AppTheme.slate500),
+              child: const Icon(
+                Icons.close,
+                size: 16,
+                color: AppTheme.slate500,
+              ),
             ),
           ),
         ],
@@ -2872,10 +3025,7 @@ class _ColorSwatch extends StatelessWidget {
         decoration: BoxDecoration(
           color: color,
           shape: BoxShape.circle,
-          border: Border.all(
-            color: Colors.white,
-            width: selected ? 2.5 : 0,
-          ),
+          border: Border.all(color: Colors.white, width: selected ? 2.5 : 0),
           boxShadow: [
             BoxShadow(
               color: color.withValues(alpha: selected ? 0.45 : 0.2),
@@ -2919,7 +3069,11 @@ class _IconTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: selected ? Border.all(color: accent, width: 1.4) : null,
         ),
-        child: Icon(icon, size: 19, color: selected ? accent : AppTheme.slate400),
+        child: Icon(
+          icon,
+          size: 19,
+          color: selected ? accent : AppTheme.slate400,
+        ),
       ),
     );
   }
@@ -2956,7 +3110,10 @@ class _DialogFooter extends StatelessWidget {
                   borderRadius: BorderRadius.circular(14),
                 ),
               ),
-              child: const Text('Cancel', style: TextStyle(fontWeight: FontWeight.w700)),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
             ),
           ),
           const SizedBox(width: 12),
@@ -3033,7 +3190,11 @@ class _RecurringTimeField extends StatelessWidget {
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Icon(Icons.access_time, size: 15, color: AppTheme.maroon),
+              child: const Icon(
+                Icons.access_time,
+                size: 15,
+                color: AppTheme.maroon,
+              ),
             ),
             const SizedBox(width: 10),
             Expanded(

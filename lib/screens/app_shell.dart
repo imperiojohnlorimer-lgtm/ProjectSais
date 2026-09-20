@@ -415,9 +415,12 @@ class _AppShellState extends State<AppShell> {
                     ),
                     backgroundColor: AppTheme.blue500,
                     duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    margin: const EdgeInsets.all(16),
+                  ),
                 );
               },
               child: const Text('Logout', style: TextStyle(color: Colors.red)),
@@ -728,7 +731,10 @@ class _AppShellState extends State<AppShell> {
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
-                    child: KeyedSubtree(
+                    // AnimatedSwitcher lays children out loose and centred;
+                    // without this a screen shorter than the viewport gets
+                    // floated to the middle with empty bands above and below.
+                    child: SizedBox.expand(
                       key: ValueKey(activeTab),
                       child: _buildBody(activeTab),
                     ),
@@ -1031,9 +1037,12 @@ class _Drawer extends StatelessWidget {
                     ),
                     backgroundColor: AppTheme.blue500,
                     duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    margin: const EdgeInsets.all(16),
+                  ),
                 );
               },
               child: const Text('Logout', style: TextStyle(color: Colors.red)),

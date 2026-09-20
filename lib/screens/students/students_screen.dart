@@ -45,7 +45,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
           selectedOffice == null ||
           selectedOffice.assistantIds.contains(s.userId ?? s.id) ||
           selectedOffice.assistantIds.contains(s.id) ||
-          (s.userId != null && selectedOffice.assistantIds.contains(s.userId)) ||
+          (s.userId != null &&
+              selectedOffice.assistantIds.contains(s.userId)) ||
           selectedOffice.assistantNames.any(
             (name) => name.trim().toLowerCase() == s.name.trim().toLowerCase(),
           );
@@ -69,269 +70,76 @@ class _StudentsScreenState extends State<StudentsScreen> {
       (m, s) => s.totalHours > m ? s.totalHours : m,
     );
 
+    final scopedActive = roleScoped
+        .where((student) => student.status != 'Archived')
+        .toList();
+    final archivedCount = roleScoped
+        .where((student) => student.status == 'Archived')
+        .length;
+    final activeCount = scopedActive
+        .where((student) => student.status == 'Active')
+        .length;
+    final loggedHours = scopedActive.fold<double>(
+      0,
+      (sum, student) => sum + student.totalHours,
+    );
+    final filterIsOffice = state.role == 'Supervisor';
+    final filterValue = filterIsOffice ? _office : _dept;
+    final filterOptions = filterIsOffice ? officeOptions : filterDepartments;
+
     return SingleChildScrollView(
       padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 28),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // ── Header ───────────────────────────────────────────
-          // Title
-          Row(
-            children: [
-              Container(
-                width: 4,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: AppTheme.maroon,
-                  borderRadius: BorderRadius.circular(2),
-                ),
+          HeroBanner(
+            isMobile: isMobile,
+            icon: Icons.school_rounded,
+            title: 'Students',
+            subtitle: 'Manage student assistants',
+            searchHint: 'Search by name or email...',
+            onSearch: (value) => setState(() => _search = value),
+            stats: [
+              HeroStatData(
+                label: 'Students',
+                value: '${scopedActive.length}',
+                icon: Icons.groups_rounded,
               ),
-              const SizedBox(width: 10),
-              const Text(
-                'Students',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                  letterSpacing: -0.3,
-                ),
+              HeroStatData(
+                label: 'Active',
+                value: '$activeCount',
+                icon: Icons.check_circle_rounded,
+              ),
+              HeroStatData(
+                label: 'Archived',
+                value: '$archivedCount',
+                icon: Icons.inventory_2_rounded,
+              ),
+              HeroStatData(
+                label: 'Hours logged',
+                value: '${loggedHours.toStringAsFixed(0)}h',
+                icon: Icons.schedule_rounded,
               ),
             ],
+            filters: [
+              _scopeFilter(
+                value: filterValue,
+                options: filterOptions,
+                isOffice: filterIsOffice,
+                isMobile: isMobile,
+              ),
+              _archiveToggle(),
+            ],
           ),
-          const SizedBox(height: 4),
-          const Padding(
-            padding: EdgeInsets.only(left: 14),
-            child: Text(
-              'Manage student assistants',
-              style: TextStyle(fontSize: 13, color: AppTheme.slate400),
-            ),
-          ),
-          const SizedBox(height: 16),
-          // Search + filter
-          if (isMobile) ...[
-            TextField(
-              onChanged: (v) => setState(() => _search = v),
-              style: const TextStyle(fontSize: 13),
-              decoration: InputDecoration(
-                hintText: 'Search by name or email...',
-                hintStyle: const TextStyle(
-                  color: AppTheme.slate400,
-                  fontSize: 13,
-                ),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  color: AppTheme.slate400,
-                  size: 18,
-                ),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 11,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppTheme.slate200),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppTheme.slate200),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(
-                    color: AppTheme.maroon,
-                    width: 1.5,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.slate200),
-              ),
-              child: DropdownButtonHideUnderline(
-                child: DropdownButton<String>(
-                  value: state.role == 'Supervisor' ? _office : _dept,
-                  isExpanded: true,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.slate700,
-                    fontWeight: FontWeight.w500,
-                  ),
-                  icon: const Icon(
-                    Icons.keyboard_arrow_down_rounded,
-                    color: AppTheme.slate400,
-                    size: 18,
-                  ),
-                  items:
-                      (state.role == 'Supervisor'
-                              ? officeOptions
-                              : filterDepartments)
-                          .map(
-                            (d) => DropdownMenuItem(
-                              value: d,
-                              child: Text(d, overflow: TextOverflow.ellipsis),
-                            ),
-                          )
-                          .toList(),
-                  onChanged: (v) => setState(() {
-                    if (state.role == 'Supervisor') {
-                      _office = v!;
-                    } else {
-                      _dept = v!;
-                    }
-                  }),
-                ),
-              ),
-            ),
-          ] else
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Expanded(
-                  child: TextField(
-                    onChanged: (v) => setState(() => _search = v),
-                    style: const TextStyle(fontSize: 13),
-                    decoration: InputDecoration(
-                      hintText: 'Search by name or email...',
-                      hintStyle: const TextStyle(
-                        color: AppTheme.slate400,
-                        fontSize: 13,
-                      ),
-                      prefixIcon: const Icon(
-                        Icons.search_rounded,
-                        color: AppTheme.slate400,
-                        size: 18,
-                      ),
-                      filled: true,
-                      fillColor: Colors.white,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 11,
-                      ),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppTheme.slate200),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppTheme.slate200),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppTheme.maroon,
-                          width: 1.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 2,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.slate200),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: state.role == 'Supervisor' ? _office : _dept,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.slate700,
-                        fontWeight: FontWeight.w500,
-                      ),
-                      icon: const Icon(
-                        Icons.keyboard_arrow_down_rounded,
-                        color: AppTheme.slate400,
-                        size: 18,
-                      ),
-                      items:
-                          (state.role == 'Supervisor'
-                                  ? officeOptions
-                                  : filterDepartments)
-                              .map(
-                                (d) => DropdownMenuItem(
-                                  value: d,
-                                  child: Text(
-                                    d,
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                      onChanged: (v) => setState(() {
-                        if (state.role == 'Supervisor') {
-                          _office = v!;
-                        } else {
-                          _dept = v!;
-                        }
-                      }),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          const SizedBox(height: 12),
-          // Archived toggle
-          GestureDetector(
-            onTap: () => setState(() => _showArchived = !_showArchived),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: _showArchived ? AppTheme.amber50 : Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _showArchived
-                      ? AppTheme.amber500.withValues(alpha: 0.4)
-                      : AppTheme.slate200,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.archive_outlined,
-                    size: 15,
-                    color: _showArchived
-                        ? AppTheme.amber500
-                        : AppTheme.slate400,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _showArchived
-                        ? 'Showing archived students'
-                        : 'Show archived students',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: _showArchived
-                          ? AppTheme.amber500
-                          : AppTheme.slate500,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
 
           // ── Table card ───────────────────────────────────────
           Container(
             decoration: BoxDecoration(
               color: Colors.white,
               borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: AppTheme.slate200),
               boxShadow: [
                 BoxShadow(
                   color: AppTheme.maroon.withValues(alpha: 0.06),
@@ -427,14 +235,30 @@ class _StudentsScreenState extends State<StudentsScreen> {
                   ),
                   child: Row(
                     children: [
+                      const Icon(
+                        Icons.filter_list_rounded,
+                        size: 14,
+                        color: AppTheme.slate300,
+                      ),
+                      const SizedBox(width: 7),
                       Text(
                         '${students.length} student${students.length != 1 ? 's' : ''} found',
                         style: const TextStyle(
                           fontSize: 12,
-                          color: AppTheme.slate400,
-                          fontWeight: FontWeight.w500,
+                          color: AppTheme.slate500,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
+                      const Spacer(),
+                      if (_showArchived)
+                        const Text(
+                          'Archived view',
+                          style: TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.amber500,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -442,6 +266,114 @@ class _StudentsScreenState extends State<StudentsScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  /// Department (or office, for supervisors) picker shown in the header
+  /// toolbar next to the search field.
+  Widget _scopeFilter({
+    required String value,
+    required List<String> options,
+    required bool isOffice,
+    required bool isMobile,
+  }) {
+    return Container(
+      height: 40,
+      constraints: BoxConstraints(maxWidth: isMobile ? 420 : 260),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: value,
+          isExpanded: isMobile,
+          borderRadius: BorderRadius.circular(10),
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppTheme.slate700,
+            fontWeight: FontWeight.w600,
+          ),
+          icon: const Icon(
+            Icons.keyboard_arrow_down_rounded,
+            color: AppTheme.slate400,
+            size: 18,
+          ),
+          items: options
+              .map(
+                (option) => DropdownMenuItem(
+                  value: option,
+                  child: Row(
+                    children: [
+                      Icon(
+                        isOffice
+                            ? Icons.business_rounded
+                            : Icons.apartment_rounded,
+                        size: 14,
+                        color: AppTheme.maroon.withValues(alpha: 0.65),
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(option, overflow: TextOverflow.ellipsis),
+                      ),
+                    ],
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (selected) => setState(() {
+            if (isOffice) {
+              _office = selected!;
+            } else {
+              _dept = selected!;
+            }
+          }),
+        ),
+      ),
+    );
+  }
+
+  Widget _archiveToggle() {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: () => setState(() => _showArchived = !_showArchived),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 13),
+        decoration: BoxDecoration(
+          color: _showArchived ? AppTheme.amber50 : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: _showArchived
+                ? AppTheme.amber500.withValues(alpha: 0.5)
+                : AppTheme.slate200,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _showArchived
+                  ? Icons.inventory_2_rounded
+                  : Icons.archive_outlined,
+              size: 16,
+              color: _showArchived ? AppTheme.amber500 : AppTheme.slate400,
+            ),
+            const SizedBox(width: 7),
+            Text(
+              _showArchived ? 'Viewing archived' : 'Archived',
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: _showArchived ? AppTheme.amber500 : AppTheme.slate500,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -572,29 +504,7 @@ class _StudentRowState extends State<_StudentRow> {
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 3,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isActive
-                              ? AppTheme.emerald500.withValues(alpha: 0.1)
-                              : AppTheme.slate100,
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          s.status.toUpperCase(),
-                          style: TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.5,
-                            color: isActive
-                                ? AppTheme.emerald500
-                                : AppTheme.slate400,
-                          ),
-                        ),
-                      ),
+                      _StatusPill(status: s.status),
                     ],
                   ),
                   const SizedBox(height: 2),
@@ -633,16 +543,10 @@ class _StudentRowState extends State<_StudentRow> {
                       ),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: LinearProgressIndicator(
-                            value: progress,
-                            minHeight: 5,
-                            backgroundColor: AppTheme.slate100,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              isActive ? AppTheme.maroon : AppTheme.slate300,
-                            ),
-                          ),
+                        child: _HoursBar(
+                          progress: progress,
+                          active: isActive,
+                          height: 5,
                         ),
                       ),
                     ],
@@ -711,12 +615,45 @@ class _StudentRowState extends State<_StudentRow> {
       onExit: (_) => setState(() => _hovered = false),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
-        color: _hovered ? AppTheme.maroon50 : Colors.transparent,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+        decoration: BoxDecoration(
+          gradient: _hovered
+              ? const LinearGradient(
+                  begin: Alignment.centerLeft,
+                  end: Alignment.centerRight,
+                  colors: [AppTheme.maroon50, Colors.white],
+                  stops: [0, 0.6],
+                )
+              : null,
+          border: Border(
+            left: BorderSide(
+              color: _hovered ? AppTheme.maroon : Colors.transparent,
+              width: 3,
+            ),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(17, 14, 20, 14),
         child: Row(
           children: [
             // Avatar
-            UserAvatar(avatarUrl: s.avatar, initials: s.initials, size: 44),
+            Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.maroon.withValues(
+                      alpha: _hovered ? 0.22 : 0.1,
+                    ),
+                    blurRadius: _hovered ? 12 : 6,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: UserAvatar(
+                avatarUrl: s.avatar,
+                initials: s.initials,
+                size: 44,
+              ),
+            ),
             const SizedBox(width: 12),
 
             // Name + email
@@ -748,44 +685,33 @@ class _StudentRowState extends State<_StudentRow> {
             // Department
             Expanded(
               flex: 3,
-              child: Text(
-                s.department,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.slate600,
-                  fontWeight: FontWeight.w400,
-                ),
-                overflow: TextOverflow.ellipsis,
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.apartment_rounded,
+                    size: 14,
+                    color: AppTheme.slate300,
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                    child: Text(
+                      s.department,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.slate600,
+                        fontWeight: FontWeight.w500,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               ),
             ),
 
             // Status badge
             SizedBox(
               width: 90,
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? AppTheme.emerald500.withValues(alpha: 0.1)
-                        : AppTheme.slate200,
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    s.status.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                      color: isActive ? AppTheme.emerald500 : AppTheme.slate500,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
+              child: Center(child: _StatusPill(status: s.status)),
             ),
 
             // Hours + progress bar
@@ -797,23 +723,13 @@ class _StudentRowState extends State<_StudentRow> {
                     '${s.totalHours.toStringAsFixed(0)}h',
                     style: const TextStyle(
                       fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.slate700,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.slate800,
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(4),
-                      child: LinearProgressIndicator(
-                        value: progress,
-                        minHeight: 6,
-                        backgroundColor: AppTheme.slate100,
-                        valueColor: AlwaysStoppedAnimation<Color>(
-                          isActive ? AppTheme.maroon : AppTheme.slate300,
-                        ),
-                      ),
-                    ),
+                    child: _HoursBar(progress: progress, active: isActive),
                   ),
                 ],
               ),
@@ -1343,41 +1259,46 @@ class _StudentRowState extends State<_StudentRow> {
   void _showHistoryDialog(BuildContext context, AppState state, Student s) {
     final normalizedName = s.name.trim().toLowerCase();
 
-    final evaluations = state.evaluations
-        .where(
-          (e) =>
-              e.studentId == s.id ||
-              (s.userId != null && e.studentId == s.userId) ||
-              e.studentName.trim().toLowerCase() == normalizedName,
-        )
-        .toList()
-      ..sort((a, b) => (b.createdAt ?? '').compareTo(a.createdAt ?? ''));
+    final evaluations =
+        state.evaluations
+            .where(
+              (e) =>
+                  e.studentId == s.id ||
+                  (s.userId != null && e.studentId == s.userId) ||
+                  e.studentName.trim().toLowerCase() == normalizedName,
+            )
+            .toList()
+          ..sort((a, b) => (b.createdAt ?? '').compareTo(a.createdAt ?? ''));
 
-    final reports = state.reports
-        .where(
-          (r) =>
-              r.applicantId == s.id ||
-              (s.userId != null && r.applicantId == s.userId) ||
-              r.studentName.trim().toLowerCase() == normalizedName,
-        )
-        .toList()
-      ..sort((a, b) => (b.submittedAt ?? '').compareTo(a.submittedAt ?? ''));
+    final reports =
+        state.reports
+            .where(
+              (r) =>
+                  r.applicantId == s.id ||
+                  (s.userId != null && r.applicantId == s.userId) ||
+                  r.studentName.trim().toLowerCase() == normalizedName,
+            )
+            .toList()
+          ..sort(
+            (a, b) => (b.submittedAt ?? '').compareTo(a.submittedAt ?? ''),
+          );
 
-    final screenings = state.screeningRecords
-        .where(
-          (r) =>
-              r.applicantId == s.id ||
-              (s.userId != null && r.applicantId == s.userId) ||
-              r.fullName.trim().toLowerCase() == normalizedName,
-        )
-        .toList()
-      ..sort(
-        (a, b) {
-          final byYear = (b.academicYear ?? '').compareTo(a.academicYear ?? '');
-          if (byYear != 0) return byYear;
-          return b.interviewerDate.compareTo(a.interviewerDate);
-        },
-      );
+    final screenings =
+        state.screeningRecords
+            .where(
+              (r) =>
+                  r.applicantId == s.id ||
+                  (s.userId != null && r.applicantId == s.userId) ||
+                  r.fullName.trim().toLowerCase() == normalizedName,
+            )
+            .toList()
+          ..sort((a, b) {
+            final byYear = (b.academicYear ?? '').compareTo(
+              a.academicYear ?? '',
+            );
+            if (byYear != 0) return byYear;
+            return b.interviewerDate.compareTo(a.interviewerDate);
+          });
 
     showDialog(
       context: context,
@@ -1421,14 +1342,21 @@ class _StudentRowState extends State<_StudentRow> {
                           const SizedBox(height: 2),
                           Text(
                             s.name,
-                            style: const TextStyle(fontSize: 12.5, color: AppTheme.slate500),
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppTheme.slate500,
+                            ),
                           ),
                         ],
                       ),
                     ),
                     IconButton(
                       onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded, size: 18, color: AppTheme.slate400),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 18,
+                        color: AppTheme.slate400,
+                      ),
                     ),
                   ],
                 ),
@@ -1440,54 +1368,76 @@ class _StudentRowState extends State<_StudentRow> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (evaluations.isEmpty && reports.isEmpty && screenings.isEmpty)
+                      if (evaluations.isEmpty &&
+                          reports.isEmpty &&
+                          screenings.isEmpty)
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 40),
                           child: Center(
                             child: Column(
                               children: [
-                                Icon(Icons.history_toggle_off_rounded, size: 34, color: AppTheme.slate300),
+                                Icon(
+                                  Icons.history_toggle_off_rounded,
+                                  size: 34,
+                                  color: AppTheme.slate300,
+                                ),
                                 const SizedBox(height: 10),
                                 Text(
                                   'No assessment records yet',
-                                  style: const TextStyle(fontSize: 13, color: AppTheme.slate400, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppTheme.slate400,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ],
                             ),
                           ),
                         ),
                       if (screenings.isNotEmpty) ...[
-                        _historySectionLabel('Applicant Screening', screenings.length),
+                        _historySectionLabel(
+                          'Applicant Screening',
+                          screenings.length,
+                        ),
                         for (final r in screenings)
                           _historyTile(
                             icon: Icons.fact_check_outlined,
                             color: AppTheme.blue500,
                             title: r.recommendation,
-                            subtitle: 'By ${r.interviewerName.isEmpty ? '—' : r.interviewerName} · ${r.interviewerDate}',
+                            subtitle:
+                                'By ${r.interviewerName.isEmpty ? '—' : r.interviewerName} · ${r.interviewerDate}',
                             year: r.academicYear,
                           ),
                         const SizedBox(height: 14),
                       ],
                       if (evaluations.isNotEmpty) ...[
-                        _historySectionLabel('Performance Evaluations', evaluations.length),
+                        _historySectionLabel(
+                          'Performance Evaluations',
+                          evaluations.length,
+                        ),
                         for (final e in evaluations)
                           _historyTile(
                             icon: Icons.grading_outlined,
                             color: AppTheme.maroon,
                             title: '${e.term} · Overall ${e.overallRating}/10',
-                            subtitle: 'By ${e.supervisorName.isEmpty ? '—' : e.supervisorName} · ${e.periodCovered}',
+                            subtitle:
+                                'By ${e.supervisorName.isEmpty ? '—' : e.supervisorName} · ${e.periodCovered}',
                             year: e.academicYear,
                           ),
                         const SizedBox(height: 14),
                       ],
                       if (reports.isNotEmpty) ...[
-                        _historySectionLabel('DTR / Accomplishment Reports', reports.length),
+                        _historySectionLabel(
+                          'DTR / Accomplishment Reports',
+                          reports.length,
+                        ),
                         for (final r in reports)
                           _historyTile(
                             icon: Icons.event_note_outlined,
                             color: AppTheme.emerald500,
                             title: r.title.isEmpty ? 'Report' : r.title,
-                            subtitle: '${r.status} · ${r.submittedAt ?? 'No date'}',
+                            subtitle:
+                                '${r.status} · ${r.submittedAt ?? 'No date'}',
                             year: r.academicYear,
                           ),
                       ],
@@ -1547,13 +1497,20 @@ class _StudentRowState extends State<_StudentRow> {
             children: [
               Text(
                 title,
-                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate800),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.slate800,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
               const SizedBox(height: 3),
               Text(
                 subtitle,
-                style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: AppTheme.slate500,
+                ),
                 overflow: TextOverflow.ellipsis,
               ),
             ],
@@ -1568,7 +1525,11 @@ class _StudentRowState extends State<_StudentRow> {
             ),
             child: Text(
               'AY $year',
-              style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.slate500),
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate500,
+              ),
             ),
           ),
       ],
@@ -1759,6 +1720,93 @@ class _StudentRowState extends State<_StudentRow> {
             ),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Status chip with a leading dot, used in the student table.
+class _StatusPill extends StatelessWidget {
+  final String status;
+
+  const _StatusPill({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (status) {
+      'Active' => AppTheme.emerald500,
+      'Archived' => AppTheme.slate400,
+      'Inactive' => AppTheme.red500,
+      _ => AppTheme.amber500,
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.28)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            status.toUpperCase(),
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.5,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Hours bar that animates to its value, in maroon/gold for active students
+/// and grey for everyone else.
+class _HoursBar extends StatelessWidget {
+  final double progress;
+  final bool active;
+  final double height;
+
+  const _HoursBar({
+    required this.progress,
+    required this.active,
+    this.height = 6,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(height),
+      child: Stack(
+        children: [
+          Container(height: height, color: AppTheme.slate100),
+          LayoutBuilder(
+            builder: (context, constraints) => AnimatedContainer(
+              duration: const Duration(milliseconds: 400),
+              curve: Curves.easeOutCubic,
+              height: height,
+              width: constraints.maxWidth * progress,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: active
+                      ? [AppTheme.maroon, AppTheme.maroonLight]
+                      : [AppTheme.slate300, AppTheme.slate200],
+                ),
+                borderRadius: BorderRadius.circular(height),
+              ),
+            ),
           ),
         ],
       ),

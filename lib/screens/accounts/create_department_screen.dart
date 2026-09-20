@@ -4,159 +4,77 @@ import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
-class CreateDepartmentScreen extends StatelessWidget {
+class CreateDepartmentScreen extends StatefulWidget {
   const CreateDepartmentScreen({super.key});
+
+  @override
+  State<CreateDepartmentScreen> createState() => _CreateDepartmentScreenState();
+}
+
+class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
+  String _search = '';
 
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
     final hPad = isMobile ? 16.0 : 28.0;
     final state = context.watch<AppState>();
-    final departments = state.departments;
+    final query = _search.trim().toLowerCase();
+    final allDepartments = state.departments;
+    final departments = allDepartments
+        .where((dept) => query.isEmpty || dept.toLowerCase().contains(query))
+        .toList();
+
+    // How many people each department currently has on the books.
+    final assigned = <String, int>{};
+    for (final user in state.users) {
+      final dept = user.department?.trim();
+      if (dept == null || dept.isEmpty) continue;
+      assigned[dept.toLowerCase()] = (assigned[dept.toLowerCase()] ?? 0) + 1;
+    }
+    final staffedCount = allDepartments
+        .where((dept) => (assigned[dept.trim().toLowerCase()] ?? 0) > 0)
+        .length;
+    final peopleCount = allDepartments.fold<int>(
+      0,
+      (sum, dept) => sum + (assigned[dept.trim().toLowerCase()] ?? 0),
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
-        // FIX: title + "Create Department" button used to sit in one Row
-        // with a Spacer and no wrapping — on a ~360px phone the button
-        // couldn't fit next to the title, causing the overflow cutoff.
-        // Below the mobile breakpoint they now stack, with the button
-        // full-width underneath instead of squeezed alongside.
         Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-          child: isMobile
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Container(
-                          width: 4,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: AppTheme.maroon,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        const Text(
-                          'Departments',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.slate900,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Padding(
-                      padding: EdgeInsets.only(left: 14, top: 3),
-                      child: Text(
-                        'Create and manage departments',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.slate400,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: () => _showCreateDepartmentDialog(context),
-                        icon: const Icon(Icons.add_business_outlined, size: 15),
-                        label: const Text(
-                          'Create Department',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.maroon,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 12,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          elevation: 0,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Container(
-                              width: 4,
-                              height: 28,
-                              decoration: BoxDecoration(
-                                color: AppTheme.maroon,
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            const Text(
-                              'Departments',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: AppTheme.slate900,
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.only(left: 14, top: 3),
-                          child: Text(
-                            'Create and manage departments',
-                            style: TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.slate400,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Spacer(),
-                    ElevatedButton.icon(
-                      onPressed: () => _showCreateDepartmentDialog(context),
-                      icon: const Icon(Icons.add_business_outlined, size: 15),
-                      label: const Text(
-                        'Create Department',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                      ),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.maroon,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 18,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        elevation: 0,
-                      ),
-                    ),
-                  ],
-                ),
+          child: HeroBanner(
+            isMobile: isMobile,
+            icon: Icons.apartment_rounded,
+            title: 'Departments',
+            subtitle: 'Create and manage departments',
+            searchHint: 'Search departments...',
+            onSearch: (value) => setState(() => _search = value),
+            addLabel: 'Create Department',
+            onAdd: () => _showCreateDepartmentDialog(context),
+            stats: [
+              HeroStatData(
+                label: 'Departments',
+                value: '${allDepartments.length}',
+                icon: Icons.business_rounded,
+              ),
+              HeroStatData(
+                label: 'With members',
+                value: '$staffedCount',
+                icon: Icons.check_circle_rounded,
+              ),
+              HeroStatData(
+                label: 'People',
+                value: '$peopleCount',
+                icon: Icons.groups_rounded,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 18),
 
         // ── Content ─────────────────────────────────────────
         Expanded(
@@ -184,18 +102,22 @@ class CreateDepartmentScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          const Text(
-                            'No departments yet',
-                            style: TextStyle(
+                          Text(
+                            query.isEmpty
+                                ? 'No departments yet'
+                                : 'No departments match your search',
+                            style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
                               color: AppTheme.slate900,
                             ),
                           ),
                           const SizedBox(height: 4),
-                          const Text(
-                            'Create a department to get started',
-                            style: TextStyle(
+                          Text(
+                            query.isEmpty
+                                ? 'Create a department to get started'
+                                : 'Try a different search term',
+                            style: const TextStyle(
                               fontSize: 13,
                               color: AppTheme.slate500,
                             ),
@@ -234,7 +156,9 @@ class CreateDepartmentScreen extends StatelessWidget {
                               borderRadius: BorderRadius.circular(20),
                             ),
                             child: Text(
-                              '${departments.length} total',
+                              query.isEmpty
+                                  ? '${departments.length} total'
+                                  : '${departments.length} of ${allDepartments.length}',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.w600,

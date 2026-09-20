@@ -6,11 +6,13 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../models/recurring_schedule.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 import '../../services/dtr_accomplishment_report_document_service.dart';
 import '../../services/recurring_schedule_repository.dart';
 import '../../services/schedule_service.dart';
 import '../../utils/web_download_stub.dart'
-    if (dart.library.html) '../../utils/web_download.dart' as web_download;
+    if (dart.library.html) '../../utils/web_download.dart'
+    as web_download;
 
 /// Supervisor screen: generate a student assistant's official
 /// "DTR/Accomplishment Report/Class Schedule" document for a given month,
@@ -31,8 +33,18 @@ class _DtrAccomplishmentReportScreenState
   Student? _reportStudent;
 
   static const _months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   @override
@@ -69,8 +81,17 @@ class _DtrAccomplishmentReportScreenState
       return q.isEmpty ||
           s.name.toLowerCase().contains(q) ||
           s.department.toLowerCase().contains(q);
-    }).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    }).toList()..sort((a, b) => a.name.compareTo(b.name));
+
+    final verifiedByStudent = {
+      for (final student in all)
+        student.name: state.verifiedDtrHoursForStudent(student.name),
+    };
+    final withHours = verifiedByStudent.values.where((h) => h > 0).length;
+    final totalVerified = verifiedByStudent.values.fold<double>(
+      0,
+      (running, hours) => running + hours,
+    );
 
     return Container(
       decoration: const BoxDecoration(
@@ -86,27 +107,39 @@ class _DtrAccomplishmentReportScreenState
         children: [
           Padding(
             padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-            child: _header(),
-          ),
-          const SizedBox(height: 20),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: hPad),
-            child: isMobile
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _monthDropdown(),
-                      const SizedBox(height: 10),
-                      _searchField(),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      SizedBox(width: 230, child: _monthDropdown()),
-                      const SizedBox(width: 12),
-                      Expanded(child: _searchField()),
-                    ],
-                  ),
+            child: HeroBanner(
+              isMobile: isMobile,
+              icon: Icons.fact_check_rounded,
+              title: 'DTR / Accomplishment Report',
+              subtitle:
+                  'Generate the official form for a student assistant, '
+                  'pre-filled from verified DTR records',
+              searchHint: 'Search by name or department...',
+              onSearch: (value) => setState(() => _search = value),
+              filters: [SizedBox(width: 190, child: _monthDropdown())],
+              stats: [
+                HeroStatData(
+                  label: 'Assistants',
+                  value: '${all.length}',
+                  icon: Icons.groups_rounded,
+                ),
+                HeroStatData(
+                  label: 'With DTR hours',
+                  value: '$withHours',
+                  icon: Icons.check_circle_rounded,
+                ),
+                HeroStatData(
+                  label: 'Verified hours',
+                  value: totalVerified.toStringAsFixed(1),
+                  icon: Icons.access_time_filled_rounded,
+                ),
+                HeroStatData(
+                  label: 'Period',
+                  value: _months[_month.month - 1].substring(0, 3),
+                  icon: Icons.calendar_month_rounded,
+                ),
+              ],
+            ),
           ),
           const SizedBox(height: 18),
           Expanded(
@@ -124,87 +157,49 @@ class _DtrAccomplishmentReportScreenState
     );
   }
 
-  Widget _header() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      ShaderMask(
-        shaderCallback: (bounds) => const LinearGradient(
-          colors: [AppTheme.maroon, AppTheme.maroonDark],
-        ).createShader(bounds),
-        child: const Text(
-          'DTR / Accomplishment Report',
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            letterSpacing: -0.4,
-          ),
+  Widget _monthDropdown() => SizedBox(
+    height: 40,
+    child: DropdownButtonFormField<int>(
+      initialValue: _month.month,
+      isDense: true,
+      icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: AppTheme.slate700,
+      ),
+      decoration: InputDecoration(
+        isDense: true,
+        prefixIcon: const Icon(
+          Icons.calendar_month_rounded,
+          size: 16,
+          color: AppTheme.slate400,
+        ),
+        prefixIconConstraints: const BoxConstraints(minWidth: 34),
+        filled: true,
+        fillColor: Colors.white,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppTheme.slate200),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppTheme.slate200),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
         ),
       ),
-      const SizedBox(height: 5),
-      const Text(
-        'Generate the official DTR/Accomplishment Report/Class Schedule '
-        'form for a student assistant, pre-filled from verified DTR '
-        'records',
-        style: TextStyle(fontSize: 13, color: AppTheme.slate500, height: 1.3),
+      items: List.generate(
+        12,
+        (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
       ),
-    ],
-  );
-
-  Widget _monthDropdown() => DropdownButtonFormField<int>(
-    initialValue: _month.month,
-    icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
-    decoration: InputDecoration(
-      labelText: 'Month',
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
-      ),
-    ),
-    items: List.generate(
-      12,
-      (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
-    ),
-    onChanged: (v) =>
-        setState(() => _month = DateTime(_month.year, v ?? _month.month)),
-  );
-
-  Widget _searchField() => TextField(
-    onChanged: (v) => setState(() => _search = v),
-    decoration: InputDecoration(
-      hintText: 'Search student assistant by name or department...',
-      prefixIcon:
-          const Icon(Icons.search_rounded, size: 20, color: AppTheme.slate400),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
-      ),
+      onChanged: (v) =>
+          setState(() => _month = DateTime(_month.year, v ?? _month.month)),
     ),
   );
-
   Widget _emptyState() => Center(
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 60),
@@ -220,8 +215,11 @@ class _DtrAccomplishmentReportScreenState
               ),
               shape: BoxShape.circle,
             ),
-            child: const Icon(Icons.fact_check_outlined,
-                size: 38, color: AppTheme.slate300),
+            child: const Icon(
+              Icons.fact_check_outlined,
+              size: 38,
+              color: AppTheme.slate300,
+            ),
           ),
           const SizedBox(height: 18),
           const Text(
@@ -267,7 +265,9 @@ class _DtrAccomplishmentReportScreenState
             Container(
               height: 4,
               decoration: const BoxDecoration(
-                gradient: LinearGradient(colors: [AppTheme.maroon, AppTheme.gold]),
+                gradient: LinearGradient(
+                  colors: [AppTheme.maroon, AppTheme.gold],
+                ),
               ),
             ),
             Padding(
@@ -316,8 +316,11 @@ class _DtrAccomplishmentReportScreenState
                             const SizedBox(height: 2),
                             Row(
                               children: [
-                                const Icon(Icons.apartment_rounded,
-                                    size: 12, color: AppTheme.slate400),
+                                const Icon(
+                                  Icons.apartment_rounded,
+                                  size: 12,
+                                  color: AppTheme.slate400,
+                                ),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
@@ -337,57 +340,54 @@ class _DtrAccomplishmentReportScreenState
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 13),
+                  // Chips and the action share one row so the card stays
+                  // compact; they wrap onto separate lines when narrow.
                   Wrap(
                     spacing: 8,
-                    runSpacing: 8,
+                    runSpacing: 10,
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      _basisChip(
-                        icon: Icons.access_time_filled_rounded,
-                        label:
-                            'Verified DTR: ${verifiedHours.toStringAsFixed(1)} hrs',
-                        ok: verifiedHours > 0,
-                      ),
-                      _basisChip(
-                        icon: Icons.calendar_month_rounded,
-                        label: '${_months[_month.month - 1]} ${_month.year}',
-                        ok: true,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(11),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.maroon.withValues(alpha: 0.25),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton.icon(
-                          onPressed: () =>
-                              _openReportBuilder(context, state, student),
-                          icon: const Icon(Icons.description_rounded, size: 16),
-                          label: const Text(
-                            'Generate Report',
-                            style:
-                                TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          _basisChip(
+                            icon: Icons.access_time_filled_rounded,
+                            label:
+                                'Verified DTR: ${verifiedHours.toStringAsFixed(1)} hrs',
+                            ok: verifiedHours > 0,
                           ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.maroon,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 16, vertical: 11),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(11),
-                            ),
+                          _basisChip(
+                            icon: Icons.calendar_month_rounded,
+                            label:
+                                '${_months[_month.month - 1]} ${_month.year}',
+                            ok: true,
+                          ),
+                        ],
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () =>
+                            _openReportBuilder(context, state, student),
+                        icon: const Icon(Icons.description_rounded, size: 16),
+                        label: const Text(
+                          'Generate Report',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.maroon,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 11,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
                         ),
                       ),
@@ -412,13 +412,19 @@ class _DtrAccomplishmentReportScreenState
       color: ok ? AppTheme.emerald50 : AppTheme.slate50,
       borderRadius: BorderRadius.circular(9),
       border: Border.all(
-        color: ok ? AppTheme.emerald500.withValues(alpha: 0.2) : AppTheme.slate200,
+        color: ok
+            ? AppTheme.emerald500.withValues(alpha: 0.2)
+            : AppTheme.slate200,
       ),
     ),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 13, color: ok ? AppTheme.emerald500 : AppTheme.slate400),
+        Icon(
+          icon,
+          size: 13,
+          color: ok ? AppTheme.emerald500 : AppTheme.slate400,
+        ),
         const SizedBox(width: 6),
         Text(
           label,
@@ -432,7 +438,11 @@ class _DtrAccomplishmentReportScreenState
     ),
   );
 
-  void _openReportBuilder(BuildContext context, AppState state, Student student) {
+  void _openReportBuilder(
+    BuildContext context,
+    AppState state,
+    Student student,
+  ) {
     setState(() => _reportStudent = student);
   }
 }
@@ -445,16 +455,32 @@ class _DtrReportBuilderScreen extends StatefulWidget {
   final DateTime month;
   final VoidCallback onBack;
 
-  const _DtrReportBuilderScreen({super.key, required this.student, required this.month, required this.onBack});
+  const _DtrReportBuilderScreen({
+    super.key,
+    required this.student,
+    required this.month,
+    required this.onBack,
+  });
 
   @override
-  State<_DtrReportBuilderScreen> createState() => _DtrReportBuilderScreenState();
+  State<_DtrReportBuilderScreen> createState() =>
+      _DtrReportBuilderScreenState();
 }
 
 class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   static const _months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   late List<DtrDayEntry> _days;
@@ -510,7 +536,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// [_scheduleOwnerNameCandidates] name and merging the results (deduped
   /// by rule id) — see that method for why a single name isn't reliable
   /// enough to bet the whole lookup on.
-  Future<List<RecurringScheduleRule>> _loadAllRulesForStudent(AppState state) async {
+  Future<List<RecurringScheduleRule>> _loadAllRulesForStudent(
+    AppState state,
+  ) async {
     const repo = RecurringScheduleRepository();
     final merged = <String, RecurringScheduleRule>{};
     for (final name in _scheduleOwnerNameCandidates(state)) {
@@ -669,9 +697,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // table — plain "Add Schedule" entries (e.g. a general work shift) are
     // a different kind of thing and should never end up here, even though
     // they're the same underlying rule type under the hood.
-    final rules = (await _loadAllRulesForStudent(state))
-        .where((r) => r.isSubject)
-        .toList();
+    final rules = (await _loadAllRulesForStudent(
+      state,
+    )).where((r) => r.isSubject).toList();
     if (!mounted) return;
     if (manual) setState(() => _syncingSchedule = false);
 
@@ -685,7 +713,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // row here too. A row the supervisor typed in by hand has no
     // sourceRuleLabel and is never touched by this.
     final hadRemovals = _schedule.any(
-      (r) => r.sourceRuleLabel != null && !currentLabels.contains(r.sourceRuleLabel),
+      (r) =>
+          r.sourceRuleLabel != null &&
+          !currentLabels.contains(r.sourceRuleLabel),
     );
     if (hadRemovals) {
       setState(() {
@@ -717,11 +747,14 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
               'If the student added one from their own account, check that '
               'account\'s exact name against this student\'s profile.',
             ),
-        backgroundColor: AppTheme.blue500,
+            backgroundColor: AppTheme.blue500,
             duration: const Duration(seconds: 6),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
       }
       return;
@@ -814,11 +847,15 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         _days = refreshedDays;
       });
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Class Schedule synced.'),
-        backgroundColor: AppTheme.emerald500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        SnackBar(
+          content: Text('Class Schedule synced.'),
+          backgroundColor: AppTheme.emerald500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     }
   }
@@ -848,8 +885,18 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// convention — everything is still editable afterward for corrections.
   List<DtrDayEntry> _buildDaysFromAttendance(AppState state) {
     const monthAbbr = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     final prefix = '${monthAbbr[widget.month.month - 1]} ';
     final yearSuffix = ', ${widget.month.year}';
@@ -897,7 +944,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     return List.generate(_daysInMonth, (i) {
       final day = i + 1;
       final sessions = sessionsByDay[day];
-      final weekday = DateTime(widget.month.year, widget.month.month, day).weekday;
+      final weekday = DateTime(
+        widget.month.year,
+        widget.month.month,
+        day,
+      ).weekday;
       final date = DateTime(widget.month.year, widget.month.month, day);
 
       if (sessions == null || sessions.isEmpty) {
@@ -909,7 +960,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       }
 
       // Sort sessions chronologically so AM/PM slots fill in order.
-      sessions.sort((a, b) => (_hour24(a.timeIn) ?? 0).compareTo(_hour24(b.timeIn) ?? 0));
+      sessions.sort(
+        (a, b) => (_hour24(a.timeIn) ?? 0).compareTo(_hour24(b.timeIn) ?? 0),
+      );
 
       String? amIn, amOut, pmIn, pmOut;
       var totalHours = 0.0;
@@ -969,16 +1022,23 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     List<Task> completedTasks,
   ) {
     final state = context.read<AppState>();
-    final titles = completedTasks.map((t) => t.title.trim()).where((t) => t.isNotEmpty).join('; ');
+    final titles = completedTasks
+        .map((t) => t.title.trim())
+        .where((t) => t.isNotEmpty)
+        .join('; ');
     final accomplishment = titles.isEmpty ? 'Task completed' : titles;
 
-    final isWeekend = weekday == DateTime.saturday || weekday == DateTime.sunday;
+    final isWeekend =
+        weekday == DateTime.saturday || weekday == DateTime.sunday;
     final isHoliday = state.isHoliday(date);
     if (isHoliday || isWeekend) {
-      final reason = isHoliday ? 'Holiday' : (weekday == DateTime.saturday ? 'Saturday' : 'Sunday');
+      final reason = isHoliday
+          ? 'Holiday'
+          : (weekday == DateTime.saturday ? 'Saturday' : 'Sunday');
       return DtrDayEntry(
         day: day,
-        note: 'Invalid — task completed on a non-working day ($reason): $accomplishment',
+        note:
+            'Invalid — task completed on a non-working day ($reason): $accomplishment',
         isInvalid: true,
       );
     }
@@ -1044,7 +1104,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // of rule generate identical-looking calendar events, so the only way
     // to tell them apart here is by looking each event's rule id up
     // against the subject rules loaded into [_rules].
-    final subjectRuleIds = _rules.where((r) => r.isSubject).map((r) => r.id).toSet();
+    final subjectRuleIds = _rules
+        .where((r) => r.isSubject)
+        .map((r) => r.id)
+        .toSet();
 
     final scheduleService = context.read<ScheduleService>();
     for (final ownerName in _scheduleOwnerNameCandidates(state)) {
@@ -1061,9 +1124,13 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // at all yet — fall back to the original convention so nothing
     // changes for them until they set one up.
     final hasAnySchedule = _scheduleOwnerNameCandidates(state).any(
-      (name) => scheduleService.eventsFor(name).any(
-        (e) => e.id.startsWith('rule_') && !subjectRuleIds.contains(_ruleIdFromEventId(e.id)),
-      ),
+      (name) => scheduleService
+          .eventsFor(name)
+          .any(
+            (e) =>
+                e.id.startsWith('rule_') &&
+                !subjectRuleIds.contains(_ruleIdFromEventId(e.id)),
+          ),
     );
     return hasAnySchedule ? '' : 'Class Schedule';
   }
@@ -1072,8 +1139,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// [AppState.clockIn]/[AppState.clockOut]) into a 24-hour hour value, for
   /// chronological sorting of a day's sessions.
   int? _hour24(String time) {
-    final match = RegExp(r'^(\d{1,2}):(\d{2})\s*(AM|PM)$', caseSensitive: false)
-        .firstMatch(time.trim());
+    final match = RegExp(
+      r'^(\d{1,2}):(\d{2})\s*(AM|PM)$',
+      caseSensitive: false,
+    ).firstMatch(time.trim());
     if (match == null) return null;
     var hour = int.parse(match.group(1)!);
     final isPm = match.group(3)!.toUpperCase() == 'PM';
@@ -1141,9 +1210,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     );
 
     final adminUser = state.users.cast<User?>().firstWhere(
-          (u) => u?.role == 'Admin',
-          orElse: () => null,
-        );
+      (u) => u?.role == 'Admin',
+      orElse: () => null,
+    );
 
     return DtrAccomplishmentReportData(
       studentId: widget.student.id,
@@ -1154,7 +1223,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       // they're the one generating/approving the report.
       supervisorName: state.currentUser?.name ?? '',
       adminName: adminUser?.name ?? '',
-      monthYearLabel: '${_months[widget.month.month - 1]} 01–$_daysInMonth, '
+      monthYearLabel:
+          '${_months[widget.month.month - 1]} 01–$_daysInMonth, '
           '${widget.month.year}',
       days: days,
       classSchedule: schedule,
@@ -1182,8 +1252,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
             content: Text('Downloading ${doc.fileName}...'),
             backgroundColor: AppTheme.emerald500,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
       } else {
         final uri = Uri.dataFromBytes(
@@ -1193,14 +1266,18 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           parameters: {'filename': doc.fileName},
         );
         final opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
-        if (!opened) throw Exception('The browser could not open the document.');
+        if (!opened)
+          throw Exception('The browser could not open the document.');
         messenger.showSnackBar(
           SnackBar(
             content: Text('Opening ${doc.fileName}...'),
             backgroundColor: AppTheme.emerald500,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
       }
     } catch (e) {
@@ -1209,8 +1286,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           content: Text('Could not generate document: $e'),
           backgroundColor: AppTheme.red500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } finally {
       if (mounted) setState(() => _generating = false);
@@ -1279,7 +1359,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
             ),
             backgroundColor: ok ? AppTheme.emerald500 : AppTheme.red500,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(16),
           ),
         );
@@ -1290,7 +1372,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           content: Text('Could not send document: $e'),
           backgroundColor: AppTheme.red500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -1309,7 +1393,12 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         // In-page header (no separate route/AppBar) — stays inside the
         // parent screen so the sidebar and top bar remain visible.
         Padding(
-          padding: EdgeInsets.fromLTRB(isMobile ? 14 : 24, isMobile ? 14 : 20, isMobile ? 14 : 24, 0),
+          padding: EdgeInsets.fromLTRB(
+            isMobile ? 14 : 24,
+            isMobile ? 14 : 20,
+            isMobile ? 14 : 24,
+            0,
+          ),
           child: Row(
             children: [
               InkWell(
@@ -1322,14 +1411,22 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: AppTheme.slate200),
                   ),
-                  child: const Icon(Icons.arrow_back_rounded, size: 18, color: AppTheme.slate700),
+                  child: const Icon(
+                    Icons.arrow_back_rounded,
+                    size: 18,
+                    color: AppTheme.slate700,
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
                 child: Text(
                   '${widget.student.name} • ${_months[widget.month.month - 1]} ${widget.month.year}',
-                  style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+                  style: const TextStyle(
+                    fontSize: 15.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                  ),
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
@@ -1341,140 +1438,168 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
             padding: EdgeInsets.all(isMobile ? 14 : 24),
             children: [
               _sectionCard(
-            number: 1,
-            title: 'Daily Time Record',
-            subtitle:
-                'Automatically pulled from this student\'s actual clock-in/'
-                'out records for the month — AM/PM in/out and hours are '
-                'filled in for you. Days with no clock-in default to "Class '
-                'Schedule", "Saturday", or "Sunday". You can still edit any '
-                'field before generating.',
-            child: _dtrTable(isMobile),
-          ),
-          const SizedBox(height: 18),
-          _sectionCard(
-            number: 2,
-            title: 'Class Schedule',
-            icon: Icons.calendar_month_outlined,
-            subtitle:
-                'Auto-filled from this student\'s saved weekly class '
-                'schedule, if one exists — or their "Add Schedule" rules '
-                'from the Schedule/Calendar screen if not. Edit as needed '
-                '— your changes are saved automatically so next month\'s '
-                'report starts pre-filled too. Use "Add Subject" for more '
-                'rows (up to 12) or the × to remove one.',
-            trailing: TextButton.icon(
-              onPressed: _syncingSchedule ? null : () => _syncFromRecurringSchedule(manual: true),
-              icon: _syncingSchedule
-                  ? const SizedBox(
-                      width: 13,
-                      height: 13,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.maroon),
-                    )
-                  : const Icon(Icons.sync_rounded, size: 15),
-              label: const Text('Sync from Schedule'),
-              style: TextButton.styleFrom(
-                foregroundColor: AppTheme.maroon,
-                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                number: 1,
+                title: 'Daily Time Record',
+                subtitle:
+                    'Automatically pulled from this student\'s actual clock-in/'
+                    'out records for the month — AM/PM in/out and hours are '
+                    'filled in for you. Days with no clock-in default to "Class '
+                    'Schedule", "Saturday", or "Sunday". You can still edit any '
+                    'field before generating.',
+                child: _dtrTable(isMobile),
               ),
-            ),
-            child: _scheduleTable(isMobile),
-          ),
-          const SizedBox(height: 24),
-          Flex(
-            direction: isMobile ? Axis.vertical : Axis.horizontal,
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: _generating ? null : _generate,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.maroon,
-                    foregroundColor: Colors.white,
-                    padding: EdgeInsets.symmetric(
-                      vertical: isMobile ? 14 : 16,
-                      horizontal: 12,
-                    ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                    elevation: 0,
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _generating
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: Colors.white),
-                            )
-                          : Icon(Icons.download_rounded, size: isMobile ? 17 : 18),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          _generating
-                              ? 'Generating...'
-                              : (isMobile
-                                  ? 'Generate Report'
-                                  : 'Generate & Download Report'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: isMobile ? 13.5 : 14.5,
+              const SizedBox(height: 18),
+              _sectionCard(
+                number: 2,
+                title: 'Class Schedule',
+                icon: Icons.calendar_month_outlined,
+                subtitle:
+                    'Auto-filled from this student\'s saved weekly class '
+                    'schedule, if one exists — or their "Add Schedule" rules '
+                    'from the Schedule/Calendar screen if not. Edit as needed '
+                    '— your changes are saved automatically so next month\'s '
+                    'report starts pre-filled too. Use "Add Subject" for more '
+                    'rows (up to 12) or the × to remove one.',
+                trailing: TextButton.icon(
+                  onPressed: _syncingSchedule
+                      ? null
+                      : () => _syncFromRecurringSchedule(manual: true),
+                  icon: _syncingSchedule
+                      ? const SizedBox(
+                          width: 13,
+                          height: 13,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: AppTheme.maroon,
                           ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              SizedBox(width: isMobile ? 0 : 12, height: isMobile ? 10 : 0),
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _sendingToHead ? null : _sendToHead,
-                  style: OutlinedButton.styleFrom(
+                        )
+                      : const Icon(Icons.sync_rounded, size: 15),
+                  label: const Text('Sync from Schedule'),
+                  style: TextButton.styleFrom(
                     foregroundColor: AppTheme.maroon,
-                    side: const BorderSide(color: AppTheme.maroon, width: 1.4),
-                    padding: EdgeInsets.symmetric(
-                      vertical: isMobile ? 14 : 16,
-                      horizontal: 12,
+                    textStyle: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
                     ),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _sendingToHead
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                  strokeWidth: 2, color: AppTheme.maroon),
-                            )
-                          : Icon(Icons.send_rounded, size: isMobile ? 17 : 18),
-                      const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(
-                          _sendingToHead ? 'Sending...' : 'Send to Head',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: isMobile ? 13.5 : 14.5,
-                          ),
-                        ),
-                      ),
-                    ],
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                   ),
                 ),
+                child: _scheduleTable(isMobile),
+              ),
+              const SizedBox(height: 24),
+              Flex(
+                direction: isMobile ? Axis.vertical : Axis.horizontal,
+                children: [
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _generating ? null : _generate,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.maroon,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(
+                          vertical: isMobile ? 14 : 16,
+                          horizontal: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _generating
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.download_rounded,
+                                  size: isMobile ? 17 : 18,
+                                ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              _generating
+                                  ? 'Generating...'
+                                  : (isMobile
+                                        ? 'Generate Report'
+                                        : 'Generate & Download Report'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: isMobile ? 13.5 : 14.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  SizedBox(width: isMobile ? 0 : 12, height: isMobile ? 10 : 0),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: _sendingToHead ? null : _sendToHead,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.maroon,
+                        side: const BorderSide(
+                          color: AppTheme.maroon,
+                          width: 1.4,
+                        ),
+                        padding: EdgeInsets.symmetric(
+                          vertical: isMobile ? 14 : 16,
+                          horizontal: 12,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _sendingToHead
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: AppTheme.maroon,
+                                  ),
+                                )
+                              : Icon(
+                                  Icons.send_rounded,
+                                  size: isMobile ? 17 : 18,
+                                ),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              _sendingToHead ? 'Sending...' : 'Send to Head',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: isMobile ? 13.5 : 14.5,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
-        ],
-      ),
         ),
       ],
     );
@@ -1510,7 +1635,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         Container(
           height: 5,
           decoration: const BoxDecoration(
-            gradient: LinearGradient(colors: [AppTheme.maroon, AppTheme.maroonDark]),
+            gradient: LinearGradient(
+              colors: [AppTheme.maroon, AppTheme.maroonDark],
+            ),
             borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
           ),
         ),
@@ -1543,7 +1670,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       ),
                       child: Text(
                         '$number',
-                        style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: Colors.white),
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -1552,7 +1683,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                     child: Text(
                       title,
                       style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate900,
+                      ),
                     ),
                   ),
                   if (trailing != null) trailing,
@@ -1561,7 +1695,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
               const SizedBox(height: 4),
               Text(
                 subtitle,
-                style: const TextStyle(fontSize: 12, color: AppTheme.slate500, height: 1.4),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppTheme.slate500,
+                  height: 1.4,
+                ),
               ),
               const SizedBox(height: 14),
               child,
@@ -1643,7 +1781,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 children: [
                   _dtrGroupHeaderRow(flexible: fitsFlexibly),
                   _dtrHeaderRow(flexible: fitsFlexibly),
-                  ...List.generate(_days.length, (i) => _dtrRow(i, flexible: fitsFlexibly)),
+                  ...List.generate(
+                    _days.length,
+                    (i) => _dtrRow(i, flexible: fitsFlexibly),
+                  ),
                 ],
               );
 
@@ -1684,8 +1825,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     final accentColor = invalid
         ? AppTheme.red500
         : (needsVerification
-            ? AppTheme.amber500
-            : (special ? AppTheme.maroon : null));
+              ? AppTheme.amber500
+              : (special ? AppTheme.maroon : null));
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1742,33 +1883,62 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                             : null,
                         color: special ? null : AppTheme.slate50,
                         borderRadius: BorderRadius.circular(12),
-                        border: special ? null : Border.all(color: AppTheme.slate100),
+                        border: special
+                            ? null
+                            : Border.all(color: AppTheme.slate100),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
                             '${d.day}',
-                            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: dateColor),
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: dateColor,
+                            ),
                           ),
                           Text(
                             _weekdayAbbr[date.weekday - 1],
-                            style: TextStyle(fontSize: 8.5, color: special ? AppTheme.maroonLight : AppTheme.slate400, fontWeight: FontWeight.w700, letterSpacing: 0.4),
+                            style: TextStyle(
+                              fontSize: 8.5,
+                              color: special
+                                  ? AppTheme.maroonLight
+                                  : AppTheme.slate400,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.4,
+                            ),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(width: 10),
                     if (invalid)
-                      _dtrStatusChip(Icons.error_outline_rounded, 'Needs fix', AppTheme.red500)
+                      _dtrStatusChip(
+                        Icons.error_outline_rounded,
+                        'Needs fix',
+                        AppTheme.red500,
+                      )
                     else if (needsVerification)
-                      _dtrStatusChip(Icons.warning_amber_rounded, 'Verify', AppTheme.amber500)
+                      _dtrStatusChip(
+                        Icons.warning_amber_rounded,
+                        'Verify',
+                        AppTheme.amber500,
+                      )
                     else if (special)
-                      _dtrStatusChip(Icons.celebration_rounded, 'Non-working day', AppTheme.maroon),
+                      _dtrStatusChip(
+                        Icons.celebration_rounded,
+                        'Non-working day',
+                        AppTheme.maroon,
+                      ),
                     const Spacer(),
                     _dtrHoursPill(
                       d.totalHours?.toStringAsFixed(1),
-                      (v) => setState(() => _days[i] = d.copyWith(totalHours: double.tryParse(v))),
+                      (v) => setState(
+                        () => _days[i] = d.copyWith(
+                          totalHours: double.tryParse(v),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -1777,9 +1947,21 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    Expanded(child: _dtrMobileField('In', d.amIn, (v) => setState(() => _days[i] = d.copyWith(amIn: v)))),
+                    Expanded(
+                      child: _dtrMobileField(
+                        'In',
+                        d.amIn,
+                        (v) => setState(() => _days[i] = d.copyWith(amIn: v)),
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: _dtrMobileField('Out', d.amOut, (v) => setState(() => _days[i] = d.copyWith(amOut: v)))),
+                    Expanded(
+                      child: _dtrMobileField(
+                        'Out',
+                        d.amOut,
+                        (v) => setState(() => _days[i] = d.copyWith(amOut: v)),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1787,9 +1969,21 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 const SizedBox(height: 6),
                 Row(
                   children: [
-                    Expanded(child: _dtrMobileField('In', d.pmIn, (v) => setState(() => _days[i] = d.copyWith(pmIn: v)))),
+                    Expanded(
+                      child: _dtrMobileField(
+                        'In',
+                        d.pmIn,
+                        (v) => setState(() => _days[i] = d.copyWith(pmIn: v)),
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    Expanded(child: _dtrMobileField('Out', d.pmOut, (v) => setState(() => _days[i] = d.copyWith(pmOut: v)))),
+                    Expanded(
+                      child: _dtrMobileField(
+                        'Out',
+                        d.pmOut,
+                        (v) => setState(() => _days[i] = d.copyWith(pmOut: v)),
+                      ),
+                    ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1797,26 +1991,44 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                   padding: const EdgeInsets.only(left: 2, bottom: 4),
                   child: Row(
                     children: [
-                      const Icon(Icons.notes_rounded, size: 12, color: AppTheme.slate400),
+                      const Icon(
+                        Icons.notes_rounded,
+                        size: 12,
+                        color: AppTheme.slate400,
+                      ),
                       const SizedBox(width: 4),
                       const Text(
                         'ACCOMPLISHMENT/S',
-                        style: TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: AppTheme.slate400, letterSpacing: 0.3),
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.slate400,
+                          letterSpacing: 0.3,
+                        ),
                       ),
                     ],
                   ),
                 ),
                 TextField(
                   controller: _noteCtrls[i],
-                  style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: dateColor),
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w500,
+                    color: dateColor,
+                  ),
                   decoration: InputDecoration(
                     isDense: true,
                     filled: true,
                     fillColor: invalid
                         ? AppTheme.red50
-                        : (needsVerification ? AppTheme.amber50 : AppTheme.slate50),
+                        : (needsVerification
+                              ? AppTheme.amber50
+                              : AppTheme.slate50),
                     hintText: 'What did they work on?',
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
                       borderSide: BorderSide.none,
@@ -1827,7 +2039,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
+                      borderSide: const BorderSide(
+                        color: AppTheme.maroon,
+                        width: 1.4,
+                      ),
                     ),
                   ),
                 ),
@@ -1850,7 +2065,14 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       children: [
         Icon(icon, size: 12, color: color),
         const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 10, fontWeight: FontWeight.w800, color: color)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w800,
+            color: color,
+          ),
+        ),
       ],
     ),
   );
@@ -1866,7 +2088,12 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         ),
         child: Text(
           label,
-          style: const TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppTheme.maroon, letterSpacing: 0.6),
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.maroon,
+            letterSpacing: 0.6,
+          ),
         ),
       ),
       const SizedBox(width: 8),
@@ -1885,23 +2112,41 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         padding: const EdgeInsets.only(left: 2, bottom: 4),
         child: Text(
           label,
-          style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: AppTheme.slate400, letterSpacing: 0.3),
+          style: const TextStyle(
+            fontSize: 9.5,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.slate400,
+            letterSpacing: 0.3,
+          ),
         ),
       ),
       TextField(
         controller: TextEditingController(text: initial ?? ''),
         onChanged: onChanged,
         textAlign: TextAlign.center,
-        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.slate700),
+        style: const TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.slate700,
+        ),
         decoration: InputDecoration(
           isDense: true,
           filled: true,
           fillColor: AppTheme.slate50,
           contentPadding: const EdgeInsets.symmetric(vertical: 10),
           hintText: '—',
-          hintStyle: const TextStyle(color: AppTheme.slate300, fontWeight: FontWeight.w600),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          hintStyle: const TextStyle(
+            color: AppTheme.slate300,
+            fontWeight: FontWeight.w600,
+          ),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide.none,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide.none,
+          ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
@@ -1929,9 +2174,21 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       spacing: 8,
       runSpacing: 8,
       children: [
-        _statChip(Icons.schedule_rounded, '${totalHours.toStringAsFixed(1)} hrs logged', AppTheme.maroon),
-        _statChip(Icons.check_circle_rounded, '$presentDays present', AppTheme.emerald500),
-        _statChip(Icons.celebration_rounded, '$holidays holidays', AppTheme.amber500),
+        _statChip(
+          Icons.schedule_rounded,
+          '${totalHours.toStringAsFixed(1)} hrs logged',
+          AppTheme.maroon,
+        ),
+        _statChip(
+          Icons.check_circle_rounded,
+          '$presentDays present',
+          AppTheme.emerald500,
+        ),
+        _statChip(
+          Icons.celebration_rounded,
+          '$holidays holidays',
+          AppTheme.amber500,
+        ),
       ],
     );
   }
@@ -1947,7 +2204,14 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       children: [
         Icon(icon, size: 13, color: color),
         const SizedBox(width: 6),
-        Text(label, style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w700, color: color)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w700,
+            color: color,
+          ),
+        ),
       ],
     ),
   );
@@ -2037,7 +2301,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     bool flexible = false,
   }) {
     final content = Row(
-      mainAxisAlignment: alignStart ? MainAxisAlignment.start : MainAxisAlignment.center,
+      mainAxisAlignment: alignStart
+          ? MainAxisAlignment.start
+          : MainAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
         if (icon != null) ...[
@@ -2060,7 +2326,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       ],
     );
     if (flexible) {
-      return Expanded(child: Padding(padding: const EdgeInsets.only(left: 6), child: content));
+      return Expanded(
+        child: Padding(padding: const EdgeInsets.only(left: 6), child: content),
+      );
     }
     return SizedBox(width: width, child: content);
   }
@@ -2078,8 +2346,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     final rowColor = invalid
         ? AppTheme.red50
         : (needsVerification
-            ? AppTheme.amber50
-            : (special ? AppTheme.maroon.withValues(alpha: 0.03) : Colors.white));
+              ? AppTheme.amber50
+              : (special
+                    ? AppTheme.maroon.withValues(alpha: 0.03)
+                    : Colors.white));
 
     return Container(
       decoration: BoxDecoration(
@@ -2111,9 +2381,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       : null,
                   color: special ? null : AppTheme.slate50,
                   borderRadius: BorderRadius.circular(12),
-                  border: special
-                      ? null
-                      : Border.all(color: AppTheme.slate100),
+                  border: special ? null : Border.all(color: AppTheme.slate100),
                   boxShadow: special
                       ? [
                           BoxShadow(
@@ -2129,28 +2397,57 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                   children: [
                     Text(
                       '${d.day}',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: dateColor),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: dateColor,
+                      ),
                     ),
                     const SizedBox(height: 1),
                     Text(
                       _weekdayAbbr[date.weekday - 1],
-                      style: TextStyle(fontSize: 8.5, color: special ? AppTheme.maroonLight : AppTheme.slate400, fontWeight: FontWeight.w700, letterSpacing: 0.4),
+                      style: TextStyle(
+                        fontSize: 8.5,
+                        color: special
+                            ? AppTheme.maroonLight
+                            : AppTheme.slate400,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.4,
+                      ),
                     ),
                   ],
                 ),
               ),
             ),
           ),
-          _dtrCompactField(_dtrColWidths[1], d.amIn, (v) => setState(() => _days[i] = d.copyWith(amIn: v))),
-          _dtrCompactField(_dtrColWidths[2], d.amOut, (v) => setState(() => _days[i] = d.copyWith(amOut: v))),
-          _dtrCompactField(_dtrColWidths[3], d.pmIn, (v) => setState(() => _days[i] = d.copyWith(pmIn: v))),
-          _dtrCompactField(_dtrColWidths[4], d.pmOut, (v) => setState(() => _days[i] = d.copyWith(pmOut: v))),
+          _dtrCompactField(
+            _dtrColWidths[1],
+            d.amIn,
+            (v) => setState(() => _days[i] = d.copyWith(amIn: v)),
+          ),
+          _dtrCompactField(
+            _dtrColWidths[2],
+            d.amOut,
+            (v) => setState(() => _days[i] = d.copyWith(amOut: v)),
+          ),
+          _dtrCompactField(
+            _dtrColWidths[3],
+            d.pmIn,
+            (v) => setState(() => _days[i] = d.copyWith(pmIn: v)),
+          ),
+          _dtrCompactField(
+            _dtrColWidths[4],
+            d.pmOut,
+            (v) => setState(() => _days[i] = d.copyWith(pmOut: v)),
+          ),
           SizedBox(
             width: _dtrColWidths[5],
             child: Center(
               child: _dtrHoursPill(
                 d.totalHours?.toStringAsFixed(1),
-                (v) => setState(() => _days[i] = d.copyWith(totalHours: double.tryParse(v))),
+                (v) => setState(
+                  () => _days[i] = d.copyWith(totalHours: double.tryParse(v)),
+                ),
               ),
             ),
           ),
@@ -2182,20 +2479,38 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       padding: const EdgeInsets.only(left: 6),
       child: TextField(
         controller: _noteCtrls[i],
-        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w500, color: dateColor),
+        style: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w500,
+          color: dateColor,
+        ),
         decoration: InputDecoration(
           isDense: true,
           filled: true,
           fillColor: invalid
               ? AppTheme.red50
               : (needsVerification ? AppTheme.amber50 : AppTheme.slate50),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
           prefixIcon: invalid
-              ? const Icon(Icons.error_outline_rounded, size: 16, color: AppTheme.red500)
+              ? const Icon(
+                  Icons.error_outline_rounded,
+                  size: 16,
+                  color: AppTheme.red500,
+                )
               : (needsVerification
-                  ? const Icon(Icons.warning_amber_rounded, size: 16, color: AppTheme.amber500)
-                  : null),
-          prefixIconConstraints: const BoxConstraints(minWidth: 30, minHeight: 0),
+                    ? const Icon(
+                        Icons.warning_amber_rounded,
+                        size: 16,
+                        color: AppTheme.amber500,
+                      )
+                    : null),
+          prefixIconConstraints: const BoxConstraints(
+            minWidth: 30,
+            minHeight: 0,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: BorderSide.none,
@@ -2238,7 +2553,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           fillColor: AppTheme.slate50,
           contentPadding: const EdgeInsets.symmetric(vertical: 9),
           hintText: '—',
-          hintStyle: const TextStyle(color: AppTheme.slate300, fontWeight: FontWeight.w600),
+          hintStyle: const TextStyle(
+            color: AppTheme.slate300,
+            fontWeight: FontWeight.w600,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: BorderSide.none,
@@ -2259,41 +2577,55 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// The "Hrs" cell rendered as a small pill rather than a plain boxed
   /// field, so the one number that summarizes the whole row visually
   /// stands apart from the raw in/out times either side of it.
-  Widget _dtrHoursPill(String? initial, ValueChanged<String> onChanged) => Container(
-    width: 52,
-    decoration: BoxDecoration(
-      color: AppTheme.maroon.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: TextField(
-      controller: TextEditingController(text: initial ?? ''),
-      onChanged: onChanged,
-      textAlign: TextAlign.center,
-      style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: AppTheme.maroon),
-      decoration: const InputDecoration(
-        isDense: true,
-        filled: false,
-        contentPadding: EdgeInsets.symmetric(vertical: 8),
-        border: InputBorder.none,
-        hintText: '—',
-        hintStyle: TextStyle(color: AppTheme.maroonLight, fontWeight: FontWeight.w700),
-      ),
-    ),
-  );
+  Widget _dtrHoursPill(String? initial, ValueChanged<String> onChanged) =>
+      Container(
+        width: 52,
+        decoration: BoxDecoration(
+          color: AppTheme.maroon.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: TextField(
+          controller: TextEditingController(text: initial ?? ''),
+          onChanged: onChanged,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.maroon,
+          ),
+          decoration: const InputDecoration(
+            isDense: true,
+            filled: false,
+            contentPadding: EdgeInsets.symmetric(vertical: 8),
+            border: InputBorder.none,
+            hintText: '—',
+            hintStyle: TextStyle(
+              color: AppTheme.maroonLight,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
+      );
 
   static const _scheduleDayLabels = [
-    'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
   ];
-  static const _scheduleDayShort = [
-    'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat',
-  ];
+  static const _scheduleDayShort = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   Widget _scheduleTable(bool isMobile) {
     if (isMobile) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ...List.generate(_scheduleCtrls.length, (i) => _scheduleMobileCard(i)),
+          ...List.generate(
+            _scheduleCtrls.length,
+            (i) => _scheduleMobileCard(i),
+          ),
           const SizedBox(height: 4),
           _scheduleAddRow(),
         ],
@@ -2321,24 +2653,37 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
             ],
             rows: List.generate(_scheduleCtrls.length, (i) {
               final ctrls = _scheduleCtrls[i];
-              return DataRow(cells: [
-                ...List.generate(8, (j) {
-                  final width = j == 0 ? 140.0 : (j == 1 ? 56.0 : 110.0);
-                  return DataCell(SizedBox(
-                    width: width,
-                    child: TextField(
-                      controller: ctrls[j],
-                      style: const TextStyle(fontSize: 12.5),
-                      decoration: const InputDecoration(isDense: true, border: InputBorder.none),
+              return DataRow(
+                cells: [
+                  ...List.generate(8, (j) {
+                    final width = j == 0 ? 140.0 : (j == 1 ? 56.0 : 110.0);
+                    return DataCell(
+                      SizedBox(
+                        width: width,
+                        child: TextField(
+                          controller: ctrls[j],
+                          style: const TextStyle(fontSize: 12.5),
+                          decoration: const InputDecoration(
+                            isDense: true,
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
+                    );
+                  }),
+                  DataCell(
+                    IconButton(
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 16,
+                        color: AppTheme.slate400,
+                      ),
+                      tooltip: 'Remove subject',
+                      onPressed: () => _removeScheduleRow(i),
                     ),
-                  ));
-                }),
-                DataCell(IconButton(
-                  icon: const Icon(Icons.close_rounded, size: 16, color: AppTheme.slate400),
-                  tooltip: 'Remove subject',
-                  onPressed: () => _removeScheduleRow(i),
-                )),
-              ]);
+                  ),
+                ],
+              );
             }),
           ),
         ),
@@ -2382,12 +2727,21 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                   color: AppTheme.maroon.withValues(alpha: 0.09),
                   shape: BoxShape.circle,
                 ),
-                child: Icon(Icons.menu_book_outlined, size: 13, color: AppTheme.maroon),
+                child: Icon(
+                  Icons.menu_book_outlined,
+                  size: 13,
+                  color: AppTheme.maroon,
+                ),
               ),
               const SizedBox(width: 10),
               Text(
                 'Subject ${i + 1}',
-                style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w800, color: AppTheme.slate400, letterSpacing: 0.2),
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.slate400,
+                  letterSpacing: 0.2,
+                ),
               ),
               const Spacer(),
               InkWell(
@@ -2395,7 +2749,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 onTap: () => _removeScheduleRow(i),
                 child: const Padding(
                   padding: EdgeInsets.all(4),
-                  child: Icon(Icons.close_rounded, size: 18, color: AppTheme.slate400),
+                  child: Icon(
+                    Icons.close_rounded,
+                    size: 18,
+                    color: AppTheme.slate400,
+                  ),
                 ),
               ),
             ],
@@ -2409,9 +2767,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 child: _scheduleMobileField('Course / Subject', ctrls[0]),
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: _scheduleMobileField('Units', ctrls[1]),
-              ),
+              Expanded(child: _scheduleMobileField('Units', ctrls[1])),
             ],
           ),
           const SizedBox(height: 14),
@@ -2422,11 +2778,18 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.18)),
+                  border: Border.all(
+                    color: AppTheme.maroon.withValues(alpha: 0.18),
+                  ),
                 ),
                 child: const Text(
                   'WEEKLY SCHEDULE',
-                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w800, color: AppTheme.maroon, letterSpacing: 0.6),
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.maroon,
+                    letterSpacing: 0.6,
+                  ),
                 ),
               ),
               const SizedBox(width: 8),
@@ -2450,55 +2813,86 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     );
   }
 
-  Widget _scheduleMobileField(String label, TextEditingController controller) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Padding(
-        padding: const EdgeInsets.only(left: 2, bottom: 4),
-        child: Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 9.5, fontWeight: FontWeight.w700, color: AppTheme.slate400, letterSpacing: 0.3),
-        ),
-      ),
-      TextField(
-        controller: controller,
-        style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w600, color: AppTheme.slate700),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: Colors.white,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.slate200)),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.slate200)),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
+  Widget _scheduleMobileField(String label, TextEditingController controller) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 2, bottom: 4),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 9.5,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate400,
+                letterSpacing: 0.3,
+              ),
+            ),
           ),
-        ),
-      ),
-    ],
-  );
+          TextField(
+            controller: controller,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate700,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppTheme.slate200),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppTheme.slate200),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(
+                  color: AppTheme.maroon,
+                  width: 1.4,
+                ),
+              ),
+            ),
+          ),
+        ],
+      );
 
   Widget _scheduleAddRow() => Row(
     children: [
       TextButton.icon(
-        onPressed: _schedule.length >= _maxScheduleRows ? null : _addScheduleRow,
+        onPressed: _schedule.length >= _maxScheduleRows
+            ? null
+            : _addScheduleRow,
         icon: const Icon(Icons.add_rounded, size: 16),
         label: const Text('Add Subject'),
         style: TextButton.styleFrom(
           foregroundColor: AppTheme.maroon,
           disabledForegroundColor: AppTheme.slate300,
-          textStyle: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+          textStyle: const TextStyle(
+            fontSize: 12.5,
+            fontWeight: FontWeight.w700,
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         ),
       ),
       const SizedBox(width: 4),
       Text(
         '${_schedule.length}/$_maxScheduleRows subjects',
-        style: const TextStyle(fontSize: 11, color: AppTheme.slate400, fontWeight: FontWeight.w600),
+        style: const TextStyle(
+          fontSize: 11,
+          color: AppTheme.slate400,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     ],
   );

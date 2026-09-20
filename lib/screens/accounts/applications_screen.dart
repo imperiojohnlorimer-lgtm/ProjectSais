@@ -8,7 +8,8 @@ import '../../services/endorsement_document_service.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/web_download_stub.dart'
-    if (dart.library.html) '../../utils/web_download.dart' as web_download;
+    if (dart.library.html) '../../utils/web_download.dart'
+    as web_download;
 import '../../widgets/shared_widgets.dart';
 
 class ApplicationsScreen extends StatefulWidget {
@@ -27,6 +28,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     'Rejected',
   ];
   String statusFilter = 'All';
+  String _search = '';
   String departmentFilter = 'All';
   String campusFilter = 'All';
 
@@ -44,8 +46,12 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     final hPad = isMobile ? 16.0 : 28.0;
     final allApps = state.applications;
     final pendingApps = allApps.where((a) => a.status == 'Pending').length;
-    final approvedApps = allApps.where((a) => a.status == 'Approved' || a.status == 'Accepted').length;
-    final waitlistedApps = allApps.where((a) => a.status == 'Waitlisted').length;
+    final approvedApps = allApps
+        .where((a) => a.status == 'Approved' || a.status == 'Accepted')
+        .length;
+    final waitlistedApps = allApps
+        .where((a) => a.status == 'Waitlisted')
+        .length;
     final rejectedApps = allApps.where((a) => a.status == 'Rejected').length;
     final statusCounts = <String, int>{
       'All': allApps.length,
@@ -54,7 +60,9 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       'Waitlisted': waitlistedApps,
       'Rejected': rejectedApps,
     };
-    final reviewedFraction = allApps.isEmpty ? 0.0 : (allApps.length - pendingApps) / allApps.length;
+    final reviewedFraction = allApps.isEmpty
+        ? 0.0
+        : (allApps.length - pendingApps) / allApps.length;
 
     final departmentOptions = [
       'All',
@@ -75,8 +83,14 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
     if (!departmentOptions.contains(departmentFilter)) departmentFilter = 'All';
     if (!campusOptions.contains(campusFilter)) campusFilter = 'All';
 
+    final query = _search.trim().toLowerCase();
     final apps = allApps.where((a) {
       if (statusFilter != 'All' && a.status != statusFilter) return false;
+      if (query.isNotEmpty &&
+          !a.applicantName.toLowerCase().contains(query) &&
+          !a.announcementTitle.toLowerCase().contains(query)) {
+        return false;
+      }
       final applicant = _applicantFor(state, a);
       if (departmentFilter != 'All' &&
           (applicant?.department ?? '').trim() != departmentFilter) {
@@ -89,76 +103,16 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       return true;
     }).toList();
 
-    final titleBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 4,
-              height: 28,
-              decoration: BoxDecoration(
-                color: AppTheme.maroon,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'Applications',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.slate900,
-                letterSpacing: -0.3,
-              ),
-            ),
-          ],
-        ),
-        Padding(
-          padding: const EdgeInsets.only(left: 14, top: 3),
-          child: Text(
-            'Manage student applications · Pending: $pendingApps',
-            style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
-          ),
-        ),
-      ],
-    );
-    final pendingBadge = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: BoxDecoration(
-        color: AppTheme.red500,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(
-            Icons.priority_high_rounded,
-            color: Colors.white,
-            size: 14,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            '$pendingApps Pending',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
-              fontSize: 12,
-            ),
-          ),
-        ],
-      ),
-    );
-
     final endorsementButton = OutlinedButton.icon(
       onPressed: () => _showEndorsementSummaryDialog(context, state, allApps),
       icon: const Icon(Icons.picture_as_pdf_outlined, size: 15),
-      label: const Text('Generate Endorsement Summary'),
+      label: const Text('Endorsement Summary'),
       style: OutlinedButton.styleFrom(
         foregroundColor: AppTheme.maroon,
         side: const BorderSide(color: AppTheme.maroon),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
       ),
     );
 
@@ -168,31 +122,39 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
         // ── Header ──────────────────────────────────────────
         Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-          child: isMobile
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    titleBlock,
-                    if (pendingApps > 0) ...[
-                      const SizedBox(height: 10),
-                      pendingBadge,
-                    ],
-                    const SizedBox(height: 10),
-                    SizedBox(width: double.infinity, child: endorsementButton),
-                  ],
-                )
-              : Row(
-                  children: [
-                    Expanded(child: titleBlock),
-                    if (pendingApps > 0) ...[
-                      pendingBadge,
-                      const SizedBox(width: 10),
-                    ],
-                    endorsementButton,
-                  ],
-                ),
+          child: HeroBanner(
+            isMobile: isMobile,
+            icon: Icons.assignment_turned_in_rounded,
+            title: 'Applications',
+            subtitle: 'Review and decide on student applications',
+            searchHint: 'Search applicants or postings...',
+            onSearch: (value) => setState(() => _search = value),
+            filters: [endorsementButton],
+            stats: [
+              HeroStatData(
+                label: 'Total',
+                value: '${allApps.length}',
+                icon: Icons.inbox_rounded,
+              ),
+              HeroStatData(
+                label: 'Pending',
+                value: '$pendingApps',
+                icon: Icons.pending_actions_rounded,
+              ),
+              HeroStatData(
+                label: 'Approved',
+                value: '$approvedApps',
+                icon: Icons.check_circle_rounded,
+              ),
+              HeroStatData(
+                label: 'Waitlisted',
+                value: '$waitlistedApps',
+                icon: Icons.schedule_rounded,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
 
         // ── Content ─────────────────────────────────────────
         Expanded(
@@ -202,15 +164,14 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (allApps.isNotEmpty) ...[
-                  _ApplicationsSummary(
-                    reviewedFraction: reviewedFraction,
-                    total: allApps.length,
-                    pending: pendingApps,
-                    approved: approvedApps,
-                    waitlisted: waitlistedApps,
-                    rejected: rejectedApps,
+                  ProgressStrip(
+                    label: 'Reviewed',
+                    icon: Icons.fact_check_rounded,
+                    progress: reviewedFraction,
+                    trailing:
+                        '${allApps.length - pendingApps}/${allApps.length}',
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 14),
                 ],
                 // ── Filters ─────────────────────────────────
                 Container(
@@ -345,7 +306,10 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
               onTap: () => onChanged(option),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: active ? AppTheme.maroon : AppTheme.slate100,
                   borderRadius: BorderRadius.circular(20),
@@ -364,9 +328,14 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                     if (counts != null && (counts[option] ?? 0) > 0) ...[
                       const SizedBox(width: 5),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
                         decoration: BoxDecoration(
-                          color: active ? Colors.white.withValues(alpha: 0.25) : AppTheme.maroon.withValues(alpha: 0.12),
+                          color: active
+                              ? Colors.white.withValues(alpha: 0.25)
+                              : AppTheme.maroon.withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
@@ -441,10 +410,7 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                   .map(
                     (option) => DropdownMenuItem<String>(
                       value: option,
-                      child: Text(
-                        option,
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                      child: Text(option, overflow: TextOverflow.ellipsis),
                     ),
                   )
                   .toList(),
@@ -491,7 +457,9 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           content: const Text('No approved applicants to endorse yet.'),
           backgroundColor: AppTheme.amber500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -510,36 +478,51 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
 
     final today = DateTime.now();
     const months = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     final dateCtrl = TextEditingController(
       text: '${months[today.month - 1]} ${today.day}, ${today.year}',
     );
     final semesterCtrl = TextEditingController(text: '1st Semester');
-    final academicYearCtrl =
-        TextEditingController(text: state.academicYear.replaceAll('-', '–'));
+    final academicYearCtrl = TextEditingController(
+      text: state.academicYear.replaceAll('-', '–'),
+    );
     final effectivePeriodCtrl = TextEditingController();
     final batchLabelCtrl = TextEditingController(text: 'BATCH 1');
     final vpNameCtrl = TextEditingController();
     final campusDirectorCtrl = TextEditingController();
     final headSwsCtrl = TextEditingController();
-    final preparedByNameCtrl =
-        TextEditingController(text: state.currentUser?.name ?? '');
-    final preparedByTitleCtrl =
-        TextEditingController(text: 'Head, Student Affairs and Services');
+    final preparedByNameCtrl = TextEditingController(
+      text: state.currentUser?.name ?? '',
+    );
+    final preparedByTitleCtrl = TextEditingController(
+      text: 'Head, Student Affairs and Services',
+    );
 
     final officeCtrls = <TextEditingController>[];
     final supervisorCtrls = <TextEditingController>[];
     for (final app in approved) {
       final ann = _announcementFor(state, app);
       final applicant = _applicantFor(state, app);
-      officeCtrls.add(TextEditingController(
-        text: _assignedOfficeFor(state, app, applicant),
-      ));
-      supervisorCtrls.add(TextEditingController(
-        text: ann?.postedByRole == 'Supervisor' ? ann!.postedBy : '',
-      ));
+      officeCtrls.add(
+        TextEditingController(text: _assignedOfficeFor(state, app, applicant)),
+      );
+      supervisorCtrls.add(
+        TextEditingController(
+          text: ann?.postedByRole == 'Supervisor' ? ann!.postedBy : '',
+        ),
+      );
     }
 
     Future<void> generate() async {
@@ -586,7 +569,8 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
             parameters: {'filename': doc.fileName},
           );
           final opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
-          if (!opened) throw Exception('The browser could not open the document.');
+          if (!opened)
+            throw Exception('The browser could not open the document.');
         }
 
         if (!context.mounted) return;
@@ -596,7 +580,9 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
             content: Text('Generated ${doc.fileName}'),
             backgroundColor: AppTheme.emerald500,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(16),
           ),
         );
@@ -606,7 +592,9 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
             content: Text('Could not generate document: $e'),
             backgroundColor: AppTheme.red500,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
             margin: const EdgeInsets.all(16),
           ),
         );
@@ -661,7 +649,10 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                           Text(
                             'One letter listing every Approved Student Assistant, '
                             'for the VP for Student Affairs and Services.',
-                            style: TextStyle(fontSize: 11.5, color: Colors.white70),
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: Colors.white70,
+                            ),
                           ),
                         ],
                       ),
@@ -674,7 +665,11 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                           color: Colors.white.withValues(alpha: 0.2),
                           shape: BoxShape.circle,
                         ),
-                        child: const Icon(Icons.close_rounded, color: Colors.white, size: 16),
+                        child: const Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                          size: 16,
+                        ),
                       ),
                     ),
                   ],
@@ -691,19 +686,47 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                         runSpacing: 12,
                         children: [
                           _endorsementField('Date', dateCtrl, width: 190),
-                          _endorsementField('Semester', semesterCtrl, width: 150),
-                          _endorsementField('Academic Year', academicYearCtrl, width: 150),
-                          _endorsementField('Batch Label', batchLabelCtrl, width: 120),
+                          _endorsementField(
+                            'Semester',
+                            semesterCtrl,
+                            width: 150,
+                          ),
+                          _endorsementField(
+                            'Academic Year',
+                            academicYearCtrl,
+                            width: 150,
+                          ),
+                          _endorsementField(
+                            'Batch Label',
+                            batchLabelCtrl,
+                            width: 120,
+                          ),
                           _endorsementField(
                             'Effective Period (e.g. "January 5, 2026, to April 30, 2026")',
                             effectivePeriodCtrl,
                             width: 600,
                           ),
                           _endorsementField('VP Name', vpNameCtrl, width: 290),
-                          _endorsementField('Campus Director Name', campusDirectorCtrl, width: 290),
-                          _endorsementField('Head, Student Welfare Services', headSwsCtrl, width: 290),
-                          _endorsementField('Prepared By (Name)', preparedByNameCtrl, width: 290),
-                          _endorsementField('Prepared By (Title)', preparedByTitleCtrl, width: 600),
+                          _endorsementField(
+                            'Campus Director Name',
+                            campusDirectorCtrl,
+                            width: 290,
+                          ),
+                          _endorsementField(
+                            'Head, Student Welfare Services',
+                            headSwsCtrl,
+                            width: 290,
+                          ),
+                          _endorsementField(
+                            'Prepared By (Name)',
+                            preparedByNameCtrl,
+                            width: 290,
+                          ),
+                          _endorsementField(
+                            'Prepared By (Title)',
+                            preparedByTitleCtrl,
+                            width: 600,
+                          ),
                         ],
                       ),
                       const SizedBox(height: 20),
@@ -737,7 +760,9 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                                       vertical: 3,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: AppTheme.maroon.withValues(alpha: 0.08),
+                                      color: AppTheme.maroon.withValues(
+                                        alpha: 0.08,
+                                      ),
                                       borderRadius: BorderRadius.circular(6),
                                     ),
                                     child: Text(
@@ -797,12 +822,17 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
                     icon: const Icon(Icons.download_rounded, size: 16),
                     label: const Text(
                       'Generate & Download',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800),
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.maroon,
                       foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
                       elevation: 0,
                     ),
                   ),
@@ -831,8 +861,10 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
           isDense: true,
           filled: true,
           fillColor: Colors.white,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
             borderSide: const BorderSide(color: AppTheme.slate200),
@@ -849,107 +881,6 @@ class _ApplicationsScreenState extends State<ApplicationsScreen> {
       ),
     );
   }
-}
-
-class _ApplicationsSummary extends StatelessWidget {
-  final double reviewedFraction;
-  final int total;
-  final int pending;
-  final int approved;
-  final int waitlisted;
-  final int rejected;
-
-  const _ApplicationsSummary({
-    required this.reviewedFraction,
-    required this.total,
-    required this.pending,
-    required this.approved,
-    required this.waitlisted,
-    required this.rejected,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.88)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.maroon.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Review progress',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
-              ),
-              const Spacer(),
-              Text(
-                pending > 0 ? '$pending of $total pending' : 'All $total reviewed',
-                style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: reviewedFraction.clamp(0, 1)),
-              duration: const Duration(milliseconds: 500),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, _) => LinearProgressIndicator(
-                value: value,
-                minHeight: 9,
-                backgroundColor: Colors.white.withValues(alpha: 0.22),
-                valueColor: const AlwaysStoppedAnimation(Colors.white),
-              ),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 18,
-            runSpacing: 8,
-            children: [
-              _miniStat(Icons.hourglass_top_rounded, pending, 'Pending'),
-              _miniStat(Icons.check_circle_rounded, approved, 'Approved'),
-              _miniStat(Icons.schedule_rounded, waitlisted, 'Waitlisted'),
-              _miniStat(Icons.cancel_rounded, rejected, 'Rejected'),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _miniStat(IconData icon, int count, String label) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(icon, size: 14, color: Colors.white70),
-      const SizedBox(width: 5),
-      Text(
-        '$count',
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
-      ),
-      const SizedBox(width: 4),
-      Text(
-        label,
-        style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600),
-      ),
-    ],
-  );
 }
 
 class _AdminApplicationCard extends StatefulWidget {
@@ -1077,214 +1008,477 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
               ],
             ),
             child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Avatar
-                UserAvatar(
-                  avatarUrl: applicant?.avatar,
-                  initials:
-                      applicant?.initials ??
-                      (app.applicantName.isNotEmpty
-                          ? app.applicantName[0].toUpperCase()
-                          : '?'),
-                  size: 56,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
+              padding: const EdgeInsets.fromLTRB(20, 24, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        app.applicantName,
-                        style: const TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.slate900,
+                      // Avatar
+                      UserAvatar(
+                        avatarUrl: applicant?.avatar,
+                        initials:
+                            applicant?.initials ??
+                            (app.applicantName.isNotEmpty
+                                ? app.applicantName[0].toUpperCase()
+                                : '?'),
+                        size: 56,
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              app.applicantName,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.slate900,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              announcement.title,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.slate600,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Applied ${app.appliedAt}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate400,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        announcement.title,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.slate600,
+                      const SizedBox(width: 12),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 6,
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Applied ${app.appliedAt}',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.slate400,
+                        decoration: BoxDecoration(
+                          color: statusBg,
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Text(
+                          app.status,
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: statusColor,
+                          ),
                         ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusBg,
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    app.status,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: statusColor,
+                  const SizedBox(height: 16),
+                  if (app.skills.isNotEmpty ||
+                      applicant != null ||
+                      app.remarks?.isNotEmpty == true) ...[
+                    const Text(
+                      'APPLICATION DETAILS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.slate500,
+                        letterSpacing: 0.5,
+                      ),
                     ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (app.skills.isNotEmpty ||
-                applicant != null ||
-                app.remarks?.isNotEmpty == true) ...[
-              const Text(
-                'APPLICATION DETAILS',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.slate500,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 10),
-              if (app.skills.isNotEmpty) ...[
-                const Text(
-                  'Skills / Qualifications',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.slate700,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: app.skills
-                      .map(
-                        (skill) => Chip(
-                          label: Text(skill),
-                          labelStyle: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.maroon,
-                          ),
-                          backgroundColor: AppTheme.maroon50,
-                          side: BorderSide(
-                            color: AppTheme.maroon.withValues(alpha: 0.2),
-                          ),
+                    const SizedBox(height: 10),
+                    if (app.skills.isNotEmpty) ...[
+                      const Text(
+                        'Skills / Qualifications',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.slate700,
                         ),
-                      )
-                      .toList(),
-                ),
-              ],
-              if (applicant != null) ...[
-                if (app.skills.isNotEmpty) const SizedBox(height: 8),
-                Wrap(
-                  spacing: 20,
-                  runSpacing: 6,
-                  children: [
-                    if (applicant.email.isNotEmpty)
-                      _applicationDetail('Email', applicant.email),
-                    if (applicant.phone?.isNotEmpty == true)
-                      _applicationDetail('Phone', applicant.phone!),
-                    if (applicant.department?.isNotEmpty == true)
-                      _applicationDetail('Department', applicant.department!),
-                    if (applicant.campus?.isNotEmpty == true)
-                      _applicationDetail('Campus', applicant.campus!),
-                  ],
-                ),
-              ],
-              if (app.remarks?.isNotEmpty == true) ...[
-                const SizedBox(height: 8),
-                _applicationDetail('Remarks', app.remarks!),
-              ],
-              const SizedBox(height: 16),
-            ],
-            // Documents
-            if (app.submittedDocuments.isNotEmpty) ...[
-              const Text(
-                'SUBMITTED DOCUMENTS',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.slate500,
-                  letterSpacing: 0.5,
-                ),
-              ),
-              const SizedBox(height: 10),
-              ...app.submittedDocuments.asMap().entries.map((e) {
-                final index = e.key;
-                final doc = e.value;
-                return Padding(
-                  padding: EdgeInsets.only(
-                    bottom: index < app.submittedDocuments.length - 1 ? 10 : 0,
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: AppTheme.emerald500, width: 1),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(
-                          Icons.check_circle,
-                          color: AppTheme.emerald500,
-                          size: 18,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                doc.fileName,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: AppTheme.slate900,
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: app.skills
+                            .map(
+                              (skill) => Chip(
+                                label: Text(skill),
+                                labelStyle: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppTheme.maroon,
+                                ),
+                                backgroundColor: AppTheme.maroon50,
+                                side: BorderSide(
+                                  color: AppTheme.maroon.withValues(alpha: 0.2),
                                 ),
                               ),
-                              if (doc.fileSize != null)
-                                Text(
-                                  '${doc.fileSize!.toStringAsFixed(2)} MB',
+                            )
+                            .toList(),
+                      ),
+                    ],
+                    if (applicant != null) ...[
+                      if (app.skills.isNotEmpty) const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 20,
+                        runSpacing: 6,
+                        children: [
+                          if (applicant.email.isNotEmpty)
+                            _applicationDetail('Email', applicant.email),
+                          if (applicant.phone?.isNotEmpty == true)
+                            _applicationDetail('Phone', applicant.phone!),
+                          if (applicant.department?.isNotEmpty == true)
+                            _applicationDetail(
+                              'Department',
+                              applicant.department!,
+                            ),
+                          if (applicant.campus?.isNotEmpty == true)
+                            _applicationDetail('Campus', applicant.campus!),
+                        ],
+                      ),
+                    ],
+                    if (app.remarks?.isNotEmpty == true) ...[
+                      const SizedBox(height: 8),
+                      _applicationDetail('Remarks', app.remarks!),
+                    ],
+                    const SizedBox(height: 16),
+                  ],
+                  // Documents
+                  if (app.submittedDocuments.isNotEmpty) ...[
+                    const Text(
+                      'SUBMITTED DOCUMENTS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.slate500,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    ...app.submittedDocuments.asMap().entries.map((e) {
+                      final index = e.key;
+                      final doc = e.value;
+                      return Padding(
+                        padding: EdgeInsets.only(
+                          bottom: index < app.submittedDocuments.length - 1
+                              ? 10
+                              : 0,
+                        ),
+                        child: Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppTheme.emerald500,
+                              width: 1,
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(
+                                Icons.check_circle,
+                                color: AppTheme.emerald500,
+                                size: 18,
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      doc.fileName,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: AppTheme.slate900,
+                                      ),
+                                    ),
+                                    if (doc.fileSize != null)
+                                      Text(
+                                        '${doc.fileSize!.toStringAsFixed(2)} MB',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppTheme.slate400,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: downloadingDocumentId == doc.id
+                                    ? null
+                                    : ((doc.storagePath != null &&
+                                                  doc
+                                                      .storagePath!
+                                                      .isNotEmpty) ||
+                                              (doc.bytes != null &&
+                                                  doc.bytes!.isNotEmpty)
+                                          ? () => _downloadDocument(doc)
+                                          : null),
+                                icon: downloadingDocumentId == doc.id
+                                    ? const SizedBox(
+                                        width: 13,
+                                        height: 13,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation(
+                                            Colors.white,
+                                          ),
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.download_outlined,
+                                        size: 13,
+                                      ),
+                                label: Text(
+                                  downloadingDocumentId == doc.id
+                                      ? 'Downloading...'
+                                      : 'Download',
                                   style: const TextStyle(
-                                    fontSize: 11,
-                                    color: AppTheme.slate400,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppTheme.emerald500,
+                                  foregroundColor: Colors.white,
+                                  disabledBackgroundColor: AppTheme.slate200,
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  elevation: 0,
+                                ),
+                              ),
                             ],
                           ),
                         ),
+                      );
+                    }),
+                    const SizedBox(height: 16),
+                  ],
+                  // Action buttons
+                  if (app.status == 'Pending')
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _showRejectDialog(context),
+                          icon: const Icon(Icons.clear_outlined, size: 14),
+                          label: const Text('Reject'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.red500,
+                            side: const BorderSide(color: AppTheme.red500),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        OutlinedButton.icon(
+                          onPressed: () => _waitlistApplication(context),
+                          icon: const Icon(Icons.schedule_outlined, size: 14),
+                          label: const Text('Waitlist'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.blue500,
+                            side: const BorderSide(color: AppTheme.blue500),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
                         ElevatedButton.icon(
-                          onPressed:
-                              downloadingDocumentId == doc.id
+                          onPressed: () => _approveApplication(context),
+                          icon: const Icon(Icons.check_rounded, size: 14),
+                          label: const Text('Approve'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.emerald500,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ],
+                    )
+                  else if (app.status == 'Waitlisted')
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => _showRejectDialog(context),
+                          icon: const Icon(Icons.clear_outlined, size: 14),
+                          label: const Text('Reject'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.red500,
+                            side: const BorderSide(color: AppTheme.red500),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton.icon(
+                          onPressed: () => _approveApplication(context),
+                          icon: const Icon(Icons.how_to_reg_outlined, size: 14),
+                          label: const Text('Approve Anyway'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.emerald500,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ],
+                    )
+                  else if (app.status == 'Approved' || app.status == 'Accepted')
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 10,
+                      runSpacing: 10,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: generatingContract
                               ? null
-                              : ((doc.storagePath != null &&
-                                          doc.storagePath!.isNotEmpty) ||
-                                      (doc.bytes != null &&
-                                          doc.bytes!.isNotEmpty)
-                                  ? () => _downloadDocument(doc)
-                                  : null),
-                          icon: downloadingDocumentId == doc.id
+                              : () async {
+                                  setState(() => generatingContract = true);
+                                  try {
+                                    await state
+                                        .generateContractOfAppointmentDocument(
+                                          app.id,
+                                        );
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      SnackBar(
+                                        content: const Text(
+                                          'Contract of Appointment generated.',
+                                        ),
+                                        backgroundColor: AppTheme.emerald500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Unable to generate: $e'),
+                                        backgroundColor: AppTheme.amber500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  } finally {
+                                    if (mounted) {
+                                      setState(
+                                        () => generatingContract = false,
+                                      );
+                                    }
+                                  }
+                                },
+                          icon: generatingContract
                               ? const SizedBox(
-                                  width: 13,
-                                  height: 13,
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation(
+                                      AppTheme.maroon,
+                                    ),
+                                  ),
+                                )
+                              : const Icon(
+                                  Icons.description_outlined,
+                                  size: 14,
+                                ),
+                          label: Text(
+                            generatingContract
+                                ? 'Generating Contract...'
+                                : 'Generate Contract of Appointment',
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: AppTheme.maroon,
+                            side: const BorderSide(color: AppTheme.maroon200),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 10,
+                            ),
+                          ),
+                        ),
+                        ElevatedButton.icon(
+                          onPressed: generatingEndorsement
+                              ? null
+                              : () async {
+                                  setState(() => generatingEndorsement = true);
+                                  try {
+                                    await state
+                                        .generateEndorsementLetterDocument(
+                                          app.id,
+                                        );
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      SnackBar(
+                                        content: const Text(
+                                          'Endorsement Letter generated.',
+                                        ),
+                                        backgroundColor: AppTheme.emerald500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  } catch (e) {
+                                    ScaffoldMessenger.of(ctx).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Unable to generate: $e'),
+                                        backgroundColor: AppTheme.amber500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  } finally {
+                                    if (mounted) {
+                                      setState(
+                                        () => generatingEndorsement = false,
+                                      );
+                                    }
+                                  }
+                                },
+                          icon: generatingEndorsement
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                     valueColor: AlwaysStoppedAnimation(
@@ -1292,252 +1486,26 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                                     ),
                                   ),
                                 )
-                              : const Icon(Icons.download_outlined, size: 13),
+                              : const Icon(Icons.mail_outline, size: 14),
                           label: Text(
-                            downloadingDocumentId == doc.id
-                                ? 'Downloading...'
-                                : 'Download',
-                            style: const TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
+                            generatingEndorsement
+                                ? 'Generating Letter...'
+                                : 'Generate Endorsement Letter',
                           ),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.emerald500,
+                            backgroundColor: AppTheme.maroon,
                             foregroundColor: Colors.white,
-                            disabledBackgroundColor: AppTheme.slate200,
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 8,
+                              horizontal: 16,
+                              vertical: 10,
                             ),
                             elevation: 0,
                           ),
                         ),
                       ],
                     ),
-                  ),
-                );
-              }),
-              const SizedBox(height: 16),
-            ],
-            // Action buttons
-            if (app.status == 'Pending')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _showRejectDialog(context),
-                    icon: const Icon(Icons.clear_outlined, size: 14),
-                    label: const Text('Reject'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.red500,
-                      side: const BorderSide(color: AppTheme.red500),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  OutlinedButton.icon(
-                    onPressed: () => _waitlistApplication(context),
-                    icon: const Icon(Icons.schedule_outlined, size: 14),
-                    label: const Text('Waitlist'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.blue500,
-                      side: const BorderSide(color: AppTheme.blue500),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton.icon(
-                    onPressed: () => _approveApplication(context),
-                    icon: const Icon(Icons.check_rounded, size: 14),
-                    label: const Text('Approve'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.emerald500,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
-                ],
-              )
-            else if (app.status == 'Waitlisted')
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _showRejectDialog(context),
-                    icon: const Icon(Icons.clear_outlined, size: 14),
-                    label: const Text('Reject'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.red500,
-                      side: const BorderSide(color: AppTheme.red500),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  ElevatedButton.icon(
-                    onPressed: () => _approveApplication(context),
-                    icon: const Icon(Icons.how_to_reg_outlined, size: 14),
-                    label: const Text('Approve Anyway'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.emerald500,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
-                ],
-              )
-            else if (app.status == 'Approved' || app.status == 'Accepted')
-              Wrap(
-                alignment: WrapAlignment.end,
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: generatingContract
-                        ? null
-                        : () async {
-                            setState(() => generatingContract = true);
-                            try {
-                              await state.generateContractOfAppointmentDocument(
-                                app.id,
-                              );
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Contract of Appointment generated.',
-                                  ),
-                                  backgroundColor: AppTheme.emerald500,
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  margin: const EdgeInsets.all(16),
-                                ),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                SnackBar(
-                                  content: Text('Unable to generate: $e'),
-                                  backgroundColor: AppTheme.amber500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                              );
-                            } finally {
-                              if (mounted) {
-                                setState(() => generatingContract = false);
-                              }
-                            }
-                          },
-                    icon: generatingContract
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(
-                                AppTheme.maroon,
-                              ),
-                            ),
-                          )
-                        : const Icon(Icons.description_outlined, size: 14),
-                    label: Text(
-                      generatingContract
-                          ? 'Generating Contract...'
-                          : 'Generate Contract of Appointment',
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.maroon,
-                      side: const BorderSide(color: AppTheme.maroon200),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                    ),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: generatingEndorsement
-                        ? null
-                        : () async {
-                            setState(() => generatingEndorsement = true);
-                            try {
-                              await state.generateEndorsementLetterDocument(
-                                app.id,
-                              );
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                SnackBar(
-                                  content: const Text(
-                                    'Endorsement Letter generated.',
-                                  ),
-                                  backgroundColor: AppTheme.emerald500,
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  margin: const EdgeInsets.all(16),
-                                ),
-                              );
-                            } catch (e) {
-                              ScaffoldMessenger.of(ctx).showSnackBar(
-                                SnackBar(
-                                  content: Text('Unable to generate: $e'),
-                                  backgroundColor: AppTheme.amber500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                              );
-                            } finally {
-                              if (mounted) {
-                                setState(() => generatingEndorsement = false);
-                              }
-                            }
-                          },
-                    icon: generatingEndorsement
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation(Colors.white),
-                            ),
-                          )
-                        : const Icon(Icons.mail_outline, size: 14),
-                    label: Text(
-                      generatingEndorsement
-                          ? 'Generating Letter...'
-                          : 'Generate Endorsement Letter',
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.maroon,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 10,
-                      ),
-                      elevation: 0,
-                    ),
-                  ),
                 ],
               ),
-          ],
-        ),
             ),
           ),
         ],
@@ -1572,7 +1540,8 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
           Uri.parse(url),
           mode: LaunchMode.externalApplication,
         );
-        if (!opened) throw Exception('The browser could not open the document.');
+        if (!opened)
+          throw Exception('The browser could not open the document.');
       } else if (doc.bytes != null && doc.bytes!.isNotEmpty) {
         final uri = Uri.dataFromBytes(
           doc.bytes!,
@@ -1580,11 +1549,9 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
               'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
           parameters: {'filename': doc.fileName},
         );
-        final opened = await launchUrl(
-          uri,
-          mode: LaunchMode.platformDefault,
-        );
-        if (!opened) throw Exception('The browser could not open the document.');
+        final opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
+        if (!opened)
+          throw Exception('The browser could not open the document.');
       } else {
         throw Exception(
           'This document has no file content or storage path. Please upload it again.',
@@ -1607,9 +1574,12 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         SnackBar(
           content: Text('Unable to download: $e'),
           backgroundColor: AppTheme.amber500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } finally {
       if (mounted) setState(() => downloadingDocumentId = null);
@@ -1698,7 +1668,8 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         backgroundColor: AppTheme.blue500,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 }

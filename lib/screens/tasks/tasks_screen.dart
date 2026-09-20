@@ -9,10 +9,47 @@ import '../../widgets/shared_widgets.dart';
 /// ("Mon D, YYYY", e.g. "Sep 19, 2026").
 String _formatDueDate(DateTime d) {
   const months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
   return '${months[d.month - 1]} ${d.day}, ${d.year}';
+}
+
+/// Reads a due date back out of the "Mon D, YYYY" form tasks store it in.
+/// Returns null for anything that does not parse, so callers can treat the
+/// date as unknown rather than overdue.
+DateTime? _parseDueDate(String raw) {
+  const months = [
+    'jan',
+    'feb',
+    'mar',
+    'apr',
+    'may',
+    'jun',
+    'jul',
+    'aug',
+    'sep',
+    'oct',
+    'nov',
+    'dec',
+  ];
+  final parts = raw.replaceAll(',', '').trim().split(RegExp(r'\s+'));
+  if (parts.length < 3) return null;
+  final month = months.indexOf(parts[0].toLowerCase().substring(0, 3)) + 1;
+  final day = int.tryParse(parts[1]);
+  final year = int.tryParse(parts[2]);
+  if (month == 0 || day == null || year == null) return null;
+  return DateTime(year, month, day);
 }
 
 class TasksScreen extends StatefulWidget {
@@ -23,6 +60,7 @@ class TasksScreen extends StatefulWidget {
 
 class _TasksScreenState extends State<TasksScreen> {
   String _filterStatus = 'All';
+  String _search = '';
   final Set<String> _pendingIds = {};
 
   static const _statuses = [
@@ -61,366 +99,300 @@ class _TasksScreenState extends State<TasksScreen> {
     final state = context.watch<AppState>();
     final role = state.role;
 
+    final query = _search.trim().toLowerCase();
     final tasks = state.filteredTasks.where((t) {
-      if (_filterStatus == 'Archived') return t.isArchived;
-      if (t.isArchived) return false;
-      return _filterStatus == 'All' || t.status == _filterStatus;
+      if (_filterStatus == 'Archived') {
+        if (!t.isArchived) return false;
+      } else {
+        if (t.isArchived) return false;
+        if (_filterStatus != 'All' && t.status != _filterStatus) return false;
+      }
+      return query.isEmpty ||
+          t.title.toLowerCase().contains(query) ||
+          t.description.toLowerCase().contains(query) ||
+          (t.assignedToName ?? '').toLowerCase().contains(query) ||
+          (t.category ?? '').toLowerCase().contains(query);
     }).toList();
 
-    final activeCount = state.filteredTasks
-        .where((t) => !t.isArchived && t.status != 'Completed')
-        .length;
-
     final liveTasks = state.filteredTasks.where((t) => !t.isArchived).toList();
+    // Anything still open whose due date has already passed.
+    final today = DateTime.now();
+    final startOfToday = DateTime(today.year, today.month, today.day);
+    final overdueCount = liveTasks.where((t) {
+      if (t.status == 'Completed') return false;
+      final due = _parseDueDate(t.dueDate);
+      return due != null && due.isBefore(startOfToday);
+    }).length;
+    final isMobile = MediaQuery.of(context).size.width < 700;
     final statusCounts = <String, int>{
       for (final s in _statuses)
         s: s == 'All'
             ? liveTasks.length
             : s == 'Archived'
-                ? state.filteredTasks.where((t) => t.isArchived).length
-                : liveTasks.where((t) => t.status == s).length,
+            ? state.filteredTasks.where((t) => t.isArchived).length
+            : liveTasks.where((t) => t.status == s).length,
     };
     final completedCount = statusCounts['Completed'] ?? 0;
-    final progress = liveTasks.isEmpty ? 0.0 : completedCount / liveTasks.length;
+    final progress = liveTasks.isEmpty
+        ? 0.0
+        : completedCount / liveTasks.length;
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [AppTheme.slate50, Colors.white],
-          stops: [0.0, 0.22],
-        ),
-      ),
-      child: CustomScrollView(
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-            sliver: SliverToBoxAdapter(
-              child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+          sliver: SliverToBoxAdapter(
+            child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      ShaderMask(
-                        shaderCallback: (bounds) => const LinearGradient(
-                          colors: [AppTheme.maroon, AppTheme.maroonDark],
-                        ).createShader(bounds),
-                        child: const Text(
-                          'Tasks',
-                          style: TextStyle(
-                            fontSize: 24,
-                            fontWeight: FontWeight.w800,
-                            color: Colors.white,
-                            letterSpacing: -0.4,
+                HeroBanner(
+                  isMobile: isMobile,
+                  icon: Icons.task_alt_rounded,
+                  title: 'Tasks',
+                  subtitle: role == 'Student Assistant'
+                      ? 'Your assigned tasks and their progress'
+                      : 'Assign and track student assistant tasks',
+                  searchHint: 'Search tasks...',
+                  onSearch: (value) => setState(() => _search = value),
+                  addLabel: role == 'Supervisor' ? 'Assign Task' : null,
+                  onAdd: role == 'Supervisor'
+                      ? () => _showAddDialog(context, state)
+                      : null,
+                  filters: [
+                    if (role == 'Head')
+                      OutlinedButton.icon(
+                        onPressed: () =>
+                            _showManageCategoriesDialog(context, state),
+                        icon: const Icon(Icons.category_rounded, size: 16),
+                        label: const Text('Categories'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.maroon,
+                          side: const BorderSide(
+                            color: AppTheme.maroon,
+                            width: 1.3,
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 11,
+                          ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
                           ),
                         ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${tasks.length} task${tasks.length != 1 ? 's' : ''}',
-                        style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
-                      ),
-                    ],
+                  ],
+                  stats: [
+                    HeroStatData(
+                      label: 'Tasks',
+                      value: '${liveTasks.length}',
+                      icon: Icons.assignment_outlined,
+                    ),
+                    HeroStatData(
+                      label: 'In progress',
+                      value: '${statusCounts['In Progress'] ?? 0}',
+                      icon: Icons.autorenew_rounded,
+                    ),
+                    HeroStatData(
+                      label: 'Completed',
+                      value: '$completedCount',
+                      icon: Icons.check_circle_rounded,
+                    ),
+                    HeroStatData(
+                      label: 'Overdue',
+                      value: '$overdueCount',
+                      icon: Icons.event_busy_rounded,
+                    ),
+                  ],
+                ),
+                if (liveTasks.isNotEmpty) ...[
+                  const SizedBox(height: 14),
+                  _ProgressSummary(
+                    progress: progress,
+                    completedCount: completedCount,
+                    totalCount: liveTasks.length,
+                  ),
+                ],
+                const SizedBox(height: 14),
+
+                // Status filter
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: _statuses.map((s) {
+                      final selected = _filterStatus == s;
+                      final color = _statusColor(s);
+                      return GestureDetector(
+                        onTap: () => setState(() => _filterStatus = s),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          margin: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 13,
+                            vertical: 8,
+                          ),
+                          decoration: BoxDecoration(
+                            color: selected
+                                ? color.withValues(alpha: 0.1)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: selected
+                                  ? color.withValues(alpha: 0.5)
+                                  : AppTheme.slate200,
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                _statusIcons[s],
+                                size: 14,
+                                color: selected ? color : AppTheme.slate400,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                s,
+                                style: TextStyle(
+                                  color: selected ? color : AppTheme.slate600,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 12.5,
+                                ),
+                              ),
+                              if ((statusCounts[s] ?? 0) > 0) ...[
+                                const SizedBox(width: 6),
+                                Text(
+                                  '${statusCounts[s]}',
+                                  style: TextStyle(
+                                    color: selected ? color : AppTheme.slate400,
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 11.5,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    }).toList(),
                   ),
                 ),
-                if (activeCount > 0) ...[
-                  const SizedBox(width: 10),
-                  _activeBadge(activeCount),
-                ],
-                if (role == 'Head') ...[
-                  const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: () => _showManageCategoriesDialog(context, state),
-                    icon: const Icon(Icons.category_rounded, size: 16),
-                    label: const Text('Categories'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.maroon,
-                      side: const BorderSide(color: AppTheme.maroon, width: 1.3),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                    ),
+                const SizedBox(height: 16),
+              ],
+            ),
+          ),
+        ),
+        if (tasks.isEmpty)
+          SliverFillRemaining(hasScrollBody: false, child: _emptyState())
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+            sliver: SliverList.list(
+              children: [
+                for (int i = 0; i < tasks.length; i++) ...[
+                  _TaskCard(
+                    task: tasks[i],
+                    role: role,
+                    isBusy: _pendingIds.contains(tasks[i].id),
+                    onStatusChange: (newStatus) async {
+                      setState(() => _pendingIds.add(tasks[i].id));
+                      await state.updateTaskStatus(tasks[i].id, newStatus);
+                      if (!context.mounted) return;
+                      setState(() => _pendingIds.remove(tasks[i].id));
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Task status updated to "$newStatus"'),
+                          backgroundColor: AppTheme.blue500,
+                          duration: const Duration(seconds: 2),
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          margin: const EdgeInsets.all(16),
+                        ),
+                      );
+                    },
+                    onDelete: () async {
+                      final ok = await showConfirmDialog(
+                        context,
+                        title: 'Delete Task',
+                        message: 'Delete this task?',
+                        confirmLabel: 'Delete',
+                      );
+                      if (ok) {
+                        setState(() => _pendingIds.add(tasks[i].id));
+                        await state.deleteTask(tasks[i].id);
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Task deleted successfully'),
+                            backgroundColor: AppTheme.red500,
+                            duration: const Duration(seconds: 2),
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            margin: const EdgeInsets.all(16),
+                          ),
+                        );
+                      }
+                    },
+                    onArchive: role == 'Supervisor'
+                        ? () async {
+                            final willArchive = !tasks[i].isArchived;
+                            final ok = await showConfirmDialog(
+                              context,
+                              title: willArchive
+                                  ? 'Archive Task'
+                                  : 'Restore Task',
+                              message: willArchive
+                                  ? 'Archive this task? It will be moved out of the active list.'
+                                  : 'Restore this task back to the active list?',
+                              confirmLabel: willArchive ? 'Archive' : 'Restore',
+                              confirmColor: willArchive
+                                  ? AppTheme.slate600
+                                  : AppTheme.emerald500,
+                            );
+                            if (!ok) return;
+                            setState(() => _pendingIds.add(tasks[i].id));
+                            await state.setTaskArchived(
+                              tasks[i].id,
+                              willArchive,
+                            );
+                            if (!context.mounted) return;
+                            setState(() => _pendingIds.remove(tasks[i].id));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  willArchive
+                                      ? 'Task archived'
+                                      : 'Task restored',
+                                ),
+                                backgroundColor: willArchive
+                                    ? AppTheme.slate600
+                                    : AppTheme.emerald500,
+                                duration: const Duration(seconds: 2),
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(16),
+                              ),
+                            );
+                          }
+                        : null,
                   ),
-                ],
-                if (role == 'Supervisor') ...[
-                  const SizedBox(width: 8),
-                  Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(12),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.maroon.withValues(alpha: 0.25),
-                          blurRadius: 10,
-                          offset: const Offset(0, 3),
-                        ),
-                      ],
-                    ),
-                    child: ElevatedButton.icon(
-                      onPressed: () => _showAddDialog(context, state),
-                      icon: const Icon(Icons.add_rounded, size: 18),
-                      label: const Text('Assign Task'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.maroon,
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13.5),
-                      ),
-                    ),
-                  ),
+                  if (i < tasks.length - 1) const SizedBox(height: 12),
                 ],
               ],
             ),
-            const SizedBox(height: 18),
-
-            if (liveTasks.isNotEmpty) ...[
-              _ProgressSummary(
-                progress: progress,
-                completedCount: completedCount,
-                totalCount: liveTasks.length,
-                notStarted: statusCounts['Not Started'] ?? 0,
-                inProgress: statusCounts['In Progress'] ?? 0,
-              ),
-              const SizedBox(height: 18),
-            ],
-
-            // Status filter
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _statuses.map((s) {
-                  final selected = _filterStatus == s;
-                  final color = _statusColor(s);
-                  return GestureDetector(
-                    onTap: () => setState(() => _filterStatus = s),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      margin: const EdgeInsets.only(right: 8),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 15,
-                        vertical: 9,
-                      ),
-                      decoration: BoxDecoration(
-                        color: selected ? color : Colors.white,
-                        borderRadius: BorderRadius.circular(22),
-                        border: Border.all(
-                          color: selected ? color : AppTheme.slate200,
-                        ),
-                        boxShadow: selected
-                            ? [
-                                BoxShadow(
-                                  color: color.withValues(alpha: 0.28),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 3),
-                                ),
-                              ]
-                            : null,
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _statusIcons[s],
-                            size: 14,
-                            color: selected ? Colors.white : AppTheme.slate400,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            s,
-                            style: TextStyle(
-                              color: selected ? Colors.white : AppTheme.slate600,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                          if ((statusCounts[s] ?? 0) > 0) ...[
-                            const SizedBox(width: 6),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                              decoration: BoxDecoration(
-                                color: selected ? Colors.white.withValues(alpha: 0.25) : color.withValues(alpha: 0.12),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                '${statusCounts[s]}',
-                                style: TextStyle(
-                                  color: selected ? Colors.white : color,
-                                  fontWeight: FontWeight.w800,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-            const SizedBox(height: 18),
-          ],
-              ),
-            ),
           ),
-          if (tasks.isEmpty)
-            SliverFillRemaining(
-              hasScrollBody: false,
-              child: _emptyState(),
-            )
-          else
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
-              sliver: SliverList.list(
-                children: [
-                  for (int i = 0; i < tasks.length; i++) ...[
-                    _TaskCard(
-                              task: tasks[i],
-                              role: role,
-                              isBusy: _pendingIds.contains(tasks[i].id),
-                              onStatusChange: (newStatus) async {
-                                setState(() => _pendingIds.add(tasks[i].id));
-                                await state.updateTaskStatus(
-                                  tasks[i].id,
-                                  newStatus,
-                                );
-                                if (!context.mounted) return;
-                                setState(() => _pendingIds.remove(tasks[i].id));
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Task status updated to "$newStatus"',
-                                    ),
-                                    backgroundColor: AppTheme.blue500,
-                                    duration: const Duration(seconds: 2),
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                                );
-                              },
-                              onDelete: () async {
-                                final ok = await showConfirmDialog(
-                                  context,
-                                  title: 'Delete Task',
-                                  message: 'Delete this task?',
-                                  confirmLabel: 'Delete',
-                                );
-                                if (ok) {
-                                  setState(() => _pendingIds.add(tasks[i].id));
-                                  await state.deleteTask(tasks[i].id);
-                                  if (!context.mounted) return;
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    SnackBar(
-                                      content: const Text(
-                                        'Task deleted successfully',
-                                      ),
-                                      backgroundColor: AppTheme.red500,
-                                      duration: const Duration(seconds: 2),
-                                      behavior: SnackBarBehavior.floating,
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                                  );
-                                }
-                              },
-                              onArchive: role == 'Supervisor'
-                                  ? () async {
-                                      final willArchive = !tasks[i].isArchived;
-                                      final ok = await showConfirmDialog(
-                                        context,
-                                        title: willArchive ? 'Archive Task' : 'Restore Task',
-                                        message: willArchive
-                                            ? 'Archive this task? It will be moved out of the active list.'
-                                            : 'Restore this task back to the active list?',
-                                        confirmLabel: willArchive ? 'Archive' : 'Restore',
-                                        confirmColor: willArchive ? AppTheme.slate600 : AppTheme.emerald500,
-                                      );
-                                      if (!ok) return;
-                                      setState(() => _pendingIds.add(tasks[i].id));
-                                      await state.setTaskArchived(
-                                        tasks[i].id,
-                                        willArchive,
-                                      );
-                                      if (!context.mounted) return;
-                                      setState(() => _pendingIds.remove(tasks[i].id));
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            willArchive
-                                                ? 'Task archived'
-                                                : 'Task restored',
-                                          ),
-                                          backgroundColor: willArchive
-                                              ? AppTheme.slate600
-                                              : AppTheme.emerald500,
-                                          duration: const Duration(seconds: 2),
-                                          behavior: SnackBarBehavior.floating,
-                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-                                      );
-                                    }
-                                  : null,
-                            ),
-                    if (i < tasks.length - 1) const SizedBox(height: 12),
-                  ],
-                ],
-              ),
-            ),
-        ],
-      ),
+      ],
     );
   }
-
-  Widget _activeBadge(int count) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
-    decoration: BoxDecoration(
-      color: AppTheme.blue50,
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AppTheme.blue500.withValues(alpha: 0.25)),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.pending_actions_rounded, size: 15, color: AppTheme.blue500),
-        const SizedBox(width: 7),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '$count',
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.blue500,
-                height: 1.0,
-              ),
-            ),
-            const Text(
-              'active',
-              style: TextStyle(fontSize: 10, color: AppTheme.blue500),
-            ),
-          ],
-        ),
-      ],
-    ),
-  );
 
   Widget _emptyState() => Center(
     child: Padding(
@@ -453,9 +425,11 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
           ),
           const SizedBox(height: 4),
-          const Text(
-            'Try a different filter, or assign a new task.',
-            style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+          Text(
+            _search.trim().isEmpty
+                ? 'Try a different filter, or assign a new task.'
+                : 'No tasks match your search.',
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slate400),
           ),
         ],
       ),
@@ -521,7 +495,11 @@ class _TasksScreenState extends State<TasksScreen> {
                           color: AppTheme.maroon50,
                           borderRadius: BorderRadius.circular(11),
                         ),
-                        child: const Icon(Icons.assignment_add, color: AppTheme.maroon, size: 19),
+                        child: const Icon(
+                          Icons.assignment_add,
+                          color: AppTheme.maroon,
+                          size: 19,
+                        ),
                       ),
                       const SizedBox(width: 12),
                       const Expanded(
@@ -539,7 +517,9 @@ class _TasksScreenState extends State<TasksScreen> {
                         onPressed: () => Navigator.pop(context),
                         style: IconButton.styleFrom(
                           backgroundColor: AppTheme.slate100,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
                         ),
                       ),
                     ],
@@ -551,7 +531,10 @@ class _TasksScreenState extends State<TasksScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Task Title',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -563,7 +546,10 @@ class _TasksScreenState extends State<TasksScreen> {
                       decoration: const InputDecoration(
                         labelText: 'Description',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -571,14 +557,22 @@ class _TasksScreenState extends State<TasksScreen> {
                   _dialogField(
                     child: DropdownButtonFormField<String>(
                       initialValue: priority,
-                      icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
+                      icon: const Icon(
+                        Icons.expand_more_rounded,
+                        color: AppTheme.slate400,
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Priority',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                       ),
                       items: ['High', 'Medium', 'Low']
-                          .map((p) => DropdownMenuItem(value: p, child: Text(p)))
+                          .map(
+                            (p) => DropdownMenuItem(value: p, child: Text(p)),
+                          )
                           .toList(),
                       onChanged: (v) => setSt(() => priority = v!),
                     ),
@@ -587,14 +581,22 @@ class _TasksScreenState extends State<TasksScreen> {
                   _dialogField(
                     child: DropdownButtonFormField<String>(
                       initialValue: category,
-                      icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
+                      icon: const Icon(
+                        Icons.expand_more_rounded,
+                        color: AppTheme.slate400,
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Category',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                       ),
                       items: state.taskCategories
-                          .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                          .map(
+                            (c) => DropdownMenuItem(value: c, child: Text(c)),
+                          )
                           .toList(),
                       onChanged: (v) => setSt(() => category = v ?? category),
                     ),
@@ -604,17 +606,26 @@ class _TasksScreenState extends State<TasksScreen> {
                     child: DropdownButtonFormField<String>(
                       initialValue: assignedTo,
                       isExpanded: true,
-                      icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
+                      icon: const Icon(
+                        Icons.expand_more_rounded,
+                        color: AppTheme.slate400,
+                      ),
                       decoration: const InputDecoration(
                         labelText: 'Assign To',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                       ),
                       items: students
                           .map(
                             (s) => DropdownMenuItem(
                               value: s.id,
-                              child: Text(s.name, overflow: TextOverflow.ellipsis),
+                              child: Text(
+                                s.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
                           )
                           .toList(),
@@ -630,7 +641,11 @@ class _TasksScreenState extends State<TasksScreen> {
                         final picked = await showDatePicker(
                           context: ctx,
                           initialDate: dueDate,
-                          firstDate: DateTime(today.year, today.month, today.day),
+                          firstDate: DateTime(
+                            today.year,
+                            today.month,
+                            today.day,
+                          ),
                           lastDate: DateTime(today.year + 5, 12, 31),
                         );
                         if (picked != null) setSt(() => dueDate = picked);
@@ -661,7 +676,10 @@ class _TasksScreenState extends State<TasksScreen> {
                         labelText: 'Checklist item',
                         hintText: 'Add a checklist step',
                         border: InputBorder.none,
-                        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                        contentPadding: EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 14,
+                        ),
                       ),
                     ),
                   ),
@@ -682,12 +700,18 @@ class _TasksScreenState extends State<TasksScreen> {
                       label: const Text('Add Item'),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.maroon,
-                        side: const BorderSide(color: AppTheme.maroon, width: 1.3),
+                        side: const BorderSide(
+                          color: AppTheme.maroon,
+                          width: 1.3,
+                        ),
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(11),
                         ),
-                        textStyle: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                        textStyle: const TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ),
@@ -700,9 +724,14 @@ class _TasksScreenState extends State<TasksScreen> {
                         final index = entry.key;
                         final item = entry.value;
                         return Chip(
-                          label: Text(item, style: const TextStyle(fontSize: 12.5)),
+                          label: Text(
+                            item,
+                            style: const TextStyle(fontSize: 12.5),
+                          ),
                           backgroundColor: AppTheme.maroon50,
-                          side: BorderSide(color: AppTheme.maroon.withValues(alpha: 0.15)),
+                          side: BorderSide(
+                            color: AppTheme.maroon.withValues(alpha: 0.15),
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(20),
                           ),
@@ -751,12 +780,17 @@ class _TasksScreenState extends State<TasksScreen> {
                           Navigator.pop(context);
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
-                              content: const Text('Task assigned successfully!'),
+                              content: const Text(
+                                'Task assigned successfully!',
+                              ),
                               backgroundColor: AppTheme.emerald500,
                               duration: const Duration(seconds: 2),
                               behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              margin: const EdgeInsets.all(16),
+                            ),
                           );
                         },
                         style: ElevatedButton.styleFrom(
@@ -770,7 +804,10 @@ class _TasksScreenState extends State<TasksScreen> {
                         ),
                         child: const Text(
                           'Assign Task',
-                          style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14.5,
+                          ),
                         ),
                       ),
                     ),
@@ -1057,102 +1094,95 @@ class _TasksScreenState extends State<TasksScreen> {
   }
 }
 
+/// Slim completion strip under the header: a label, the count and a bar.
 class _ProgressSummary extends StatelessWidget {
   final double progress;
   final int completedCount;
   final int totalCount;
-  final int notStarted;
-  final int inProgress;
 
   const _ProgressSummary({
     required this.progress,
     required this.completedCount,
     required this.totalCount,
-    required this.notStarted,
-    required this.inProgress,
   });
 
   @override
   Widget build(BuildContext context) {
+    final pct = (progress.clamp(0, 1) * 100).round();
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.88)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(18),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.maroon.withValues(alpha: 0.25),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.slate200),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            children: [
-              const Text(
-                'Overall progress',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, fontSize: 13.5),
-              ),
-              const Spacer(),
-              Text(
-                '$completedCount / $totalCount completed',
-                style: const TextStyle(color: Colors.white70, fontSize: 12.5, fontWeight: FontWeight.w600),
-              ),
-            ],
+          const Icon(
+            Icons.donut_small_rounded,
+            size: 15,
+            color: AppTheme.maroon,
           ),
-          const SizedBox(height: 10),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(20),
-            child: TweenAnimationBuilder<double>(
-              tween: Tween(begin: 0, end: progress.clamp(0, 1)),
-              duration: const Duration(milliseconds: 500),
-              curve: Curves.easeOutCubic,
-              builder: (context, value, _) => LinearProgressIndicator(
-                value: value,
-                minHeight: 9,
-                backgroundColor: Colors.white.withValues(alpha: 0.22),
-                valueColor: const AlwaysStoppedAnimation(Colors.white),
+          const SizedBox(width: 8),
+          const Text(
+            'Overall progress',
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slate700,
+            ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                children: [
+                  Container(height: 8, color: AppTheme.slate100),
+                  LayoutBuilder(
+                    builder: (context, constraints) =>
+                        TweenAnimationBuilder<double>(
+                          tween: Tween(begin: 0, end: progress.clamp(0, 1)),
+                          duration: const Duration(milliseconds: 500),
+                          curve: Curves.easeOutCubic,
+                          builder: (context, value, _) => Container(
+                            height: 8,
+                            width: constraints.maxWidth * value,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [AppTheme.maroon, AppTheme.maroonLight],
+                              ),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                        ),
+                  ),
+                ],
               ),
             ),
           ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _miniStat(Icons.radio_button_unchecked_rounded, notStarted, 'Not started'),
-              const SizedBox(width: 18),
-              _miniStat(Icons.autorenew_rounded, inProgress, 'In progress'),
-              const SizedBox(width: 18),
-              _miniStat(Icons.check_circle_rounded, completedCount, 'Completed'),
-            ],
+          const SizedBox(width: 12),
+          Text(
+            '$completedCount/$totalCount',
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.slate900,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            '($pct%)',
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slate400,
+            ),
           ),
         ],
       ),
     );
   }
-
-  Widget _miniStat(IconData icon, int count, String label) => Row(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      Icon(icon, size: 14, color: Colors.white70),
-      const SizedBox(width: 5),
-      Text(
-        '$count',
-        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w800, fontSize: 13),
-      ),
-      const SizedBox(width: 4),
-      Text(
-        label,
-        style: const TextStyle(color: Colors.white70, fontSize: 11.5, fontWeight: FontWeight.w600),
-      ),
-    ],
-  );
 }
 
 class _TaskCard extends StatelessWidget {
@@ -1183,6 +1213,15 @@ class _TaskCard extends StatelessWidget {
     }
   }
 
+  /// Open task whose due date has already passed.
+  bool get _isOverdue {
+    if (task.status == 'Completed' || task.isArchived) return false;
+    final due = _parseDueDate(task.dueDate);
+    if (due == null) return false;
+    final now = DateTime.now();
+    return due.isBefore(DateTime(now.year, now.month, now.day));
+  }
+
   IconData get _priorityIcon {
     switch (task.priority) {
       case 'High':
@@ -1201,10 +1240,7 @@ class _TaskCard extends StatelessWidget {
         AnimatedOpacity(
           duration: const Duration(milliseconds: 200),
           opacity: isBusy ? 0.5 : 1,
-          child: IgnorePointer(
-            ignoring: isBusy,
-            child: _cardBody(context),
-          ),
+          child: IgnorePointer(ignoring: isBusy, child: _cardBody(context)),
         ),
         if (isBusy)
           Positioned.fill(
@@ -1279,16 +1315,25 @@ class _TaskCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 5,
+                        ),
                         decoration: BoxDecoration(
                           color: _priorityAccent.withValues(alpha: 0.1),
                           borderRadius: BorderRadius.circular(20),
-                          border: Border.all(color: _priorityAccent.withValues(alpha: 0.25)),
+                          border: Border.all(
+                            color: _priorityAccent.withValues(alpha: 0.25),
+                          ),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(_priorityIcon, size: 12, color: _priorityAccent),
+                            Icon(
+                              _priorityIcon,
+                              size: 12,
+                              color: _priorityAccent,
+                            ),
                             const SizedBox(width: 3),
                             Text(
                               task.priority,
@@ -1344,7 +1389,11 @@ class _TaskCard extends StatelessWidget {
                     const SizedBox(height: 8),
                     Text(
                       task.description,
-                      style: const TextStyle(fontSize: 13, color: AppTheme.slate500, height: 1.35),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.slate500,
+                        height: 1.35,
+                      ),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -1364,13 +1413,18 @@ class _TaskCard extends StatelessWidget {
                               alignment: Alignment.center,
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
-                                  colors: [AppTheme.maroon, AppTheme.maroon.withValues(alpha: 0.7)],
+                                  colors: [
+                                    AppTheme.maroon,
+                                    AppTheme.maroon.withValues(alpha: 0.7),
+                                  ],
                                 ),
                                 shape: BoxShape.circle,
                               ),
                               child: Text(
                                 task.assignedToName!.trim().isNotEmpty
-                                    ? task.assignedToName!.trim()[0].toUpperCase()
+                                    ? task.assignedToName!
+                                          .trim()[0]
+                                          .toUpperCase()
                                     : '?',
                                 style: const TextStyle(
                                   fontSize: 10.5,
@@ -1393,20 +1447,53 @@ class _TaskCard extends StatelessWidget {
                       Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(
-                            Icons.calendar_today_rounded,
+                          Icon(
+                            _isOverdue
+                                ? Icons.event_busy_rounded
+                                : Icons.calendar_today_rounded,
                             size: 12,
-                            color: AppTheme.slate400,
+                            color: _isOverdue
+                                ? AppTheme.red500
+                                : AppTheme.slate400,
                           ),
                           const SizedBox(width: 4),
                           Text(
                             'Due: ${task.dueDate}',
-                            style: const TextStyle(
+                            style: TextStyle(
                               fontSize: 12,
-                              color: AppTheme.slate600,
-                              fontWeight: FontWeight.w500,
+                              color: _isOverdue
+                                  ? AppTheme.red500
+                                  : AppTheme.slate600,
+                              fontWeight: _isOverdue
+                                  ? FontWeight.w700
+                                  : FontWeight.w500,
                             ),
                           ),
+                          if (_isOverdue) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 7,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppTheme.red50,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: AppTheme.red500.withValues(alpha: 0.3),
+                                ),
+                              ),
+                              child: const Text(
+                                'OVERDUE',
+                                style: TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.4,
+                                  color: AppTheme.red500,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ],
@@ -1502,7 +1589,11 @@ class _TaskCard extends StatelessWidget {
                   if (task.isArchived)
                     Row(
                       children: const [
-                        Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.slate400),
+                        Icon(
+                          Icons.info_outline_rounded,
+                          size: 14,
+                          color: AppTheme.slate400,
+                        ),
                         SizedBox(width: 6),
                         Text(
                           'Archived tasks cannot be edited.',
@@ -1518,50 +1609,52 @@ class _TaskCard extends StatelessWidget {
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
-                      children: ['Not Started', 'In Progress', 'Completed'].map((
-                        s,
-                      ) {
-                        final isActive = task.status == s;
-                        final color = s == 'Completed'
-                            ? AppTheme.emerald500
-                            : s == 'In Progress'
-                                ? AppTheme.blue500
-                                : AppTheme.slate500;
-                        return GestureDetector(
-                          onTap: () => onStatusChange(s),
-                          child: AnimatedContainer(
-                            duration: const Duration(milliseconds: 150),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: isActive ? color : Colors.white,
-                              borderRadius: BorderRadius.circular(20),
-                              border: Border.all(
-                                color: isActive ? color : AppTheme.slate200,
+                      children: ['Not Started', 'In Progress', 'Completed'].map(
+                        (s) {
+                          final isActive = task.status == s;
+                          final color = s == 'Completed'
+                              ? AppTheme.emerald500
+                              : s == 'In Progress'
+                              ? AppTheme.blue500
+                              : AppTheme.slate500;
+                          return GestureDetector(
+                            onTap: () => onStatusChange(s),
+                            child: AnimatedContainer(
+                              duration: const Duration(milliseconds: 150),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 7,
                               ),
-                              boxShadow: isActive
-                                  ? [
-                                      BoxShadow(
-                                        color: color.withValues(alpha: 0.28),
-                                        blurRadius: 6,
-                                        offset: const Offset(0, 2),
-                                      ),
-                                    ]
-                                  : null,
-                            ),
-                            child: Text(
-                              s,
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                fontWeight: FontWeight.w700,
-                                color: isActive ? Colors.white : AppTheme.slate600,
+                              decoration: BoxDecoration(
+                                color: isActive ? color : Colors.white,
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: isActive ? color : AppTheme.slate200,
+                                ),
+                                boxShadow: isActive
+                                    ? [
+                                        BoxShadow(
+                                          color: color.withValues(alpha: 0.28),
+                                          blurRadius: 6,
+                                          offset: const Offset(0, 2),
+                                        ),
+                                      ]
+                                    : null,
+                              ),
+                              child: Text(
+                                s,
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: isActive
+                                      ? Colors.white
+                                      : AppTheme.slate600,
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      }).toList(),
+                          );
+                        },
+                      ).toList(),
                     )
                   else
                     StatusBadge.fromStatus(task.displayStatus),

@@ -45,6 +45,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         )
         .toList();
 
+    // Header figures always describe the live log, not the current filter.
+    final liveRecords = state.filteredAttendance
+        .where((record) => !record.isArchived)
+        .toList();
+    final clockedInCount = liveRecords.where((r) => r.isActive).length;
+    final invalidCount = liveRecords.where((r) => r.isInvalid).length;
+    final totalHours = liveRecords.fold<double>(
+      0,
+      (running, r) => running + (r.totalHours ?? 0),
+    );
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 700;
@@ -65,41 +76,89 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Header
-                    Row(
-                      children: [
-                        Container(
-                          width: 4,
-                          height: 32,
-                          decoration: BoxDecoration(
-                            color: AppTheme.maroon,
-                            borderRadius: BorderRadius.circular(2),
+                    HeroBanner(
+                      isMobile: isMobile,
+                      icon: Icons.access_time_filled_rounded,
+                      title: 'Attendance',
+                      subtitle: 'Track and manage attendance records',
+                      searchHint: isStudent
+                          ? 'Search your records...'
+                          : 'Search by student name...',
+                      onSearch: (value) => setState(() => _search = value),
+                      filters: [
+                        if (!isStudent)
+                          _toggleChip(
+                            label: _showArchived
+                                ? 'Viewing archived'
+                                : 'Archived',
+                            icon: _showArchived
+                                ? Icons.inventory_2_rounded
+                                : Icons.archive_outlined,
+                            selected: _showArchived,
+                            color: AppTheme.amber500,
+                            onTap: () =>
+                                setState(() => _showArchived = !_showArchived),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Attendance',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.w800,
-                                color: AppTheme.slate900,
-                                letterSpacing: -0.3,
-                              ),
+                        if (state.role == 'Head' || state.role == 'Supervisor')
+                          OutlinedButton.icon(
+                            onPressed: () async {
+                              final fixed = await state
+                                  .recalculateAttendanceHours();
+                              if (!context.mounted) return;
+                              _snack(
+                                context,
+                                fixed == 0
+                                    ? 'All completed records already have correct hours'
+                                    : 'Recalculated hours for $fixed record(s)',
+                                AppTheme.emerald500,
+                              );
+                            },
+                            icon: const Icon(
+                              Icons.calculate_outlined,
+                              size: 16,
                             ),
-                            Text(
-                              'Track and manage attendance records',
-                              style: TextStyle(
+                            label: const Text('Recalculate'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.maroon,
+                              side: const BorderSide(color: AppTheme.maroon),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 11,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              textStyle: const TextStyle(
+                                fontWeight: FontWeight.w700,
                                 fontSize: 13,
-                                color: AppTheme.slate400,
                               ),
                             ),
-                          ],
+                          ),
+                      ],
+                      stats: [
+                        HeroStatData(
+                          label: 'Records',
+                          value: '${liveRecords.length}',
+                          icon: Icons.list_alt_rounded,
+                        ),
+                        HeroStatData(
+                          label: 'Clocked in',
+                          value: '$clockedInCount',
+                          icon: Icons.play_circle_fill_rounded,
+                        ),
+                        HeroStatData(
+                          label: 'Hours',
+                          value: '${totalHours.toStringAsFixed(0)}h',
+                          icon: Icons.schedule_rounded,
+                        ),
+                        HeroStatData(
+                          label: 'Missed out',
+                          value: '$invalidCount',
+                          icon: Icons.error_outline_rounded,
                         ),
                       ],
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 18),
 
                     // Mobile-only clock/QR card (desktop shows this in the right panel)
                     if (isMobile) ...[
@@ -181,89 +240,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                           // Log tab
                           Column(
                             children: [
-                              if (!isStudent) ...[
-                                TextField(
-                                  onChanged: (v) => setState(() => _search = v),
-                                  style: const TextStyle(fontSize: 13),
-                                  decoration: InputDecoration(
-                                    hintText: 'Search by student name...',
-                                    hintStyle: const TextStyle(
-                                      color: AppTheme.slate400,
-                                      fontSize: 13,
-                                    ),
-                                    prefixIcon: const Icon(
-                                      Icons.search,
-                                      color: AppTheme.slate400,
-                                      size: 18,
-                                    ),
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
-                                    ),
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.slate200,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.slate200,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(12),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.maroon,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 16),
-                                if (state.role == 'Head' || state.role == 'Supervisor')
-                                  Align(
-                                    alignment: Alignment.centerRight,
-                                    child: TextButton.icon(
-                                      onPressed: () async {
-                                        final fixed = await state.recalculateAttendanceHours();
-                                        if (!context.mounted) return;
-                                        _snack(
-                                          context,
-                                          fixed == 0
-                                              ? 'All completed records already have correct hours'
-                                              : 'Recalculated hours for $fixed record(s)',
-                                          AppTheme.emerald500,
-                                        );
-                                      },
-                                      icon: const Icon(Icons.calculate_outlined, size: 16),
-                                      label: const Text('Recalculate Hours'),
-                                    ),
-                                  ),
-                                Align(
-                                  alignment: Alignment.centerRight,
-                                  child: TextButton.icon(
-                                    onPressed: () => setState(
-                                      () => _showArchived = !_showArchived,
-                                    ),
-                                    icon: Icon(
-                                      _showArchived
-                                          ? Icons.visibility_outlined
-                                          : Icons.archive_outlined,
-                                      size: 16,
-                                    ),
-                                    label: Text(
-                                      _showArchived
-                                          ? 'Show active logs'
-                                          : 'Show archived logs',
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                              ],
                               Expanded(
                                 child: records.isEmpty
                                     ? _emptyState()
@@ -306,28 +282,39 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                                     );
                                                   }
                                                 : null,
-                                            onSetTimeOut: r.isActive &&
+                                            onSetTimeOut:
+                                                r.isActive &&
                                                     (state.role == 'Head' ||
-                                                        state.role == 'Supervisor')
+                                                        state.role ==
+                                                            'Supervisor')
                                                 ? () async {
-                                                    final picked = await showTimePicker(
-                                                      context: context,
-                                                      initialTime: TimeOfDay.now(),
-                                                    );
-                                                    if (picked == null || !context.mounted) return;
-                                                    final hour = picked.hourOfPeriod == 0
+                                                    final picked =
+                                                        await showTimePicker(
+                                                          context: context,
+                                                          initialTime:
+                                                              TimeOfDay.now(),
+                                                        );
+                                                    if (picked == null ||
+                                                        !context.mounted)
+                                                      return;
+                                                    final hour =
+                                                        picked.hourOfPeriod == 0
                                                         ? 12
                                                         : picked.hourOfPeriod;
                                                     final minute = picked.minute
                                                         .toString()
                                                         .padLeft(2, '0');
                                                     final period =
-                                                        picked.period == DayPeriod.am ? 'AM' : 'PM';
+                                                        picked.period ==
+                                                            DayPeriod.am
+                                                        ? 'AM'
+                                                        : 'PM';
                                                     await state.setManualTimeOut(
                                                       r.id,
                                                       '$hour:$minute $period',
                                                     );
-                                                    if (!context.mounted) return;
+                                                    if (!context.mounted)
+                                                      return;
                                                     _snack(
                                                       context,
                                                       'Time-out recorded and verified',
@@ -398,6 +385,47 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           ],
         );
       },
+    );
+  }
+
+  /// Small on/off pill used among the header toolbar filters.
+  Widget _toggleChip({
+    required String label,
+    required IconData icon,
+    required bool selected,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(10),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 13),
+        decoration: BoxDecoration(
+          color: selected ? color.withValues(alpha: 0.1) : Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected ? color.withValues(alpha: 0.5) : AppTheme.slate200,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: selected ? color : AppTheme.slate400),
+            const SizedBox(width: 7),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: selected ? color : AppTheme.slate500,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -1409,7 +1437,10 @@ class _RecordCard extends StatelessWidget {
                           foregroundColor: AppTheme.red500,
                           side: const BorderSide(color: AppTheme.red500),
                         ),
-                        icon: const Icon(Icons.edit_calendar_outlined, size: 14),
+                        icon: const Icon(
+                          Icons.edit_calendar_outlined,
+                          size: 14,
+                        ),
                         label: const Text(
                           "Set Time-Out & Verify",
                           style: TextStyle(
