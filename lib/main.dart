@@ -76,6 +76,7 @@ class _AuthGateState extends State<_AuthGate> {
       case _PublicView.register:
         return RegisterScreen(
           onBackToLogin: () => _go(_PublicView.login),
+          onBack: () => _go(_PublicView.landing),
         );
       case _PublicView.login:
         return LoginScreen(
