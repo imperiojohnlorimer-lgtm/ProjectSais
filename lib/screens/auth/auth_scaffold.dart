@@ -2,6 +2,12 @@ import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
+/// The icon column shared by the branding logo and the point tiles below it,
+/// so every row in the panel starts on the same left edge and every text
+/// block begins at the same offset from it.
+const double _iconColumn = 46;
+const double _iconGap = 16;
+
 /// One selling point in the auth branding panel.
 class AuthBrandPoint {
   final IconData icon;
@@ -180,57 +186,40 @@ class AuthScaffold extends StatelessWidget {
           colors: [AppTheme.maroon, AppTheme.maroonDark],
         ),
       ),
-      child: Stack(
-        // Without this the shrink-wrapping SafeArea child is pinned to the
-        // Stack's topStart instead of centred.
-        alignment: Alignment.topCenter,
-        children: [
-          Positioned(
-            top: -110,
-            right: -100,
-            child: _glow(300, AppTheme.gold300, 0.20),
-          ),
-          Positioned(
-            bottom: -120,
-            left: -110,
-            child: _glow(280, Colors.white, 0.09),
-          ),
-          SafeArea(
-            bottom: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 60),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const SizedBox(height: 16),
-                  const AppLogo(size: 64),
-                  const SizedBox(height: 14),
-                  const Text(
-                    'SAIS',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.goldLight,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Student Assistant Information System',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: Color(0xFFFFD88A),
-                      height: 1.3,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 60),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(height: 16),
+              const AppLogo(size: 64),
+              const SizedBox(height: 14),
+              const Text(
+                'SAIS',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.goldLight,
+                  letterSpacing: 0.5,
+                ),
               ),
-            ),
+              const SizedBox(height: 4),
+              const Text(
+                'Student Assistant Information System',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  color: Color(0xFFFFD88A),
+                  height: 1.3,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -246,44 +235,13 @@ class AuthScaffold extends StatelessWidget {
           colors: [AppTheme.maroon, AppTheme.maroonDark],
         ),
       ),
+      // Deliberately undecorated. Circles at low opacity showed a hard rim,
+      // and softening them into radial glows only traded that for an uneven
+      // haze; a plain gradient is the one version that reads as clean. The
+      // gold accents are the rule under the wordmark and the icon tiles.
       child: Stack(
         fit: StackFit.expand,
         children: [
-          // Radial glows rather than flat circles: a low-opacity solid circle
-          // still shows a crisp rim against the gradient and reads as a
-          // rendering artifact. These fade out to nothing at their edge.
-          Positioned(
-            top: -190,
-            right: -170,
-            child: _glow(460, AppTheme.gold300, 0.18),
-          ),
-          Positioned(
-            bottom: -200,
-            left: -160,
-            child: _glow(420, Colors.white, 0.07),
-          ),
-          // Gold rule down the seam with the form, fading out at both ends so
-          // it reads as an accent rather than a hard divider.
-          Positioned(
-            top: 0,
-            bottom: 0,
-            left: 0,
-            child: Container(
-              width: 3,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    AppTheme.gold400.withValues(alpha: 0),
-                    AppTheme.gold400.withValues(alpha: 0.85),
-                    AppTheme.gold400.withValues(alpha: 0),
-                  ],
-                  stops: const [0.0, 0.5, 1.0],
-                ),
-              ),
-            ),
-          ),
           SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
@@ -305,7 +263,10 @@ class AuthScaffold extends StatelessWidget {
                         horizontal: 56,
                         vertical: compact ? 36 : 56,
                       ),
-                      child: Center(
+                      // Left-aligned, not centred: the panel's left edge is
+                      // then a real margin every row lines up on.
+                      child: Align(
+                        alignment: Alignment.centerLeft,
                         child: ConstrainedBox(
                           constraints: const BoxConstraints(maxWidth: 400),
                           child: Column(
@@ -313,27 +274,45 @@ class AuthScaffold extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              AppLogo(size: compact ? 50 : 58),
-                              SizedBox(height: compact ? 20 : 26),
-                              const Text(
-                                'SAIS',
-                                style: TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.goldLight,
-                                  letterSpacing: 0.5,
-                                  height: 1.1,
-                                ),
-                              ),
-                              const SizedBox(height: 6),
-                              const Text(
-                                'Student Assistant Information System',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  color: Color(0xFFFFD88A),
-                                  height: 1.45,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                              // Logo beside the wordmark, not above it, so
+                              // it shares the tiles' icon column and the
+                              // whole panel reads off one left edge.
+                              const Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  AppLogo(size: _iconColumn),
+                                  SizedBox(width: _iconGap),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          'SAIS',
+                                          style: TextStyle(
+                                            fontSize: 28,
+                                            fontWeight: FontWeight.w800,
+                                            color: AppTheme.goldLight,
+                                            letterSpacing: 0.5,
+                                            height: 1.1,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        Text(
+                                          'Student Assistant Information '
+                                          'System',
+                                          style: TextStyle(
+                                            fontSize: 13.5,
+                                            color: Color(0xFFFFD88A),
+                                            height: 1.35,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
                               SizedBox(height: compact ? 22 : 30),
                               Container(
@@ -367,20 +346,6 @@ class AuthScaffold extends StatelessWidget {
     );
   }
 
-  /// A circle that fades to fully transparent at its edge.
-  Widget _glow(double size, Color color, double opacity) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(
-      shape: BoxShape.circle,
-      gradient: RadialGradient(
-        colors: [
-          color.withValues(alpha: opacity),
-          color.withValues(alpha: 0),
-        ],
-      ),
-    ),
-  );
 
   // ─── Shared header ────────────────────────────────────────────────────
   Widget _headerText({bool mobile = false}) {
@@ -428,18 +393,18 @@ class _BrandTile extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
           Container(
-            width: 42,
-            height: 42,
+            width: _iconColumn,
+            height: _iconColumn,
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(13),
               border: Border.all(
                 color: AppTheme.gold400.withValues(alpha: 0.35),
               ),
             ),
-            child: Icon(point.icon, color: AppTheme.goldLight, size: 20),
+            child: Icon(point.icon, color: AppTheme.goldLight, size: 21),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: _iconGap),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
