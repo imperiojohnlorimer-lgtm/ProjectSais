@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/dashboard_widgets.dart';
 import '../../widgets/shared_widgets.dart';
 
 class DashboardScreen extends StatelessWidget {
@@ -12,159 +13,129 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
 
-    if (state.role == 'Student Assistant') {
-      return const _StudentAssistantDashboard();
-    }
+    return switch (state.role) {
+      'Student Assistant' => const _StudentAssistantDashboard(),
+      'Supervisor' => const _SupervisorDashboard(),
+      'Admin' => const _AdminDashboard(),
+      // Head: full operational overview (students, attendance, reports).
+      _ => const _HeadDashboard(),
+    };
+  }
+}
 
-    if (state.role == 'Supervisor') {
-      return const _SupervisorDashboard();
-    }
+/// Shared page frame: padding, heading, then the sections.
+class _DashboardPage extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final List<DashboardStatTile> stats;
+  final List<Widget> sections;
 
-    if (state.role == 'Admin') {
-      return const _AdminDashboard();
-    }
+  const _DashboardPage({
+    required this.title,
+    required this.subtitle,
+    required this.stats,
+    required this.sections,
+  });
 
-    // Head: full operational overview (students, attendance, reports, hours).
-    final stats = state.dashboardStats;
-
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenWidth < 768;
-    final isMobileScreen = screenWidth < 480;
-
-    // Responsive grid columns
-    int gridColumns = 4;
-    if (isMobileScreen) {
-      gridColumns = 1;
-    } else if (isSmallScreen) {
-      gridColumns = 2;
-    }
-
-    // Responsive padding
-    final horizontalPadding = isMobileScreen ? 16.0 : isSmallScreen ? 20.0 : 32.0;
-    final verticalPadding = isMobileScreen ? 16.0 : isSmallScreen ? 20.0 : 32.0;
-    final gridSpacing = isMobileScreen ? 12.0 : 16.0;
-    final cardHeight = isMobileScreen ? 80.0 : (isSmallScreen ? 92.0 : 96.0);
-
-    final statCards = [
-      StatCard(
-        label: 'Total Students',
-        value: '${stats['totalStudents']}',
-        icon: Icons.people_outline_rounded,
-        accentColor: AppTheme.maroon,
-      ),
-      StatCard(
-        label: 'Active Today',
-        value: '${stats['activeToday']}',
-        icon: Icons.access_time_rounded,
-        accentColor: AppTheme.emerald500,
-      ),
-      StatCard(
-        label: 'Pending Reports',
-        value: '${stats['pendingReports']}',
-        icon: Icons.description_outlined,
-        accentColor: AppTheme.amber500,
-      ),
-      StatCard(
-        label: 'Avg. Hours/Week',
-        value: stats['avgHoursPerWeek'],
-        icon: Icons.bar_chart_rounded,
-        accentColor: AppTheme.blue500,
-      ),
-    ];
-
+  @override
+  Widget build(BuildContext context) {
+    final metrics = DashboardMetrics.of(context);
     return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
+      padding: metrics.pagePadding,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Dashboard title and description
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Dashboard',
-                style: TextStyle(
-                  fontSize: isMobileScreen ? 22 : 30,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Overview of student assistant activity',
-                style: TextStyle(fontSize: isMobileScreen ? 13 : 15, fontWeight: FontWeight.w500, color: AppTheme.slate500),
-              ),
-            ],
-          ),
-
-          SizedBox(height: isMobileScreen ? 20 : 32),
-
-          // Stats grid — on mobile this now matches the Accounts screen's
-          // mobile stat-card style: a 2x2 grid of compact cards with a
-          // colored left border and a small icon chip, instead of the
-          // single-column rows used previously.
-          isMobileScreen
-              ? Column(
-                  children: [
-                    Row(
-                      children: [
-                        _DashboardStatCard(label: 'TOTAL STUDENTS', value: '${stats['totalStudents']}', icon: Icons.people_outline_rounded, color: AppTheme.maroon),
-                        const SizedBox(width: 12),
-                        _DashboardStatCard(label: 'ACTIVE TODAY', value: '${stats['activeToday']}', icon: Icons.access_time_rounded, color: AppTheme.emerald500),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _DashboardStatCard(label: 'PENDING REPORTS', value: '${stats['pendingReports']}', icon: Icons.description_outlined, color: AppTheme.amber500),
-                        const SizedBox(width: 12),
-                        _DashboardStatCard(label: 'AVG. HOURS/WEEK', value: stats['avgHoursPerWeek'], icon: Icons.bar_chart_rounded, color: AppTheme.blue500),
-                      ],
-                    ),
-                  ],
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final totalSpacing = gridSpacing * (gridColumns - 1);
-                    final cardWidth = (constraints.maxWidth - totalSpacing) / gridColumns;
-                    return Wrap(
-                      spacing: gridSpacing,
-                      runSpacing: gridSpacing,
-                      children: statCards
-                          .map((card) => SizedBox(width: cardWidth, height: cardHeight, child: card))
-                          .toList(),
-                    );
-                  },
-                ),
-
-          SizedBox(height: isMobileScreen ? 28 : 40),
-
-          _CampusDistributionSection(state: state, isMobileScreen: isMobileScreen),
-
-          SizedBox(height: isMobileScreen ? 28 : 40),
-
-          // Recent Attendance and System Status section
-          isSmallScreen
-              ? Column(
-                  children: [
-                    _RecentAttendanceSection(state: state, isMobileScreen: isMobileScreen),
-                    SizedBox(height: isMobileScreen ? 20 : 24),
-                    _SystemStatusSection(isMobileScreen: isMobileScreen, state: state),
-                  ],
-                )
-              : IntrinsicHeight(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(flex: 2, child: _RecentAttendanceSection(state: state, isMobileScreen: false)),
-                      const SizedBox(width: 24),
-                      Expanded(flex: 1, child: _SystemStatusSection(isMobileScreen: false, state: state)),
-                    ],
-                  ),
-                ),
+          DashboardHeading(title: title, subtitle: subtitle),
+          SizedBox(height: metrics.isMobile ? 18 : 26),
+          DashboardStatRow(tiles: stats),
+          SizedBox(height: metrics.sectionGap),
+          ...sections,
         ],
       ),
+    );
+  }
+}
+
+// ─── Head dashboard ────────────────────────────────────
+class _HeadDashboard extends StatelessWidget {
+  const _HeadDashboard();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final stats = state.dashboardStats;
+    final metrics = DashboardMetrics.of(context);
+
+    return _DashboardPage(
+      title: 'Dashboard',
+      subtitle: 'Overview of student assistant activity',
+      stats: [
+        DashboardStatTile(
+          label: 'Total students',
+          value: '${stats['totalStudents']}',
+          icon: Icons.people_outline_rounded,
+        ),
+        DashboardStatTile(
+          label: 'Active today',
+          value: '${stats['activeToday']}',
+          icon: Icons.access_time_rounded,
+          tone: StatTone.good,
+        ),
+        DashboardStatTile(
+          label: 'Pending reports',
+          value: '${stats['pendingReports']}',
+          icon: Icons.description_outlined,
+          tone: StatTone.attention,
+        ),
+        DashboardStatTile(
+          label: 'Avg. hours/week',
+          value: stats['avgHoursPerWeek'],
+          icon: Icons.bar_chart_rounded,
+        ),
+      ],
+      sections: [
+        _CampusDistributionSection(
+          state: state,
+          isMobileScreen: metrics.isMobile,
+        ),
+        SizedBox(height: metrics.sectionGap),
+        if (metrics.isSmall)
+          Column(
+            children: [
+              _RecentAttendanceSection(
+                state: state,
+                isMobileScreen: metrics.isMobile,
+              ),
+              SizedBox(height: metrics.gap + 8),
+              _SystemStatusSection(
+                isMobileScreen: metrics.isMobile,
+                state: state,
+              ),
+            ],
+          )
+        else
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  flex: 2,
+                  child: _RecentAttendanceSection(
+                    state: state,
+                    isMobileScreen: false,
+                  ),
+                ),
+                const SizedBox(width: 20),
+                Expanded(
+                  child: _SystemStatusSection(
+                    isMobileScreen: false,
+                    state: state,
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
@@ -179,144 +150,100 @@ class _StudentAssistantDashboard extends StatelessWidget {
     final name = state.currentUser?.name ?? '';
 
     final myTasks = state.filteredTasks; // already scoped to this SA
-    final myReports = state.filteredReports.where((r) => r.studentName == name).toList();
+    final myReports = state.filteredReports
+        .where((r) => r.studentName == name)
+        .toList();
     final myAttendance = state.filteredAttendance; // already scoped to this SA
     final activeRecord = state.activeAttendanceRecord;
 
-    final totalHours = myAttendance.fold<double>(0, (sum, r) => sum + (r.totalHours ?? 0));
+    final totalHours = myAttendance.fold<double>(
+      0,
+      (sum, r) => sum + (r.totalHours ?? 0),
+    );
     final pendingTasks = myTasks.where((t) => t.status != 'Completed').length;
     final pendingReports = myReports.where((r) => r.status == 'Pending').length;
+    final onDuty = activeRecord != null;
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isMobileScreen = screenWidth < 480;
-    final isSmallScreen = screenWidth < 768;
-    int gridColumns = isMobileScreen ? 1 : (isSmallScreen ? 2 : 4);
-    final horizontalPadding = isMobileScreen ? 16.0 : (isSmallScreen ? 20.0 : 32.0);
-    final verticalPadding = isMobileScreen ? 16.0 : (isSmallScreen ? 20.0 : 32.0);
-    final gridSpacing = isMobileScreen ? 12.0 : 16.0;
-    final cardHeight = isMobileScreen ? 80.0 : (isSmallScreen ? 92.0 : 96.0);
-
-    final statCards = [
-      StatCard(
-        label: 'My Total Hours',
-        value: totalHours.toStringAsFixed(1),
-        icon: Icons.access_time_rounded,
-        accentColor: AppTheme.maroon,
-      ),
-      StatCard(
-        label: 'On Duty',
-        value: activeRecord != null ? 'Yes' : 'No',
-        icon: Icons.badge_outlined,
-        accentColor: activeRecord != null ? AppTheme.emerald500 : AppTheme.slate400,
-      ),
-      StatCard(
-        label: 'Pending Tasks',
-        value: '$pendingTasks',
-        icon: Icons.task_alt_outlined,
-        accentColor: AppTheme.amber500,
-      ),
-      StatCard(
-        label: 'Pending Reports',
-        value: '$pendingReports',
-        icon: Icons.description_outlined,
-        accentColor: AppTheme.blue500,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Welcome back, ${name.split(' ').first}',
-            style: TextStyle(
-              fontSize: isMobileScreen ? 22 : 30,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Here\'s a quick look at your activity',
-            style: TextStyle(fontSize: isMobileScreen ? 13 : 15, fontWeight: FontWeight.w500, color: AppTheme.slate500),
-          ),
-          SizedBox(height: isMobileScreen ? 20 : 32),
-
-          isMobileScreen
-              ? Column(
-                  children: [
-                    Row(children: [
-                      _DashboardStatCard(label: 'TOTAL HOURS', value: totalHours.toStringAsFixed(1), icon: Icons.access_time_rounded, color: AppTheme.maroon),
-                      const SizedBox(width: 12),
-                      _DashboardStatCard(label: 'ON DUTY', value: activeRecord != null ? 'Yes' : 'No', icon: Icons.badge_outlined, color: activeRecord != null ? AppTheme.emerald500 : AppTheme.slate400),
-                    ]),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      _DashboardStatCard(label: 'PENDING TASKS', value: '$pendingTasks', icon: Icons.task_alt_outlined, color: AppTheme.amber500),
-                      const SizedBox(width: 12),
-                      _DashboardStatCard(label: 'PENDING REPORTS', value: '$pendingReports', icon: Icons.description_outlined, color: AppTheme.blue500),
-                    ]),
-                  ],
+    return _DashboardPage(
+      title: 'Welcome back, ${name.split(' ').first}',
+      subtitle: 'Here\'s a quick look at your activity',
+      stats: [
+        DashboardStatTile(
+          label: 'My total hours',
+          value: totalHours.toStringAsFixed(1),
+          icon: Icons.access_time_rounded,
+        ),
+        DashboardStatTile(
+          label: 'On duty',
+          value: onDuty ? 'Yes' : 'No',
+          icon: Icons.badge_outlined,
+          tone: onDuty ? StatTone.good : StatTone.muted,
+        ),
+        DashboardStatTile(
+          label: 'Pending tasks',
+          value: '$pendingTasks',
+          icon: Icons.task_alt_outlined,
+          tone: pendingTasks > 0 ? StatTone.attention : StatTone.brand,
+        ),
+        DashboardStatTile(
+          label: 'Pending reports',
+          value: '$pendingReports',
+          icon: Icons.description_outlined,
+          tone: pendingReports > 0 ? StatTone.attention : StatTone.brand,
+        ),
+      ],
+      sections: [
+        DashboardSectionCard(
+          title: 'My Tasks',
+          actionLabel: 'View all',
+          onAction: () => state.setTab('tasks'),
+          child: myTasks.isEmpty
+              ? const DashboardEmptyRow(
+                  icon: Icons.task_alt_outlined,
+                  message: 'No tasks assigned yet',
                 )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final totalSpacing = gridSpacing * (gridColumns - 1);
-                    final cardWidth = (constraints.maxWidth - totalSpacing) / gridColumns;
-                    return Wrap(
-                      spacing: gridSpacing,
-                      runSpacing: gridSpacing,
-                      children: statCards
-                          .map((card) => SizedBox(width: cardWidth, height: cardHeight, child: card))
-                          .toList(),
-                    );
-                  },
+              : Column(
+                  children: myTasks
+                      .take(4)
+                      .map((t) => _TaskTile(task: t))
+                      .toList(),
                 ),
-
-          SizedBox(height: isMobileScreen ? 28 : 40),
-
-          // My Tasks
-          _SectionCard(
-            title: 'My Tasks',
-            actionLabel: 'View All',
-            onAction: () => state.setTab('tasks'),
-            child: myTasks.isEmpty
-                ? const _EmptyRow(icon: Icons.task_alt_outlined, message: 'No tasks assigned yet')
-                : Column(
-                    children: myTasks.take(4).map((t) => _TaskTile(task: t)).toList(),
-                  ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // My Attendance
-          _SectionCard(
-            title: 'Recent Attendance',
-            actionLabel: 'View All',
-            onAction: () => state.setTab('attendance'),
-            child: myAttendance.isEmpty
-                ? const _EmptyRow(icon: Icons.access_time_outlined, message: 'No attendance records yet')
-                : Column(
-                    children: myAttendance.take(3).map((a) => _AttendanceTile(record: a)).toList(),
-                  ),
-          ),
-
-          const SizedBox(height: 20),
-
-          // My Reports
-          _SectionCard(
-            title: 'My Reports',
-            actionLabel: 'View All',
-            onAction: () => state.setTab('reports'),
-            child: myReports.isEmpty
-                ? const _EmptyRow(icon: Icons.description_outlined, message: 'No reports submitted yet')
-                : Column(
-                    children: myReports.take(3).map((r) => _ReportTile(report: r)).toList(),
-                  ),
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 18),
+        DashboardSectionCard(
+          title: 'Recent Attendance',
+          actionLabel: 'View all',
+          onAction: () => state.setTab('attendance'),
+          child: myAttendance.isEmpty
+              ? const DashboardEmptyRow(
+                  icon: Icons.access_time_outlined,
+                  message: 'No attendance records yet',
+                )
+              : Column(
+                  children: myAttendance
+                      .take(3)
+                      .map((a) => _AttendanceTile(record: a))
+                      .toList(),
+                ),
+        ),
+        const SizedBox(height: 18),
+        DashboardSectionCard(
+          title: 'My Reports',
+          actionLabel: 'View all',
+          onAction: () => state.setTab('reports'),
+          child: myReports.isEmpty
+              ? const DashboardEmptyRow(
+                  icon: Icons.description_outlined,
+                  message: 'No reports submitted yet',
+                )
+              : Column(
+                  children: myReports
+                      .take(3)
+                      .map((r) => _ReportTile(report: r))
+                      .toList(),
+                ),
+        ),
+      ],
     );
   }
 }
@@ -330,148 +257,193 @@ class _AdminDashboard extends StatelessWidget {
     final state = context.watch<AppState>();
     final name = state.currentUser?.name ?? '';
 
-    final activeUsers = state.users.where((u) => u.status != 'Archived').toList();
+    final activeUsers = state.users
+        .where((u) => u.status != 'Archived')
+        .toList();
     final totalAccounts = activeUsers.length;
     final headCount = activeUsers.where((u) => u.role == 'Head').length;
-    final supervisorCount = activeUsers.where((u) => u.role == 'Supervisor').length;
-    final studentAssistantCount = activeUsers.where((u) => u.role == 'Student Assistant').length;
+    final supervisorCount = activeUsers
+        .where((u) => u.role == 'Supervisor')
+        .length;
+    final studentAssistantCount = activeUsers
+        .where((u) => u.role == 'Student Assistant')
+        .length;
     final totalDepartments = state.departments.length;
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenWidth < 768;
-    final isMobileScreen = screenWidth < 480;
+    return _DashboardPage(
+      title: 'Welcome back, ${name.split(' ').first}',
+      subtitle: 'Manage accounts, departments, and system settings',
+      stats: [
+        DashboardStatTile(
+          label: 'Total accounts',
+          value: '$totalAccounts',
+          icon: Icons.manage_accounts_outlined,
+        ),
+        DashboardStatTile(
+          label: 'Heads',
+          value: '$headCount',
+          icon: Icons.workspace_premium_outlined,
+        ),
+        DashboardStatTile(
+          label: 'Supervisors',
+          value: '$supervisorCount',
+          icon: Icons.supervisor_account_outlined,
+        ),
+        DashboardStatTile(
+          label: 'Departments',
+          value: '$totalDepartments',
+          icon: Icons.business_outlined,
+        ),
+      ],
+      sections: [
+        DashboardSectionCard(
+          title: 'Role Breakdown',
+          // The bar covers the three staffed roles, so it says so rather
+          // than quoting the account total — admin accounts are not in it.
+          subtitle:
+              '${headCount + supervisorCount + studentAssistantCount} '
+              'of $totalAccounts accounts are staffed roles',
+          child: _RoleBreakdown(
+            counts: {
+              'Heads': headCount,
+              'Supervisors': supervisorCount,
+              'Student Assistants': studentAssistantCount,
+            },
+          ),
+        ),
+        const SizedBox(height: 18),
+        DashboardSectionCard(
+          title: 'Quick Actions',
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _AdminQuickAction(
+                label: 'Manage Accounts',
+                icon: Icons.manage_accounts_outlined,
+                onTap: () => state.setTab('accounts'),
+              ),
+              _AdminQuickAction(
+                label: 'Manage Departments',
+                icon: Icons.business_outlined,
+                onTap: () => state.setTab('departments'),
+              ),
+              _AdminQuickAction(
+                label: 'Settings',
+                icon: Icons.settings_outlined,
+                onTap: () => state.setTab('settings'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
 
-    int gridColumns = 4;
-    if (isMobileScreen) {
-      gridColumns = 1;
-    } else if (isSmallScreen) {
-      gridColumns = 2;
+/// Part-to-whole across the three staffed roles.
+///
+/// A stacked bar rather than three coloured dots: the roles are shares of one
+/// total, and the bar shows that directly. Every segment is direct-labelled
+/// below, so identity never rests on colour alone.
+class _RoleBreakdown extends StatelessWidget {
+  final Map<String, int> counts;
+
+  const _RoleBreakdown({required this.counts});
+
+  @override
+  Widget build(BuildContext context) {
+    final entries = counts.entries.toList();
+    final total = entries.fold<int>(0, (sum, e) => sum + e.value);
+
+    if (total == 0) {
+      return const DashboardEmptyRow(
+        icon: Icons.groups_outlined,
+        message: 'No active accounts yet',
+      );
     }
 
-    final horizontalPadding = isMobileScreen ? 16.0 : isSmallScreen ? 20.0 : 32.0;
-    final verticalPadding = isMobileScreen ? 16.0 : isSmallScreen ? 20.0 : 32.0;
-    final gridSpacing = isMobileScreen ? 12.0 : 16.0;
-    final cardHeight = isMobileScreen ? 80.0 : (isSmallScreen ? 92.0 : 96.0);
-
-    final statCards = [
-      StatCard(
-        label: 'Total Accounts',
-        value: '$totalAccounts',
-        icon: Icons.manage_accounts_outlined,
-        accentColor: AppTheme.maroon,
-      ),
-      StatCard(
-        label: 'Heads',
-        value: '$headCount',
-        icon: Icons.workspace_premium_outlined,
-        accentColor: AppTheme.violet500,
-      ),
-      StatCard(
-        label: 'Supervisors',
-        value: '$supervisorCount',
-        icon: Icons.supervisor_account_outlined,
-        accentColor: AppTheme.amber500,
-      ),
-      StatCard(
-        label: 'Departments',
-        value: '$totalDepartments',
-        icon: Icons.business_outlined,
-        accentColor: AppTheme.blue500,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Welcome back, ${name.split(' ').first}',
-            style: TextStyle(
-              fontSize: isMobileScreen ? 22 : 30,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              letterSpacing: -0.4,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Manage accounts, departments, and system settings',
-            style: TextStyle(fontSize: isMobileScreen ? 13 : 15, fontWeight: FontWeight.w500, color: AppTheme.slate500),
-          ),
-          SizedBox(height: isMobileScreen ? 20 : 32),
-
-          isMobileScreen
-              ? Column(
-                  children: [
-                    Row(children: [
-                      _DashboardStatCard(label: 'TOTAL ACCOUNTS', value: '$totalAccounts', icon: Icons.manage_accounts_outlined, color: AppTheme.maroon),
-                      const SizedBox(width: 12),
-                      _DashboardStatCard(label: 'HEADS', value: '$headCount', icon: Icons.workspace_premium_outlined, color: AppTheme.violet500),
-                    ]),
-                    const SizedBox(height: 12),
-                    Row(children: [
-                      _DashboardStatCard(label: 'SUPERVISORS', value: '$supervisorCount', icon: Icons.supervisor_account_outlined, color: AppTheme.amber500),
-                      const SizedBox(width: 12),
-                      _DashboardStatCard(label: 'DEPARTMENTS', value: '$totalDepartments', icon: Icons.business_outlined, color: AppTheme.blue500),
-                    ]),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(5),
+          child: SizedBox(
+            // Explicitly full width: the parent Column aligns to start, so a
+            // Row of nothing but Expanded children would size to zero.
+            width: double.infinity,
+            height: 10,
+            child: Row(
+              // Stretch, or each segment is a childless ColoredBox that the
+              // Row centres at zero height and nothing is drawn.
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < entries.length; i++)
+                  if (entries[i].value > 0) ...[
+                    // A 2px surface gap between segments keeps adjacent
+                    // fills from reading as one block.
+                    if (i > 0) const SizedBox(width: 2),
+                    Expanded(
+                      flex: entries[i].value,
+                      child: ColoredBox(
+                        color: ChartPalette.categorical[i],
+                      ),
+                    ),
                   ],
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final totalSpacing = gridSpacing * (gridColumns - 1);
-                    final cardWidth = (constraints.maxWidth - totalSpacing) / gridColumns;
-                    return Wrap(
-                      spacing: gridSpacing,
-                      runSpacing: gridSpacing,
-                      children: statCards
-                          .map((card) => SizedBox(width: cardWidth, height: cardHeight, child: card))
-                          .toList(),
-                    );
-                  },
-                ),
-
-          SizedBox(height: isMobileScreen ? 28 : 40),
-
-          _SectionCard(
-            title: 'Quick Actions',
-            child: Wrap(
-              spacing: 12,
-              runSpacing: 12,
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        for (var i = 0; i < entries.length; i++)
+          Padding(
+            padding: EdgeInsets.only(bottom: i == entries.length - 1 ? 0 : 10),
+            child: Row(
               children: [
-                _AdminQuickAction(
-                  label: 'Manage Accounts',
-                  icon: Icons.manage_accounts_outlined,
-                  onTap: () => state.setTab('accounts'),
+                Container(
+                  width: 9,
+                  height: 9,
+                  decoration: BoxDecoration(
+                    color: ChartPalette.categorical[i],
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-                _AdminQuickAction(
-                  label: 'Manage Departments',
-                  icon: Icons.business_outlined,
-                  onTap: () => state.setTab('departments'),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    entries[i].key,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.slate700,
+                    ),
+                  ),
                 ),
-                _AdminQuickAction(
-                  label: 'Settings',
-                  icon: Icons.settings_outlined,
-                  onTap: () => state.setTab('settings'),
+                Text(
+                  '${entries[i].value}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  width: 42,
+                  child: Text(
+                    '${(entries[i].value / total * 100).round()}%',
+                    textAlign: TextAlign.right,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.slate400,
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
-
-          SizedBox(height: isMobileScreen ? 20 : 24),
-
-          _SectionCard(
-            title: 'Role Breakdown',
-            child: Column(
-              children: [
-                _RoleCountRow(label: 'Heads', count: headCount, color: AppTheme.violet500),
-                _RoleCountRow(label: 'Supervisors', count: supervisorCount, color: AppTheme.amber500),
-                _RoleCountRow(label: 'Student Assistants', count: studentAssistantCount, color: AppTheme.blue500),
-              ],
-            ),
-          ),
-        ],
-      ),
+      ],
     );
   }
 }
@@ -480,299 +452,157 @@ class _AdminQuickAction extends StatelessWidget {
   final String label;
   final IconData icon;
   final VoidCallback onTap;
-  const _AdminQuickAction({required this.label, required this.icon, required this.onTap});
+
+  const _AdminQuickAction({
+    required this.label,
+    required this.icon,
+    required this.onTap,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: AppTheme.slate50,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.slate200),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 16, color: AppTheme.maroon),
-            const SizedBox(width: 8),
-            Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.slate700)),
-          ],
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: AppTheme.maroon50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.maroon100),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 17, color: AppTheme.maroon),
+              const SizedBox(width: 9),
+              // Bounded so a long action name wraps the chip instead of
+              // running off the card on a narrow phone.
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.maroon,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _RoleCountRow extends StatelessWidget {
-  final String label;
-  final int count;
-  final Color color;
-  const _RoleCountRow({required this.label, required this.count, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-          const SizedBox(width: 10),
-          Expanded(child: Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppTheme.slate700))),
-          Text('$count', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: color)),
-        ],
-      ),
-    );
-  }
-}
-
+// ─── Supervisor dashboard ──────────────────────────────
 class _SupervisorDashboard extends StatelessWidget {
   const _SupervisorDashboard();
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final metrics = DashboardMetrics.of(context);
 
     final assignedStudents = state.filteredStudents.length;
     final activeToday = state.filteredAttendance
         .where((e) => e.isActive && !e.isInvalid)
         .length;
-    final pendingReports = state.filteredReports.where((e) => e.status == 'Pending').length;
-    final pendingTasks = state.filteredTasks.where((e) => e.status != 'Completed').length;
+    final pendingReports = state.filteredReports
+        .where((e) => e.status == 'Pending')
+        .length;
+    final pendingTasks = state.filteredTasks
+        .where((e) => e.status != 'Completed')
+        .length;
 
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isSmallScreen = screenWidth < 768;
-    final isMobileScreen = screenWidth < 480;
-
-    int gridColumns = 4;
-    if (isMobileScreen) {
-      gridColumns = 1;
-    } else if (isSmallScreen) {
-      gridColumns = 2;
-    }
-
-    final horizontalPadding = isMobileScreen ? 16.0 : isSmallScreen ? 20.0 : 32.0;
-    final verticalPadding = isMobileScreen ? 16.0 : isSmallScreen ? 20.0 : 32.0;
-    final gridSpacing = isMobileScreen ? 12.0 : 16.0;
-    final cardHeight = isMobileScreen ? 80.0 : (isSmallScreen ? 92.0 : 96.0);
-
-    final statCards = [
-      StatCard(
-        label: 'Assigned Students',
-        value: '$assignedStudents',
-        icon: Icons.people_outline_rounded,
-        accentColor: AppTheme.maroon,
-      ),
-      StatCard(
-        label: 'Active Today',
-        value: '$activeToday',
-        icon: Icons.access_time_rounded,
-        accentColor: AppTheme.emerald500,
-      ),
-      StatCard(
-        label: 'Pending Reports',
-        value: '$pendingReports',
-        icon: Icons.description_outlined,
-        accentColor: AppTheme.amber500,
-      ),
-      StatCard(
-        label: 'Pending Tasks',
-        value: '$pendingTasks',
-        icon: Icons.task_alt_outlined,
-        accentColor: AppTheme.blue500,
-      ),
-    ];
-
-    return SingleChildScrollView(
-      padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: verticalPadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Supervisor Dashboard',
-            style: TextStyle(
-              fontSize: isMobileScreen ? 22 : 30,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            'Overview of your assigned student assistants',
-            style: TextStyle(
-              fontSize: isMobileScreen ? 13 : 15,
-              fontWeight: FontWeight.w500,
-              color: AppTheme.slate500,
-            ),
-          ),
-          SizedBox(height: isMobileScreen ? 20 : 32),
-          isMobileScreen
-              ? Column(
+    return _DashboardPage(
+      title: 'Supervisor Dashboard',
+      subtitle: 'Your assigned student assistants at a glance',
+      stats: [
+        DashboardStatTile(
+          label: 'Assigned students',
+          value: '$assignedStudents',
+          icon: Icons.people_outline_rounded,
+        ),
+        DashboardStatTile(
+          label: 'Active today',
+          value: '$activeToday',
+          icon: Icons.access_time_rounded,
+          tone: StatTone.good,
+        ),
+        DashboardStatTile(
+          label: 'Pending reports',
+          value: '$pendingReports',
+          icon: Icons.description_outlined,
+          tone: pendingReports > 0 ? StatTone.attention : StatTone.brand,
+        ),
+        DashboardStatTile(
+          label: 'Pending tasks',
+          value: '$pendingTasks',
+          icon: Icons.task_alt_outlined,
+          tone: pendingTasks > 0 ? StatTone.attention : StatTone.brand,
+        ),
+      ],
+      sections: [
+        if (metrics.isSmall)
+          Column(
+            children: [
+              _SupervisorAttendanceSection(
+                state: state,
+                isMobileScreen: metrics.isMobile,
+              ),
+              const SizedBox(height: 18),
+              _SupervisorSummarySection(
+                state: state,
+                isMobileScreen: metrics.isMobile,
+              ),
+              const SizedBox(height: 18),
+              _SupervisorReportsSection(state: state),
+              const SizedBox(height: 18),
+              // Previously dropped below 768px, which left phone users with
+              // no way to reach these from the dashboard at all.
+              _SupervisorQuickActions(state: state),
+            ],
+          )
+        else
+          Column(
+            children: [
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        _DashboardStatCard(
-                          label: 'ASSIGNED',
-                          value: '$assignedStudents',
-                          icon: Icons.people_outline_rounded,
-                          color: AppTheme.maroon,
-                        ),
-                        const SizedBox(width: 12),
-                        _DashboardStatCard(
-                          label: 'ACTIVE',
-                          value: '$activeToday',
-                          icon: Icons.access_time_rounded,
-                          color: AppTheme.emerald500,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        _DashboardStatCard(
-                          label: 'REPORTS',
-                          value: '$pendingReports',
-                          icon: Icons.description_outlined,
-                          color: AppTheme.amber500,
-                        ),
-                        const SizedBox(width: 12),
-                        _DashboardStatCard(
-                          label: 'TASKS',
-                          value: '$pendingTasks',
-                          icon: Icons.task_alt_outlined,
-                          color: AppTheme.blue500,
-                        ),
-                      ],
-                    ),
-                  ],
-                )
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final totalSpacing = gridSpacing * (gridColumns - 1);
-                    final cardWidth = (constraints.maxWidth - totalSpacing) / gridColumns;
-                    return Wrap(
-                      spacing: gridSpacing,
-                      runSpacing: gridSpacing,
-                      children: statCards
-                          .map((card) => SizedBox(width: cardWidth, height: cardHeight, child: card))
-                          .toList(),
-                    );
-                  },
-                ),
-          SizedBox(height: isMobileScreen ? 28 : 40),
-          isSmallScreen
-              ? Column(
-                  children: [
-                    _SupervisorAttendanceSection(state: state, isMobileScreen: isMobileScreen),
-                    SizedBox(height: isMobileScreen ? 20 : 24),
-                    _SupervisorSummarySection(state: state, isMobileScreen: isMobileScreen),
-                    const SizedBox(height: 20),
-                    _SupervisorReportsSection(state: state),
-                  ],
-                )
-              : Column(
-                  children: [
-                    IntrinsicHeight(
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: _SupervisorAttendanceSection(state: state, isMobileScreen: false),
-                          ),
-                          const SizedBox(width: 24),
-                          Expanded(
-                            child: _SupervisorSummarySection(state: state, isMobileScreen: false),
-                          ),
-                        ],
+                    Expanded(
+                      flex: 2,
+                      child: _SupervisorAttendanceSection(
+                        state: state,
+                        isMobileScreen: false,
                       ),
                     ),
-                    const SizedBox(height: 24),
-                    _SupervisorReportsSection(state: state),
-                    const SizedBox(height: 24),
-                    _SupervisorQuickActions(state: state),
+                    const SizedBox(width: 20),
+                    Expanded(
+                      child: _SupervisorSummarySection(
+                        state: state,
+                        isMobileScreen: false,
+                      ),
+                    ),
                   ],
                 ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SectionCard extends StatelessWidget {
-  final String title;
-  final String? actionLabel;
-  final VoidCallback? onAction;
-  final Widget child;
-  const _SectionCard({required this.title, this.actionLabel, this.onAction, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.slate200, width: 1),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 14, offset: const Offset(0, 5)),
-        ],
-      ),
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Text(title, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: AppTheme.slate900), maxLines: 1, overflow: TextOverflow.ellipsis),
               ),
-              if (actionLabel != null)
-                GestureDetector(
-                  onTap: onAction,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(actionLabel!, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppTheme.maroon)),
-                      const SizedBox(width: 2),
-                      const Icon(Icons.arrow_forward_rounded, size: 15, color: AppTheme.maroon),
-                    ],
-                  ),
-                ),
+              const SizedBox(height: 20),
+              _SupervisorReportsSection(state: state),
+              const SizedBox(height: 20),
+              _SupervisorQuickActions(state: state),
             ],
           ),
-          const SizedBox(height: 14),
-          child,
-        ],
-      ),
+      ],
     );
   }
 }
-
-class _EmptyRow extends StatelessWidget {
-  final IconData icon;
-  final String message;
-  const _EmptyRow({required this.icon, required this.message});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Row(
-        children: [
-          Icon(icon, size: 20, color: AppTheme.slate300),
-          const SizedBox(width: 10),
-          Text(message, style: const TextStyle(fontSize: 13, color: AppTheme.slate400, fontWeight: FontWeight.w500)),
-        ],
-      ),
-    );
-  }
-}
-
 class _TaskTile extends StatelessWidget {
   final Task task;
   const _TaskTile({required this.task});
@@ -1146,13 +976,10 @@ class _AllCampusesBarChart extends StatelessWidget {
   final bool isMobileScreen;
   const _AllCampusesBarChart({required this.counts, required this.isMobileScreen});
 
-  static const _barColors = [
-    AppTheme.maroon,
-    AppTheme.gold400,
-    AppTheme.blue500,
-    AppTheme.emerald500,
-    AppTheme.amber500,
-  ];
+  // Headcount across campuses is one series, so it gets one colour: the
+  // campus names on the axis already carry identity. The five hues this used
+  // to cycle through implied five categories that do not exist, and two of
+  // them were the status colours, which mean good and warning elsewhere.
 
   @override
   Widget build(BuildContext context) {
@@ -1165,10 +992,15 @@ class _AllCampusesBarChart extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Enrollment by Campus',
-              style: TextStyle(fontSize: isMobileScreen ? 14 : 15, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+            Expanded(
+              child: Text(
+                'Enrollment by Campus',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: isMobileScreen ? 14 : 15, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+              ),
             ),
+            const SizedBox(width: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
               decoration: BoxDecoration(color: AppTheme.emerald50, borderRadius: BorderRadius.circular(20)),
@@ -1207,7 +1039,7 @@ class _AllCampusesBarChart extends StatelessWidget {
                       final x = colWidth * (i + 0.5);
                       final y = numberLabelHeight + topPad + lineAreaHeight * (1 - frac.clamp(0.04, 1.0));
                       points.add(Offset(x, y));
-                      dotColors.add(_barColors[i % _barColors.length]);
+                      dotColors.add(ChartPalette.series);
                     }
 
                     return Stack(
@@ -1540,12 +1372,12 @@ class _SupervisorAttendanceSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SectionCard(
+    return DashboardSectionCard(
       title: "Today's Attendance",
       actionLabel: 'View All',
       onAction: () => state.setTab('attendance'),
       child: state.filteredAttendance.isEmpty
-          ? const _EmptyRow(icon: Icons.access_time_outlined, message: 'No attendance records')
+          ? const DashboardEmptyRow(icon: Icons.access_time_outlined, message: 'No attendance records')
           : Column(children: state.filteredAttendance.take(5).map((e) => _AttendanceTile(record: e)).toList()),
     );
   }
@@ -1560,12 +1392,12 @@ class _SupervisorReportsSection extends StatelessWidget {
   Widget build(BuildContext context) {
     final reports = state.filteredReports.where((e) => e.status == 'Pending').toList();
 
-    return _SectionCard(
+    return DashboardSectionCard(
       title: 'Pending Reports',
       actionLabel: 'View All',
       onAction: () => state.setTab('reports'),
       child: reports.isEmpty
-          ? const _EmptyRow(icon: Icons.description_outlined, message: 'No pending reports')
+          ? const DashboardEmptyRow(icon: Icons.description_outlined, message: 'No pending reports')
           : Column(children: reports.take(5).map((r) => _ReportTile(report: r)).toList()),
     );
   }
@@ -1583,14 +1415,27 @@ class _SupervisorQuickActions extends StatelessWidget {
       children: [
         const Text('Quick Actions', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: AppTheme.slate900)),
         const SizedBox(height: 14),
-        Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          children: [
-            _QuickActionCard(icon: Icons.access_time_rounded, color: AppTheme.emerald500, title: 'Attendance', subtitle: 'Monitor attendance records', onTap: () => state.setTab('attendance')),
-            _QuickActionCard(icon: Icons.description_outlined, color: AppTheme.amber500, title: 'Reports', subtitle: 'Review submitted reports', onTap: () => state.setTab('reports')),
-            _QuickActionCard(icon: Icons.task_alt_outlined, color: AppTheme.blue500, title: 'Tasks', subtitle: 'Manage assigned tasks', onTap: () => state.setTab('tasks')),
-          ],
+        // The cards used to be a fixed 260px wide, which is wider than a
+        // 320px phone has room for once padding is taken off. They now
+        // divide whatever width there is.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            const gap = 16.0;
+            final columns = ((constraints.maxWidth + gap) / (260 + gap))
+                .floor()
+                .clamp(1, 3);
+            final width =
+                (constraints.maxWidth - gap * (columns - 1)) / columns;
+            return Wrap(
+              spacing: gap,
+              runSpacing: gap,
+              children: [
+                _QuickActionCard(width: width, icon: Icons.access_time_rounded, color: AppTheme.emerald500, title: 'Attendance', subtitle: 'Monitor attendance records', onTap: () => state.setTab('attendance')),
+                _QuickActionCard(width: width, icon: Icons.description_outlined, color: AppTheme.amber500, title: 'Reports', subtitle: 'Review submitted reports', onTap: () => state.setTab('reports')),
+                _QuickActionCard(width: width, icon: Icons.task_alt_outlined, color: AppTheme.blue500, title: 'Tasks', subtitle: 'Manage assigned tasks', onTap: () => state.setTab('tasks')),
+              ],
+            );
+          },
         ),
       ],
     );
@@ -1604,12 +1449,14 @@ class _QuickActionCard extends StatelessWidget {
   final String subtitle;
   final VoidCallback onTap;
 
-  const _QuickActionCard({required this.icon, required this.color, required this.title, required this.subtitle, required this.onTap});
+  final double width;
+
+  const _QuickActionCard({required this.icon, required this.color, required this.title, required this.subtitle, required this.onTap, required this.width});
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 260,
+      width: width,
       child: InkWell(
         borderRadius: BorderRadius.circular(18),
         onTap: onTap,
@@ -1664,10 +1511,15 @@ class _RecentAttendanceSection extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              'Recent Attendance',
-              style: TextStyle(fontSize: isMobileScreen ? 16 : 18, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+            Expanded(
+              child: Text(
+                'Recent Attendance',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: isMobileScreen ? 16 : 18, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+              ),
             ),
+            const SizedBox(width: 10),
             GestureDetector(
               onTap: () => state.setTab('attendance'),
               child: Row(
@@ -1759,9 +1611,13 @@ class _SystemStatusSection extends StatelessWidget {
             children: [
               const Icon(Icons.bolt_rounded, size: 16, color: AppTheme.emerald500),
               const SizedBox(width: 8),
-              Text(
-                'Response time: ${state.responseTimeMs}ms',
-                style: TextStyle(fontSize: 12, color: AppTheme.slate600, fontWeight: FontWeight.w600),
+              Flexible(
+                child: Text(
+                  'Response time: ${state.responseTimeMs}ms',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(fontSize: 12, color: AppTheme.slate600, fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),
@@ -1816,57 +1672,6 @@ class _SystemStatusItem extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-// ─── Mobile stat card (matches Accounts screen mobile style) ───────────
-class _DashboardStatCard extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-  final IconData icon;
-  const _DashboardStatCard({required this.label, required this.value, required this.color, required this.icon});
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border(left: BorderSide(color: color, width: 4)),
-          boxShadow: [
-            BoxShadow(color: color.withValues(alpha: 0.08), blurRadius: 14, offset: const Offset(0, 4)),
-            BoxShadow(color: Colors.black.withValues(alpha: 0.03), blurRadius: 4),
-          ],
-        ),
-        child: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(12)),
-              child: Icon(icon, color: color, size: 18),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(label,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.slate400, letterSpacing: 0.8, height: 1.2)),
-                  const SizedBox(height: 2),
-                  Text(value, style: TextStyle(fontSize: 24, fontWeight: FontWeight.w800, color: color, height: 1.1)),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
