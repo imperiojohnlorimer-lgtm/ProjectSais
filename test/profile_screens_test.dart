@@ -149,7 +149,10 @@ void main() {
   });
 
   group('ProfileIdentityCard photo control', () {
-    Future<int Function()> pumpCard(WidgetTester tester) async {
+    Future<int Function()> pumpCard(
+      WidgetTester tester, {
+      bool uploading = false,
+    }) async {
       var taps = 0;
       tester.view.physicalSize = const Size(400, 700);
       tester.view.devicePixelRatio = 1.0;
@@ -168,13 +171,14 @@ void main() {
                   role: 'Supervisor',
                   onEditPhoto: () => taps++,
                   contacts: const [],
+                  isUploadingPhoto: uploading,
                 ),
               ),
             ),
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await tester.pump();
       return () => taps;
     }
 
@@ -196,6 +200,33 @@ void main() {
       await tester.tap(find.byIcon(Icons.photo_camera_rounded));
       await tester.pumpAndSettle();
       expect(taps(), 1);
+    });
+
+    testWidgets('shows a spinner over the avatar while saving', (
+      tester,
+    ) async {
+      await pumpCard(tester, uploading: true);
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+      expect(find.byIcon(Icons.hourglass_top_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.photo_camera_rounded), findsNothing);
+    });
+
+    testWidgets('no spinner when idle', (tester) async {
+      await pumpCard(tester);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(find.byIcon(Icons.photo_camera_rounded), findsOneWidget);
+    });
+
+    testWidgets('ignores taps while saving, so one photo is not queued '
+        'behind another', (tester) async {
+      final taps = await pumpCard(tester, uploading: true);
+      await tester.tap(find.byType(UserAvatar), warnIfMissed: false);
+      await tester.tap(
+        find.byIcon(Icons.hourglass_top_rounded),
+        warnIfMissed: false,
+      );
+      await tester.pump();
+      expect(taps(), 0);
     });
   });
 

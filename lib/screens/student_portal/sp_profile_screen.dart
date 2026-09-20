@@ -16,6 +16,7 @@ class SpProfileScreen extends StatefulWidget {
 
 class _SpProfileScreenState extends State<SpProfileScreen> {
   bool _isEditing = false;
+  bool _isUploadingPhoto = false;
   late TextEditingController _nameCtrl;
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
@@ -55,9 +56,16 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
       final cropped = await showAvatarEditor(context, bytes);
       if (!mounted || cropped == null) return;
 
-      await appState.updateProfile(
-        avatar: 'data:image/png;base64,${base64Encode(cropped)}',
-      );
+      // Saving goes to the server, so show it on the avatar rather than
+      // leaving the card looking untouched until the snackbar lands.
+      setState(() => _isUploadingPhoto = true);
+      try {
+        await appState.updateProfile(
+          avatar: 'data:image/png;base64,${base64Encode(cropped)}',
+        );
+      } finally {
+        if (mounted) setState(() => _isUploadingPhoto = false);
+      }
       if (!mounted) return;
 
       messenger?.showSnackBar(
@@ -181,6 +189,7 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
       name: user?.name ?? 'Student',
       role: state.role,
       onEditPhoto: _pickProfileImage,
+      isUploadingPhoto: _isUploadingPhoto,
       contacts: [
         ProfileContact(Icons.email_outlined, user?.email ?? '—'),
         ProfileContact(

@@ -190,6 +190,10 @@ class ProfileIdentityCard extends StatelessWidget {
   final VoidCallback onEditPhoto;
   final List<ProfileContact> contacts;
 
+  /// Shows a spinner over the avatar and blocks further taps while a new
+  /// picture is being saved.
+  final bool isUploadingPhoto;
+
   const ProfileIdentityCard({
     super.key,
     required this.avatarUrl,
@@ -198,6 +202,7 @@ class ProfileIdentityCard extends StatelessWidget {
     required this.role,
     required this.onEditPhoto,
     required this.contacts,
+    this.isUploadingPhoto = false,
   });
 
   @override
@@ -257,6 +262,7 @@ class ProfileIdentityCard extends StatelessWidget {
                       avatarUrl: avatarUrl,
                       initials: initials,
                       onEditPhoto: onEditPhoto,
+                      isUploading: isUploadingPhoto,
                     ),
                   ),
                 ),
@@ -365,11 +371,13 @@ class _AvatarWithEditButton extends StatelessWidget {
   final String? avatarUrl;
   final String initials;
   final VoidCallback onEditPhoto;
+  final bool isUploading;
 
   const _AvatarWithEditButton({
     required this.avatarUrl,
     required this.initials,
     required this.onEditPhoto,
+    required this.isUploading,
   });
 
   @override
@@ -407,12 +415,30 @@ class _AvatarWithEditButton extends StatelessWidget {
                   Material(
                     color: Colors.transparent,
                     child: InkWell(
-                      onTap: onEditPhoto,
+                      onTap: isUploading ? null : onEditPhoto,
                       hoverColor: Colors.black.withValues(alpha: 0.18),
                       splashColor: Colors.black.withValues(alpha: 0.12),
                       child: const SizedBox.expand(),
                     ),
                   ),
+                  // Saving a picture is a round trip to the server, and
+                  // nothing else on the card moves while it happens.
+                  if (isUploading)
+                    ColoredBox(
+                      color: AppTheme.slate900.withValues(alpha: 0.55),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 26,
+                          height: 26,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.6,
+                            valueColor: AlwaysStoppedAnimation(
+                              AppTheme.gold400,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                 ],
               ),
             ),
@@ -423,19 +449,21 @@ class _AvatarWithEditButton extends StatelessWidget {
             child: Material(
               color: Colors.transparent,
               child: InkWell(
-                onTap: onEditPhoto,
+                onTap: isUploading ? null : onEditPhoto,
                 borderRadius: BorderRadius.circular(999),
                 child: Tooltip(
-                  message: 'Change photo',
+                  message: isUploading ? 'Saving photo…' : 'Change photo',
                   child: Container(
                     padding: const EdgeInsets.all(7),
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: AppTheme.maroon,
+                      color: isUploading ? AppTheme.slate400 : AppTheme.maroon,
                       border: Border.all(color: Colors.white, width: 2),
                     ),
-                    child: const Icon(
-                      Icons.photo_camera_rounded,
+                    child: Icon(
+                      isUploading
+                          ? Icons.hourglass_top_rounded
+                          : Icons.photo_camera_rounded,
                       size: 13,
                       color: Colors.white,
                     ),
