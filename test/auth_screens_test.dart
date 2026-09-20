@@ -45,6 +45,22 @@ void main() {
       });
     }
 
+    // The branding panel is a fixed column with no scroll of its own, so a
+    // short browser window is the case that overflows it.
+    for (final height in [560.0, 600.0, 680.0, 900.0]) {
+      testWidgets('branding panel fits a ${height.toInt()}px-tall window', (
+        tester,
+      ) async {
+        await pumpScreen(
+          tester,
+          LoginScreen(onShowRegister: () {}),
+          Size(1440, height),
+        );
+        expect(tester.takeException(), isNull);
+        expect(find.text('Duty hours that add up'), findsOneWidget);
+      });
+    }
+
     testWidgets('shows the branding panel only on desktop', (tester) async {
       await pumpScreen(
         tester,

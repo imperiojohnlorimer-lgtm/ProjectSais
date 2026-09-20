@@ -186,14 +186,14 @@ class AuthScaffold extends StatelessWidget {
         alignment: Alignment.topCenter,
         children: [
           Positioned(
-            top: -40,
-            right: -40,
-            child: _circle(150, AppTheme.gold300.withValues(alpha: 0.14)),
+            top: -110,
+            right: -100,
+            child: _glow(300, AppTheme.gold300, 0.20),
           ),
           Positioned(
-            bottom: -46,
-            left: -50,
-            child: _circle(130, Colors.white.withValues(alpha: 0.06)),
+            bottom: -120,
+            left: -110,
+            child: _glow(280, Colors.white, 0.09),
           ),
           SafeArea(
             bottom: false,
@@ -245,64 +245,142 @@ class AuthScaffold extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [AppTheme.maroon, AppTheme.maroonDark],
         ),
-        border: Border(bottom: BorderSide(color: AppTheme.gold400, width: 3)),
       ),
       child: Stack(
+        fit: StackFit.expand,
         children: [
+          // Radial glows rather than flat circles: a low-opacity solid circle
+          // still shows a crisp rim against the gradient and reads as a
+          // rendering artifact. These fade out to nothing at their edge.
           Positioned(
-            top: -70,
-            right: -60,
-            child: _circle(200, AppTheme.gold300.withValues(alpha: 0.11)),
+            top: -190,
+            right: -170,
+            child: _glow(460, AppTheme.gold300, 0.18),
           ),
           Positioned(
-            bottom: -60,
-            left: -60,
-            child: _circle(180, Colors.white.withValues(alpha: 0.05)),
+            bottom: -200,
+            left: -160,
+            child: _glow(420, Colors.white, 0.07),
           ),
+          // Gold rule down the seam with the form, fading out at both ends so
+          // it reads as an accent rather than a hard divider.
           Positioned(
-            top: 120,
-            right: 70,
-            child: _circle(70, AppTheme.gold300.withValues(alpha: 0.07)),
+            top: 0,
+            bottom: 0,
+            left: 0,
+            child: Container(
+              width: 3,
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    AppTheme.gold400.withValues(alpha: 0),
+                    AppTheme.gold400.withValues(alpha: 0.85),
+                    AppTheme.gold400.withValues(alpha: 0),
+                  ],
+                  stops: const [0.0, 0.5, 1.0],
+                ),
+              ),
+            ),
           ),
           SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 48, vertical: 56),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const AppLogo(size: 60),
-                  const SizedBox(height: 26),
-                  const Text(
-                    'SAIS',
-                    style: TextStyle(
-                      fontSize: 30,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.goldLight,
-                      letterSpacing: 0.5,
-                      height: 1.1,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // Laptop-height browser windows leave little room once the
+                // brand block and three tiles are stacked, so tighten up
+                // rather than letting the column overflow.
+                final compact = constraints.maxHeight < 680;
+                final gap = compact ? 20.0 : 26.0;
+
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    // Centres the block when it fits and scrolls when it
+                    // does not, instead of overflowing.
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 56,
+                        vertical: compact ? 36 : 56,
+                      ),
+                      child: Center(
+                        child: ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 400),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              AppLogo(size: compact ? 50 : 58),
+                              SizedBox(height: compact ? 20 : 26),
+                              const Text(
+                                'SAIS',
+                                style: TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.goldLight,
+                                  letterSpacing: 0.5,
+                                  height: 1.1,
+                                ),
+                              ),
+                              const SizedBox(height: 6),
+                              const Text(
+                                'Student Assistant Information System',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Color(0xFFFFD88A),
+                                  height: 1.45,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              SizedBox(height: compact ? 22 : 30),
+                              Container(
+                                width: 44,
+                                height: 3,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.gold400,
+                                  borderRadius: BorderRadius.circular(2),
+                                ),
+                              ),
+                              SizedBox(height: compact ? 22 : 30),
+                              // Separators between tiles rather than a
+                              // trailing margin, so the block stays
+                              // optically centred.
+                              for (var i = 0; i < brandPoints.length; i++) ...[
+                                if (i > 0) SizedBox(height: gap),
+                                _BrandTile(point: brandPoints[i]),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  const Text(
-                    'Student Assistant\nInformation System',
-                    style: TextStyle(
-                      fontSize: 17,
-                      color: Color(0xFFFFD88A),
-                      height: 1.4,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 40),
-                  for (final point in brandPoints) _BrandTile(point: point),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ],
       ),
     );
   }
+
+  /// A circle that fades to fully transparent at its edge.
+  Widget _glow(double size, Color color, double opacity) => Container(
+    width: size,
+    height: size,
+    decoration: BoxDecoration(
+      shape: BoxShape.circle,
+      gradient: RadialGradient(
+        colors: [
+          color.withValues(alpha: opacity),
+          color.withValues(alpha: 0),
+        ],
+      ),
+    ),
+  );
 
   // ─── Shared header ────────────────────────────────────────────────────
   Widget _headerText({bool mobile = false}) {
@@ -337,11 +415,6 @@ class AuthScaffold extends StatelessWidget {
     );
   }
 
-  Widget _circle(double size, Color color) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-  );
 }
 
 class _BrandTile extends StatelessWidget {
@@ -351,11 +424,9 @@ class _BrandTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 26),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
           Container(
             width: 42,
             height: 42,
@@ -394,8 +465,7 @@ class _BrandTile extends StatelessWidget {
               ],
             ),
           ),
-        ],
-      ),
+      ],
     );
   }
 }
