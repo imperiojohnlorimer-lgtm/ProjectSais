@@ -6,7 +6,15 @@ import '../../widgets/shared_widgets.dart';
 
 class LoginScreen extends StatefulWidget {
   final VoidCallback onShowRegister;
-  const LoginScreen({super.key, required this.onShowRegister});
+
+  /// When provided, a back control returns the visitor to the landing page.
+  final VoidCallback? onBack;
+
+  const LoginScreen({
+    super.key,
+    required this.onShowRegister,
+    this.onBack,
+  });
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -224,7 +232,37 @@ class _LoginScreenState extends State<LoginScreen> {
           return SizedBox(
             height: double.infinity,
             width: double.infinity,
-            child: isMobile ? _buildMobileLayout() : _buildDesktopLayout(),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: isMobile
+                      ? _buildMobileLayout()
+                      : _buildDesktopLayout(),
+                ),
+                if (widget.onBack != null)
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    child: SafeArea(
+                      child: Padding(
+                        padding: const EdgeInsets.all(8),
+                        child: IconButton(
+                          onPressed: widget.onBack,
+                          tooltip: 'Back to home',
+                          icon: Icon(
+                            Icons.arrow_back_rounded,
+                            // The mobile layout opens on the maroon hero, the
+                            // desktop one on the white form column.
+                            color: isMobile
+                                ? Colors.white
+                                : AppTheme.slate600,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           );
         },
       ),
@@ -401,7 +439,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Sign in to continue to your account',
+          'Log in to continue to your account',
           textAlign: mobile ? TextAlign.left : TextAlign.center,
           style: const TextStyle(
             fontSize: 14,
@@ -521,7 +559,7 @@ class _LoginScreenState extends State<LoginScreen> {
       const SizedBox(height: 28),
 
       _buildPrimaryButton(
-        label: 'Sign In',
+        label: 'Log In',
         icon: Icons.arrow_forward_rounded,
         isLoading: _isLoading,
         onPressed: _handleLogin,
@@ -679,7 +717,7 @@ class _LoginScreenState extends State<LoginScreen> {
             Image.asset('assets/images/google_logo.png', width: 20, height: 20),
             const SizedBox(width: 12),
             const Text(
-              'Sign in with Google',
+              'Log in with Google',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,

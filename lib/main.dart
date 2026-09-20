@@ -10,6 +10,7 @@ import 'screens/app_shell.dart';
 import 'screens/student_portal/student_portal_shell.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
+import 'screens/landing/landing_screen.dart';
 import 'services/schedule_service.dart';
 import 'services/firestore_schedule_repository.dart';
 
@@ -53,8 +54,13 @@ class _AuthGate extends StatefulWidget {
   State<_AuthGate> createState() => _AuthGateState();
 }
 
+/// Which public page a signed-out visitor is looking at.
+enum _PublicView { landing, login, register }
+
 class _AuthGateState extends State<_AuthGate> {
-  bool _showRegister = false;
+  _PublicView _view = _PublicView.landing;
+
+  void _go(_PublicView view) => setState(() => _view = view);
 
   @override
   Widget build(BuildContext context) {
@@ -66,14 +72,21 @@ class _AuthGateState extends State<_AuthGate> {
       return const AppShell();
     }
 
-    if (_showRegister) {
-      return RegisterScreen(
-        onBackToLogin: () => setState(() => _showRegister = false),
-      );
+    switch (_view) {
+      case _PublicView.register:
+        return RegisterScreen(
+          onBackToLogin: () => _go(_PublicView.login),
+        );
+      case _PublicView.login:
+        return LoginScreen(
+          onShowRegister: () => _go(_PublicView.register),
+          onBack: () => _go(_PublicView.landing),
+        );
+      case _PublicView.landing:
+        return LandingScreen(
+          onSignIn: () => _go(_PublicView.login),
+          onGetStarted: () => _go(_PublicView.register),
+        );
     }
-
-    return LoginScreen(
-      onShowRegister: () => setState(() => _showRegister = true),
-    );
   }
 }
