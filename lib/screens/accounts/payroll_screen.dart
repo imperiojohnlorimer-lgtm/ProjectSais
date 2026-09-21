@@ -4,6 +4,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
+import 'payroll_sheet_editor.dart';
 
 /// Admin screen: approve and release payroll for a pay period — a whole
 /// semester, not a single month.
@@ -22,6 +23,10 @@ import '../../widgets/shared_widgets.dart';
 ///  1. Approve — locks in and records the computed amount ('Approved').
 ///  2. Release — the actual payout moment ('Released'), which is when the
 ///     Student Assistant is notified.
+///
+/// The printed Hourly Wage Payroll is prepared separately, in the
+/// [PayrollSheetEditor]: an editable copy of the period's payroll that the
+/// Admin can correct, save, and download.
 class PayrollScreen extends StatefulWidget {
   const PayrollScreen({super.key});
 
@@ -35,6 +40,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
   late DateTime _start;
   late DateTime _end;
   bool _busy = false;
+
+  /// The payroll sheet open in the editor, if any.
+  PayrollSheet? _sheet;
 
   String _campusFilter = 'All';
   String _departmentFilter = 'All';
@@ -200,11 +208,67 @@ class _PayrollScreenState extends State<PayrollScreen> {
     }
   }
 
+  static String _isoDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// Rows for the printed payroll, straight from the system: every student
+  /// in the period who can be paid (Ready, Approved or Released), across all
+  /// campuses. Incomplete students can't be paid, so they're left off.
+  List<PayrollSheetEntry> _systemEntries(AppState state) {
+    final start = _isoDate(_start);
+    final end = _isoDate(_end);
+    return PayrollSheet.fromRecords(
+      periodStart: start,
+      periodEnd: end,
+      periodLabel: _periodLabel,
+      records: state
+          .buildPayrollPreview(
+            start: _start,
+            endInclusive: _end,
+            periodLabel: _periodLabel,
+          )
+          .where((p) => p.status != 'Incomplete')
+          .toList(),
+    ).entries;
+  }
+
+  /// Opens the period's saved payroll sheet, or starts one from the system's
+  /// payroll data — keeping the header fields and signatories of the last
+  /// sheet the Admin saved.
+  void _openSheet(AppState state) {
+    final start = _isoDate(_start);
+    final end = _isoDate(_end);
+    final saved = state.payrollSheetFor(start, end);
+    setState(() {
+      _sheet =
+          saved?.copyWith(periodLabel: _periodLabel) ??
+          PayrollSheet.fromRecords(
+            periodStart: start,
+            periodEnd: end,
+            periodLabel: _periodLabel,
+            records: const [],
+            previous: state.latestPayrollSheet,
+          ).copyWith(entries: _systemEntries(state));
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    final sheet = _sheet;
+    if (sheet != null) {
+      return PayrollSheetEditor(
+        key: ValueKey(sheet.id),
+        sheet: sheet,
+        systemEntries: () => _systemEntries(context.read<AppState>()),
+        onClose: () => setState(() => _sheet = null),
+      );
+    }
+
     final isMobile = MediaQuery.of(context).size.width < 700;
     final hPad = isMobile ? 16.0 : 28.0;
+    final hasSavedSheet =
+        state.payrollSheetFor(_isoDate(_start), _isoDate(_end)) != null;
 
     final allPreview = state.buildPayrollPreview(
       start: _start,
@@ -457,6 +521,21 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: _busy ? null : () => _openSheet(state),
+                      icon: const Icon(Icons.edit_document, size: 16),
+                      label: Text(
+                        hasSavedSheet
+                            ? 'Edit Payroll Sheet'
+                            : 'Prepare Payroll Sheet',
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.maroon,
+                        side: const BorderSide(color: AppTheme.maroon),
+                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                       ),
                     ),
                   ],

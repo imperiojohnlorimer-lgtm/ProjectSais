@@ -1013,6 +1013,22 @@ class FirestoreService {
     await _payrollRecords.doc(id).update(data);
   }
 
+  // Payroll sheets: the Admin's edited copy of the printed Hourly Wage
+  // Payroll, one document per pay period (see PayrollSheet.idForPeriod).
+  CollectionReference get _payrollSheets => _db.collection('payrollSheets');
+
+  Stream<List<Map<String, dynamic>>> payrollSheetsStream() {
+    return _payrollSheets.snapshots().map(
+      (snap) => snap.docs
+          .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+          .toList(),
+    );
+  }
+
+  Future<void> setPayrollSheet(PayrollSheet sheet) async {
+    await _payrollSheets.doc(sheet.id).set(sheet.toJson());
+  }
+
   // Performance Evaluations
   CollectionReference get _evaluations => _db.collection('evaluations');
 

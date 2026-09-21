@@ -83,6 +83,7 @@ flutter:
     - assets/templates/performance_evaluation_template.docx
     - assets/templates/dtr_accomplishment_report_template.docx
     - assets/templates/endorsement_template.docx
+    - assets/templates/payroll_template.docx
   #   - images/a_dot_ham.jpeg
 
   # An image asset can refer to one or more resolution-specific "variants", see

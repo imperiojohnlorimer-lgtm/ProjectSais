@@ -41,6 +41,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _appSub;
   StreamSubscription<List<Map<String, dynamic>>>? _headForwardsSub;
   StreamSubscription<List<Map<String, dynamic>>>? _payrollSub;
+  StreamSubscription<List<Map<String, dynamic>>>? _payrollSheetsSub;
   Timer? _missedTimeOutTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
@@ -191,6 +192,7 @@ class AppState extends ChangeNotifier {
   List<Evaluation> evaluations = [];
   List<HeadForward> headForwards = [];
   List<PayrollRecord> payrollRecords = [];
+  List<PayrollSheet> payrollSheets = [];
   List<Announcement> announcements = [];
   List<Application> applications = [];
   List<ScreeningRecord> screeningRecords = [];
@@ -412,9 +414,16 @@ class AppState extends ChangeNotifier {
 
       // Admin: keep processed Payroll records in sync in real time.
       _payrollSub?.cancel();
+      _payrollSheetsSub?.cancel();
       if (role == 'Admin') {
         _payrollSub = _firestoreService!.payrollRecordsStream().listen((list) {
           payrollRecords = list.map((m) => PayrollRecord.fromJson(m)).toList();
+          notifyListeners();
+        });
+        _payrollSheetsSub = _firestoreService!.payrollSheetsStream().listen((
+          list,
+        ) {
+          payrollSheets = list.map((m) => PayrollSheet.fromJson(m)).toList();
           notifyListeners();
         });
       }
@@ -480,6 +489,7 @@ class AppState extends ChangeNotifier {
     _appSub?.cancel();
     _headForwardsSub?.cancel();
     _payrollSub?.cancel();
+    _payrollSheetsSub?.cancel();
     _missedTimeOutTimer?.cancel();
     super.dispose();
   }
@@ -4410,6 +4420,33 @@ class AppState extends ChangeNotifier {
 
   String _isoDate(DateTime d) =>
       '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  /// The Admin's saved payroll sheet for a pay period, if any.
+  PayrollSheet? payrollSheetFor(String periodStart, String periodEnd) {
+    final id = PayrollSheet.idForPeriod(periodStart, periodEnd);
+    return payrollSheets.where((sheet) => sheet.id == id).firstOrNull;
+  }
+
+  /// The most recently saved payroll sheet, whose signatories and header
+  /// fields a new period's sheet starts from.
+  PayrollSheet? get latestPayrollSheet {
+    if (payrollSheets.isEmpty) return null;
+    return payrollSheets.reduce(
+      (a, b) => (b.updatedAt ?? '').compareTo(a.updatedAt ?? '') > 0 ? b : a,
+    );
+  }
+
+  Future<PayrollSheet> savePayrollSheet(PayrollSheet sheet) async {
+    _firestoreService ??= FirestoreService();
+    final saved = sheet.copyWith(
+      updatedAt: DateTime.now().toIso8601String(),
+      updatedBy: currentUser?.name ?? 'Admin',
+    );
+    await _firestoreService!.setPayrollSheet(saved);
+    payrollSheets = [saved, ...payrollSheets.where((s) => s.id != saved.id)];
+    notifyListeners();
+    return saved;
+  }
 
   /// Administrators approve payroll: computes the payable amount from
   /// total hours rendered for every currently-'Ready' entry in [preview]

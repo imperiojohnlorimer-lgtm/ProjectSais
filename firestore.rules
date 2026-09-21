@@ -269,6 +269,11 @@ service cloud.firestore {
       allow create, update, delete: if isAdmin();
     }
 
+    // The Admin's editable copy of the printed Hourly Wage Payroll.
+    match /payrollSheets/{id} {
+      allow read, write: if isAdmin();
+    }
+
     // Applicant Screening is Head-exclusive.
     match /screeningRecords/{id} {
       allow read, write: if isHead();
