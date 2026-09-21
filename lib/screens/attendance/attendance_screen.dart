@@ -181,22 +181,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       _ClockCard(
                         isStudent: isStudent,
                         active: active,
-                        onClockIn: () async {
-                          await context.read<AppState>().clockIn();
-                          _snack(context, 'Clocked in!', AppTheme.emerald500);
-                        },
-                        onClockOut: active != null
-                            ? () async {
-                                await context.read<AppState>().clockOut(
-                                  active.id,
-                                );
-                                _snack(
-                                  context,
-                                  'Clocked out!',
-                                  AppTheme.emerald500,
-                                );
-                              }
-                            : null,
                         onScanQr: isStudent
                             ? () => _showQrScanner(context)
                             : null,
@@ -270,34 +254,52 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                             canDelete:
                                                 state.role == 'Head' ||
                                                 state.role == 'Supervisor',
+                                            onArchive: () async {
+                                              final restoring = r.isArchived;
+                                              final saved = await state
+                                                  .setAttendanceArchived(
+                                                    r.id,
+                                                    !restoring,
+                                                  );
+                                              if (!context.mounted) return;
+                                              _snack(
+                                                context,
+                                                saved
+                                                    ? (restoring
+                                                          ? 'Record restored to the log'
+                                                          : 'Record archived')
+                                                    : 'Could not save that — the record is unchanged on the server.',
+                                                saved
+                                                    ? AppTheme.emerald500
+                                                    : AppTheme.red500,
+                                              );
+                                            },
                                             onDelete: () async {
                                               final ok = await showConfirmDialog(
                                                 context,
                                                 title: 'Delete Record',
                                                 message:
-                                                    'Remove this attendance record?',
+                                                    'Remove this attendance record? '
+                                                    'Archive it instead if you only want it out of the log.',
                                                 confirmLabel: 'Delete',
                                                 confirmColor: AppTheme.red500,
                                               );
-                                              if (ok) {
-                                                state.deleteAttendance(r.id);
-                                                _snack(
-                                                  context,
-                                                  'Attendance record deleted',
-                                                  AppTheme.red500,
-                                                );
+                                              if (!ok || !context.mounted) {
+                                                return;
                                               }
+                                              final deleted = await state
+                                                  .deleteAttendance(r.id);
+                                              if (!context.mounted) return;
+                                              _snack(
+                                                context,
+                                                deleted
+                                                    ? 'Attendance record deleted'
+                                                    : 'Could not delete that record on the server.',
+                                                deleted
+                                                    ? AppTheme.red500
+                                                    : AppTheme.amber500,
+                                              );
                                             },
-                                            onClockOut: r.isActive && isStudent
-                                                ? () async {
-                                                    await state.clockOut(r.id);
-                                                    _snack(
-                                                      context,
-                                                      'Clocked out!',
-                                                      AppTheme.emerald500,
-                                                    );
-                                                  }
-                                                : null,
                                             onSetTimeOut:
                                                 r.isActive &&
                                                     (state.role == 'Head' ||
@@ -369,22 +371,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       _ClockCard(
                         isStudent: isStudent,
                         active: active,
-                        onClockIn: () async {
-                          await context.read<AppState>().clockIn();
-                          _snack(context, 'Clocked in!', AppTheme.emerald500);
-                        },
-                        onClockOut: active != null
-                            ? () async {
-                                await context.read<AppState>().clockOut(
-                                  active.id,
-                                );
-                                _snack(
-                                  context,
-                                  'Clocked out!',
-                                  AppTheme.emerald500,
-                                );
-                              }
-                            : null,
                         onScanQr: isStudent
                             ? () => _showQrScanner(context)
                             : null,
@@ -502,42 +488,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
+  /// Hands the scanned code to the server, which decides everything: that
+  /// it's this session's QR, that the window is open by its own clock, and
+  /// whether this scan is a clock-in or a clock-out. Nothing is checked
+  /// here first — a local check would only ever be a slower way to reach
+  /// the same answer, and a wrong one if the phone's clock is off.
   Future<void> _handleScannedCode(BuildContext context, String code) async {
-    final state = context.read<AppState>();
-
-    if (!state.isWithinAttendanceQrWindow()) {
-      _snack(
-        context,
-        'Attendance QR scanning is only available 7:30 AM–12:00 PM and '
-        '12:30 PM–5:00 PM.',
-        AppTheme.amber500,
-      );
-      return;
-    }
-
-    // Reject codes that aren't this session's attendance QR. The message
-    // deliberately says nothing about the expected token — the session code
-    // stays the same all morning or afternoon, so echoing it here would hand
-    // out a working code to anyone who scans something wrong.
-    final valid = await state.isQrTokenValid(code);
+    final result = await context.read<AppState>().clockViaQr(code);
     if (!context.mounted) return;
-    if (!valid) {
-      _snack(
-        context,
-        'That is not this session\'s attendance QR. Scan the code posted by '
-        'your supervisor.',
-        AppTheme.red500,
-      );
-      return;
-    }
-
-    if (state.activeAttendanceRecord != null) {
-      await state.clockOut(state.activeAttendanceRecord!.id);
-      _snack(context, 'QR Scan — Clocked out!', AppTheme.emerald500);
-    } else {
-      await state.clockIn();
-      _snack(context, 'QR Scan — Clocked in!', AppTheme.emerald500);
-    }
+    _snack(
+      context,
+      result.ok
+          ? (result.clockedIn
+                ? 'QR Scan — Clocked in!'
+                : 'QR Scan — Clocked out!')
+          : result.message,
+      result.ok ? AppTheme.emerald500 : AppTheme.red500,
+    );
   }
 
   Future<void> _showQrGenerator(BuildContext context) async {
@@ -571,16 +538,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 class _ClockCard extends StatefulWidget {
   final bool isStudent;
   final dynamic active;
-  final VoidCallback onClockIn;
-  final VoidCallback? onClockOut;
   final VoidCallback? onScanQr;
   final VoidCallback? onGenerateQr;
 
   const _ClockCard({
     required this.isStudent,
     required this.active,
-    required this.onClockIn,
-    this.onClockOut,
     this.onScanQr,
     this.onGenerateQr,
   });
@@ -1186,19 +1149,20 @@ class _RecordCard extends StatelessWidget {
   final dynamic record;
   final bool canDelete;
   final VoidCallback? onDelete;
-  final VoidCallback? onClockOut;
   final VoidCallback? onSetTimeOut;
+  final VoidCallback? onArchive;
 
   const _RecordCard({
     required this.record,
     required this.canDelete,
     this.onDelete,
-    this.onClockOut,
     this.onSetTimeOut,
+    this.onArchive,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isArchived = record.isArchived as bool;
     final isActive = record.isActive as bool;
     final isInvalid = record.isInvalid as bool;
     final color = isInvalid
@@ -1387,23 +1351,6 @@ class _RecordCard extends StatelessWidget {
                           ],
                         ),
 
-                  if (onClockOut != null) ...[
-                    const SizedBox(height: 10),
-                    SizedBox(
-                      width: double.infinity,
-                      child: OutlinedButton.icon(
-                        onPressed: onClockOut,
-                        icon: const Icon(Icons.logout_rounded, size: 14),
-                        label: const Text(
-                          "Clock Out",
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
                   if (onSetTimeOut != null) ...[
                     const SizedBox(height: 10),
                     SizedBox(
@@ -1433,27 +1380,46 @@ class _RecordCard extends StatelessWidget {
             ),
           ),
 
-          if (canDelete && onDelete != null)
+          if (canDelete && (onDelete != null || onArchive != null))
             SizedBox(
               width: isMobile ? 36 : 48,
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  IconButton(
-                    onPressed: onDelete,
-                    icon: const Icon(
-                      Icons.delete_outline_rounded,
-                      size: 18,
-                      color: AppTheme.slate300,
+                  // Archiving keeps the record for the DTR and payroll trail
+                  // while taking it out of the working log; deleting throws
+                  // it away. They sit together so the gentler one is the
+                  // easier reach.
+                  if (onArchive != null)
+                    IconButton(
+                      onPressed: onArchive,
+                      tooltip: isArchived
+                          ? 'Restore to the log'
+                          : 'Archive this record',
+                      icon: Icon(
+                        isArchived
+                            ? Icons.unarchive_outlined
+                            : Icons.archive_outlined,
+                        size: 18,
+                        color: isArchived
+                            ? AppTheme.amber500
+                            : AppTheme.slate300,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
                     ),
-                    visualDensity: VisualDensity.compact,
-                    padding: EdgeInsets.zero,
-                  ),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    size: 18,
-                    color: AppTheme.slate300,
-                  ),
+                  if (onDelete != null)
+                    IconButton(
+                      onPressed: onDelete,
+                      tooltip: 'Delete this record',
+                      icon: const Icon(
+                        Icons.delete_outline_rounded,
+                        size: 18,
+                        color: AppTheme.slate300,
+                      ),
+                      visualDensity: VisualDensity.compact,
+                      padding: EdgeInsets.zero,
+                    ),
                 ],
               ),
             ),

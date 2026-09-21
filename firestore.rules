@@ -149,6 +149,11 @@ service cloud.firestore {
           && resource.data.studentId == request.auth.uid
         );
 
+      // Students never write here. They clock in and out through the
+      // clock-attendance Supabase Edge Function, which validates the scanned
+      // QR against the current session on the server and writes with a
+      // Firebase service account. Leaving this staff-only is what stops a
+      // student from calling the API directly and forging their own hours.
       allow create, update: if isStaff();
       allow delete: if isStaff();
     }

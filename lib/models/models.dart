@@ -355,6 +355,24 @@ class AttendanceRecord {
 
   bool get isActive => timeOut == null || timeOut!.isEmpty;
 
+  AttendanceRecord copyWith({
+    String? timeOut,
+    double? totalHours,
+    bool? isArchived,
+    bool? isInvalid,
+  }) => AttendanceRecord(
+    id: id,
+    studentName: studentName,
+    studentId: studentId,
+    date: date,
+    timeIn: timeIn,
+    timeOut: timeOut ?? this.timeOut,
+    totalHours: totalHours ?? this.totalHours,
+    academicYear: academicYear,
+    isArchived: isArchived ?? this.isArchived,
+    isInvalid: isInvalid ?? this.isInvalid,
+  );
+
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) =>
       AttendanceRecord(
         id: json['_id'] ?? json['id'] ?? '',
@@ -756,8 +774,7 @@ class Announcement {
     this.attachmentSize,
   });
 
-  bool get hasAttachment =>
-      attachmentUrl != null && attachmentUrl!.isNotEmpty;
+  bool get hasAttachment => attachmentUrl != null && attachmentUrl!.isNotEmpty;
 
   bool get isPending => approvalStatus == 'Pending';
   bool get isApproved => approvalStatus == 'Approved';
@@ -931,7 +948,9 @@ class ScreeningRecord {
   }) {
     final seed = applicantId.trim().isNotEmpty
         ? applicantId.trim()
-        : (applicationId ?? fallback ?? DateTime.now().millisecondsSinceEpoch.toString());
+        : (applicationId ??
+              fallback ??
+              DateTime.now().millisecondsSinceEpoch.toString());
     final yearSuffix = (academicYear ?? '').trim().isNotEmpty
         ? '-${academicYear!.trim()}'
         : '';
@@ -1461,7 +1480,8 @@ class Evaluation {
     periodCovered: json['periodCovered'] ?? '',
     dateOfRating: json['dateOfRating'] ?? '',
     eligibleForRehire: json['eligibleForRehire'] == true,
-    ratings: (json['ratings'] as Map<String, dynamic>?)?.map(
+    ratings:
+        (json['ratings'] as Map<String, dynamic>?)?.map(
           (k, v) => MapEntry(k, (v as num).toInt()),
         ) ??
         const {},
@@ -1575,13 +1595,12 @@ class DocumentFolder {
     required this.createdAt,
   });
 
-  factory DocumentFolder.fromJson(Map<String, dynamic> json) =>
-      DocumentFolder(
-        id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
-        name: json['name']?.toString() ?? 'Untitled Folder',
-        createdBy: json['createdBy']?.toString() ?? '',
-        createdAt: json['createdAt']?.toString() ?? '',
-      );
+  factory DocumentFolder.fromJson(Map<String, dynamic> json) => DocumentFolder(
+    id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+    name: json['name']?.toString() ?? 'Untitled Folder',
+    createdBy: json['createdBy']?.toString() ?? '',
+    createdAt: json['createdAt']?.toString() ?? '',
+  );
 
   Map<String, dynamic> toJson() => {
     'name': name,
@@ -1656,8 +1675,10 @@ class PayrollMonthBreakdown {
     required this.payableHours,
   });
 
-  bool get meetsMinimumHours => hoursWorked >= PayrollRecord.minimumMonthlyHours;
-  bool get withinMaximumHours => hoursWorked <= PayrollRecord.maximumMonthlyHours;
+  bool get meetsMinimumHours =>
+      hoursWorked >= PayrollRecord.minimumMonthlyHours;
+  bool get withinMaximumHours =>
+      hoursWorked <= PayrollRecord.maximumMonthlyHours;
 
   factory PayrollMonthBreakdown.fromJson(Map<String, dynamic> json) =>
       PayrollMonthBreakdown(
@@ -1825,4 +1846,3 @@ class PayrollRecord {
     'releasedBy': releasedBy,
   }..removeWhere((_, v) => v == null);
 }
-

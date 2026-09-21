@@ -1,6 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:google_sign_in/google_sign_in.dart';
@@ -12,6 +14,20 @@ import 'package:projectsais/services/performance_evaluation_document_service.dar
 import 'package:projectsais/services/supabase_storage_service.dart';
 import '../firebase_options.dart';
 import 'models.dart';
+
+/// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
+/// is true; [message] carries the server's reason when it isn't.
+class QrClockResult {
+  final bool ok;
+  final bool clockedIn;
+  final String message;
+
+  const QrClockResult({
+    required this.ok,
+    this.clockedIn = false,
+    this.message = '',
+  });
+}
 
 class AppState extends ChangeNotifier {
   User? currentUser;
@@ -147,32 +163,6 @@ class AppState extends ChangeNotifier {
     }
 
     return token;
-  }
-
-  /// Validates a scanned code against the token of the session running now.
-  ///
-  /// This first checks the in-memory token (fast path) and falls back to
-  /// querying Firestore's `meta/current_qr` document so other devices can
-  /// validate tokens generated elsewhere.
-  Future<bool> isQrTokenValid(String scanned) async {
-    final sessionKey = attendanceQrSessionKey();
-    if (sessionKey == null) return false;
-
-    // Fast local check
-    if (scanned == currentQrToken && currentQrSessionKey == sessionKey) {
-      return true;
-    }
-
-    // Fallback to Firestore
-    try {
-      _firestoreService ??= FirestoreService();
-      final doc = await _firestoreService!.getCurrentQrToken();
-      if (doc == null) return false;
-      if (doc['token'] != scanned) return false;
-      return _sessionKeyOfQrDoc(doc) == sessionKey;
-    } catch (_) {
-      return false;
-    }
   }
 
   /// The session a stored QR doc belongs to. Docs written before sessions
@@ -356,13 +346,20 @@ class AppState extends ChangeNotifier {
                   : _firestoreService!.attendanceStreamForStudent(
                       currentUser!.id,
                     ))
-              .listen((list) {
-                attendance = list
-                    .map((m) => AttendanceRecord.fromJson(m))
-                    .toList();
-                notifyListeners();
-                if (isStaffUser) invalidateMissedTimeOuts();
-              });
+              .listen(
+                (list) {
+                  attendance = list
+                      .map((m) => AttendanceRecord.fromJson(m))
+                      .toList();
+                  notifyListeners();
+                  if (isStaffUser) invalidateMissedTimeOuts();
+                },
+                // Without this a rejected query (a missing index, say) kills
+                // the subscription silently and the list just stays empty.
+                onError: (Object error) {
+                  debugPrint('Attendance stream error: $error');
+                },
+              );
 
       // Head/Supervisor sessions periodically sweep for attendance records
       // whose session window closed while the student was still clocked in
@@ -2681,93 +2678,59 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Attendance CRUD ───────────────────────────────
-  Future<void> clockIn() async {
-    final now = TimeOfDay.now();
-    final hour = now.hourOfPeriod == 0 ? 12 : now.hourOfPeriod;
-    final minute = now.minute.toString().padLeft(2, '0');
-    final period = now.period == DayPeriod.am ? 'AM' : 'PM';
-    final timeIn = '$hour:$minute $period';
-
-    final today = _formattedToday();
-    // Prepare payload for Firestore
-    final payload = {
-      'studentName': currentUser?.name ?? '',
-      'studentId': currentUser?.id,
-      'date': today,
-      'timeIn': timeIn,
-      'academicYear': academicYear,
-    }..removeWhere((k, v) => v == null);
-
+  /// Clocks the student in or out by handing the scanned token to the
+  /// `clockAttendance` function.
+  ///
+  /// The device decides nothing here. The server checks that the token is
+  /// the current session's, that the window is open by its own clock, and
+  /// whether this is a clock-in or a clock-out — then writes the record
+  /// with admin credentials, since the rules keep attendance staff-only.
+  /// That means a student can't forge hours by calling Firestore directly
+  /// or by moving their phone's clock.
+  Future<QrClockResult> clockViaQr(String token) async {
     try {
-      _firestoreService ??= FirestoreService();
-      final docRef = await _firestoreService!.addAttendance(payload);
-      final newRecord = AttendanceRecord(
-        id: docRef.id,
-        studentName: payload['studentName'] ?? '',
-        studentId: payload['studentId'],
-        date: payload['date'] ?? '',
-        timeIn: payload['timeIn'] ?? '',
-      );
-      attendance = [newRecord, ...attendance];
-      notifyListeners();
-    } catch (_) {
-      // Firestore not available — fallback to in-memory record
-      final newRecord = AttendanceRecord(
-        id: 'a${DateTime.now().millisecondsSinceEpoch}',
-        studentName: currentUser?.name ?? '',
-        studentId: currentUser?.id,
-        date: today,
-        timeIn: timeIn,
-      );
-      attendance = [newRecord, ...attendance];
-      notifyListeners();
-    }
-  }
-
-  Future<void> clockOut(String recordId) async {
-    final now = TimeOfDay.now();
-    final hour = now.hourOfPeriod == 0 ? 12 : now.hourOfPeriod;
-    final minute = now.minute.toString().padLeft(2, '0');
-    final period = now.period == DayPeriod.am ? 'AM' : 'PM';
-    final timeOut = '$hour:$minute $period';
-
-    final existing = attendance.cast<AttendanceRecord?>().firstWhere(
-      (r) => r?.id == recordId,
-      orElse: () => null,
-    );
-    final totalHours = _hoursBetween(existing?.timeIn, timeOut);
-
-    attendance = attendance.map((r) {
-      if (r.id == recordId) {
-        return AttendanceRecord(
-          id: r.id,
-          studentName: r.studentName,
-          studentId: r.studentId,
-          date: r.date,
-          timeIn: r.timeIn,
-          timeOut: timeOut,
-          totalHours: totalHours,
-          academicYear: r.academicYear,
-          isArchived: r.isArchived,
-          // A late clock-out after the session window already closed
-          // doesn't undo a missed time-out already flagged by
-          // invalidateMissedTimeOuts().
-          isInvalid: r.isInvalid,
+      final idToken = await fb_auth.FirebaseAuth.instance.currentUser
+          ?.getIdToken(true);
+      if (idToken == null || idToken.isEmpty) {
+        return const QrClockResult(
+          ok: false,
+          message: 'You must be signed in to clock in.',
         );
       }
-      return r;
-    }).toList();
-    notifyListeners();
 
-    // Persist update to Firestore if possible
-    try {
-      _firestoreService ??= FirestoreService();
-      await _firestoreService!.updateAttendance(recordId, {
-        'timeOut': timeOut,
-        'totalHours': totalHours,
-      });
-    } catch (_) {
-      // ignore
+      final response = await http.post(
+        Uri.parse(SupabaseStorageService.clockAttendanceUrl),
+        headers: {
+          'Authorization': 'Bearer $idToken',
+          'apikey': SupabaseStorageService.publishableKey,
+          'Content-Type': 'application/json',
+        },
+        body: jsonEncode({'token': token}),
+      );
+
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        final reason =
+            body['error']?.toString() ??
+            'The attendance server rejected that scan.';
+        debugPrint('Clock via QR rejected (${response.statusCode}): $reason');
+        return QrClockResult(ok: false, message: reason);
+      }
+
+      // The attendance stream delivers the new record on its own, so there
+      // is nothing to patch into local state here.
+      return QrClockResult(
+        ok: true,
+        clockedIn: body['action']?.toString() == 'in',
+      );
+    } catch (error) {
+      debugPrint('Clock via QR failed: $error');
+      return const QrClockResult(
+        ok: false,
+        message:
+            'Could not reach the attendance server. Check your '
+            'connection and try again.',
+      );
     }
   }
 
@@ -2961,9 +2924,41 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void deleteAttendance(String id) {
+  /// Archives or restores one attendance record.
+  ///
+  /// Archiving is the reversible counterpart to deleting: the record leaves
+  /// the working log and stops counting toward verified hours, but it stays
+  /// on file for the DTR and the payroll trail.
+  Future<bool> setAttendanceArchived(String id, bool archived) async {
+    attendance = attendance
+        .map((a) => a.id == id ? a.copyWith(isArchived: archived) : a)
+        .toList();
+    notifyListeners();
+
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.updateAttendance(id, {'isArchived': archived});
+      return true;
+    } catch (error) {
+      debugPrint('Could not archive attendance record: $error');
+      return false;
+    }
+  }
+
+  Future<bool> deleteAttendance(String id) async {
     attendance = attendance.where((a) => a.id != id).toList();
     notifyListeners();
+
+    // Without this the record only vanished from this device and came
+    // straight back on the next load.
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.deleteAttendance(id);
+      return true;
+    } catch (error) {
+      debugPrint('Could not delete attendance record: $error');
+      return false;
+    }
   }
 
   // ─── Tasks CRUD ────────────────────────────────────
@@ -4032,10 +4027,21 @@ class AppState extends ChangeNotifier {
 
   List<AttendanceRecord> get filteredAttendance {
     if (role == 'Head') return attendance;
-    if (role == 'Student Assistant')
+    if (role == 'Student Assistant') {
+      // Match on the account id first and fall back to the name. Records
+      // written server-side carry studentId, so matching on the display
+      // name alone would hide them the moment a name is edited or differs
+      // by so much as whitespace.
+      final myId = currentUser?.id;
+      final myName = currentUser?.name;
       return attendance
-          .where((a) => a.studentName == currentUser?.name)
+          .where(
+            (a) =>
+                (myId != null && a.studentId == myId) ||
+                (myName != null && a.studentName == myName),
+          )
           .toList();
+    }
     if (role == 'Supervisor') {
       return attendance
           .where(

@@ -79,28 +79,44 @@ class FirestoreService {
     });
   }
 
-  /// Streams attendance documents ordered by `createdAt` descending.
+  /// Newest-first by `createdAt`, sorted here rather than with a server-side
+  /// `orderBy` — for the same reason [announcementsStream] does it.
+  ///
+  /// An `orderBy` alongside a `where` on a different field also needs a
+  /// composite index, and without one Firestore rejects the whole query.
+  /// That is what left student assistants with an empty attendance list
+  /// while supervisors, whose query has no `where`, saw everything.
+  /// Records missing `createdAt` sort last instead of disappearing.
+  static List<Map<String, dynamic>> _newestFirst(QuerySnapshot snap) {
+    final list = snap.docs
+        .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+        .toList();
+    DateTime? created(Map<String, dynamic> m) {
+      final value = m['createdAt'];
+      return value is Timestamp ? value.toDate() : null;
+    }
+
+    list.sort((a, b) {
+      final ca = created(a);
+      final cb = created(b);
+      if (ca == null && cb == null) return 0;
+      if (ca == null) return 1;
+      if (cb == null) return -1;
+      return cb.compareTo(ca);
+    });
+    return list;
+  }
+
+  /// Streams every attendance document, newest first.
   Stream<List<Map<String, dynamic>>> attendanceStream() {
-    return _attendance
-        .orderBy('createdAt', descending: true)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
-              .toList(),
-        );
+    return _attendance.snapshots().map(_newestFirst);
   }
 
   Stream<List<Map<String, dynamic>>> attendanceStreamForStudent(String uid) {
     return _attendance
         .where('studentId', isEqualTo: uid)
-        .orderBy('createdAt', descending: true)
         .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
-              .toList(),
-        );
+        .map(_newestFirst);
   }
 
   /// Streams tasks collection in real-time.
@@ -151,18 +167,26 @@ class FirestoreService {
         );
   }
 
+  /// An applicant's own applications. Sorted here for the same reason the
+  /// attendance streams are: a `where` plus an `orderBy` on another field
+  /// needs a composite index, and without one the query is rejected and the
+  /// applicant sees nothing.
   Stream<List<Map<String, dynamic>>> applicationsStreamForApplicant(
     String uid,
   ) {
-    return _applications
-        .where('applicantId', isEqualTo: uid)
-        .orderBy('appliedAt', descending: true)
-        .snapshots()
-        .map(
-          (snap) => snap.docs
-              .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
-              .toList(),
-        );
+    return _applications.where('applicantId', isEqualTo: uid).snapshots().map((
+      snap,
+    ) {
+      final list = snap.docs
+          .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+          .toList();
+      list.sort(
+        (a, b) => (b['appliedAt'] ?? '').toString().compareTo(
+          (a['appliedAt'] ?? '').toString(),
+        ),
+      );
+      return list;
+    });
   }
 
   CollectionReference get _users => _db.collection('users');
@@ -653,6 +677,10 @@ class FirestoreService {
       return docRef;
     }
     return await _attendance.add(payload);
+  }
+
+  Future<void> deleteAttendance(String id) async {
+    await _attendance.doc(id).delete();
   }
 
   Future<void> updateAttendance(String id, Map<String, dynamic> data) async {

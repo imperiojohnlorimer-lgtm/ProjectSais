@@ -10,6 +10,20 @@ class SupabaseStorageService {
 
   static final SupabaseStorageService instance = SupabaseStorageService._();
   static const maxUploadBytes = 10 * 1024 * 1024;
+
+  /// Edge function endpoints and the key every call to them carries. These
+  /// were repeated inline at each call site; they live here so a project
+  /// change is one edit.
+  static const _functionsRoot =
+      'https://hksswjhioztqsypbrkjy.supabase.co/functions/v1';
+  static const publishableKey =
+      'sb_publishable_9gI1i8ibybNp5qLBJpQo1A_7FCIkycd';
+  static const uploadDocumentUrl = '$_functionsRoot/upload-document';
+
+  /// Server-side attendance clock-in/out. Validates the scanned QR against
+  /// the current session and writes the record with a Firebase service
+  /// account, since `attendance` is staff-only in the Firestore rules.
+  static const clockAttendanceUrl = '$_functionsRoot/clock-attendance';
   static const _allowedExtensions = {
     'pdf',
     'doc',
@@ -34,15 +48,9 @@ class SupabaseStorageService {
       throw const FormatException('You must be signed in to upload a file.');
     }
 
-    final request = http.MultipartRequest(
-      'POST',
-      Uri.parse(
-        'https://hksswjhioztqsypbrkjy.supabase.co/functions/v1/upload-document',
-      ),
-    )
+    final request = http.MultipartRequest('POST', Uri.parse(uploadDocumentUrl))
       ..headers['Authorization'] = 'Bearer $token'
-      ..headers['apikey'] =
-          'sb_publishable_9gI1i8ibybNp5qLBJpQo1A_7FCIkycd'
+      ..headers['apikey'] = publishableKey
       ..fields['path'] = path
       ..files.add(
         http.MultipartFile.fromBytes(
@@ -79,12 +87,10 @@ class SupabaseStorageService {
     }
 
     final response = await http.post(
-      Uri.parse(
-        'https://hksswjhioztqsypbrkjy.supabase.co/functions/v1/upload-document',
-      ),
+      Uri.parse(uploadDocumentUrl),
       headers: {
         'Authorization': 'Bearer $token',
-        'apikey': 'sb_publishable_9gI1i8ibybNp5qLBJpQo1A_7FCIkycd',
+        'apikey': publishableKey,
         'Content-Type': 'application/json',
       },
       body: jsonEncode({'action': 'sign', 'path': path}),
@@ -150,16 +156,17 @@ class SupabaseStorageService {
     }
 
     final pathParts = path.split('/');
-    final validPathShape = pathParts.length == 4 ||
+    final validPathShape =
+        pathParts.length == 4 ||
         (pathParts[0] == 'applications' && pathParts.length == 5);
     if (!validPathShape ||
         (pathParts[0] != 'reports' &&
             pathParts[0] != 'applications' &&
             pathParts[0] != 'announcements') ||
         pathParts.any((part) => part.isEmpty || part == '.' || part == '..') ||
-        pathParts.skip(1).any(
-          (part) => !RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(part),
-        ) ||
+        pathParts
+            .skip(1)
+            .any((part) => !RegExp(r'^[a-zA-Z0-9._-]+$').hasMatch(part)) ||
         (pathParts.length == 4 && !RegExp(r'^\d+$').hasMatch(pathParts[2]))) {
       throw const FormatException('Invalid document storage path.');
     }
