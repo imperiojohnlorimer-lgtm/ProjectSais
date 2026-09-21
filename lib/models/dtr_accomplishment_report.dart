@@ -126,13 +126,14 @@ class DtrAccomplishmentReportData {
   final String studentSignatureName;
 
   /// Name printed above "Signature Over Printed Name of Immediate
-  /// Supervisor" — the supervisor generating/approving this report.
+  /// Supervisor" — the student's office supervisor, who verifies and
+  /// checks the report.
   final String supervisorName;
 
-  /// Name printed above "Head, Student Assistantship, Economic
-  /// Enterprise Development Unit" in the Approved section — i.e. the
-  /// Admin who signs off on the report.
-  final String adminName;
+  /// Name printed above "Head, Student Assistantship" in the Approved
+  /// section — the app's Head, who approves the report. (The template's
+  /// token for it is still called {{ADMIN_SIG_NAME}}.)
+  final String approverName;
 
   /// e.g. "February 01 – 28, 2026"
   final String monthYearLabel;
@@ -145,7 +146,7 @@ class DtrAccomplishmentReportData {
     required this.department,
     this.studentSignatureName = '',
     this.supervisorName = '',
-    this.adminName = '',
+    this.approverName = '',
     required this.monthYearLabel,
     required this.days,
     required this.classSchedule,

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -162,6 +164,9 @@ class _DtrAccomplishmentReportScreenState
     child: DropdownButtonFormField<int>(
       initialValue: _month.month,
       isDense: true,
+      // Fills the fixed-width box and ellipsizes, rather than sizing itself
+      // to the widest month and running "September" past the edge.
+      isExpanded: true,
       icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
       style: const TextStyle(
         fontSize: 13,
@@ -194,7 +199,10 @@ class _DtrAccomplishmentReportScreenState
       ),
       items: List.generate(
         12,
-        (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+        (i) => DropdownMenuItem(
+          value: i + 1,
+          child: Text(_months[i], maxLines: 1, overflow: TextOverflow.ellipsis),
+        ),
       ),
       onChanged: (v) =>
           setState(() => _month = DateTime(_month.year, v ?? _month.month)),
@@ -491,6 +499,16 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   bool _syncingSchedule = false;
   bool _sendingToHead = false;
 
+  // Header and sign-off fields printed on the report. They start from the
+  // student's roster entry, their office supervisor and the Head, and can
+  // be corrected before generating.
+  late final TextEditingController _studentNameCtrl;
+  late final TextEditingController _departmentCtrl;
+  late final TextEditingController _monthCtrl;
+  late final TextEditingController _studentSigCtrl;
+  late final TextEditingController _supervisorCtrl;
+  late final TextEditingController _approverCtrl;
+
   /// This student's recurring weekly schedule rules ("Add Schedule"/"Add
   /// Subject" on the Schedule/Calendar screen), keyed by weekday. Used to
   /// (a) validate whether a completed task falls on a day the student is
@@ -553,6 +571,14 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   void initState() {
     super.initState();
     final state = context.read<AppState>();
+    _studentNameCtrl = TextEditingController(text: widget.student.name);
+    _departmentCtrl = TextEditingController(text: widget.student.department);
+    _monthCtrl = TextEditingController(text: _monthYearLabel);
+    _studentSigCtrl = TextEditingController(text: widget.student.name);
+    _supervisorCtrl = TextEditingController(
+      text: _defaultSupervisorName(state),
+    );
+    _approverCtrl = TextEditingController(text: _defaultApproverName(state));
     _days = _buildDaysFromAttendance(state);
     _noteCtrls = _days
         .map((d) => TextEditingController(text: d.note ?? ''))
@@ -564,8 +590,16 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // reflects it without clobbering manual edits. Also load the raw
     // recurring rules (start/end times) used to validate & time-stamp
     // completed-task entries below.
+    //
+    // This waits for the first frame: ScheduleService.refresh notifies its
+    // listeners straight away, and doing that while this screen is still
+    // being built is a "markNeedsBuild() called during build" error.
     final ownerNames = _scheduleOwnerNameCandidates(state);
-    () async {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      // Looked up once, up front: after the awaits below this screen may
+      // already be closed, and a closed screen can't read providers.
+      final schedules = context.read<ScheduleService>();
       final rulesFuture = _loadAllRulesForStudent(state);
       // Force a fresh Firestore read every time this screen opens, rather
       // than `ensureLoaded` (which is a no-op once anything — even an
@@ -575,7 +609,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       // the Class Schedule table below (which re-queries directly, with
       // no caching layer) correctly shows it.
       for (final name in ownerNames) {
-        await context.read<ScheduleService>().refresh(name);
+        await schedules.refresh(name);
       }
       final rules = await rulesFuture;
       if (!mounted) return;
@@ -590,7 +624,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         }
         _days = refreshed;
       });
-    }();
+    });
 
     // Auto-fill from the student's previously saved weekly class schedule,
     // if any — same automated pull as the DTR table above. Starts with 8
@@ -637,6 +671,40 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // the first time and never looking again.
     _syncFromRecurringSchedule();
   }
+
+  /// Supervisors and the Head can both open this screen, so "Verified and
+  /// checked by — Immediate Supervisor" can't simply be whoever is signed
+  /// in: a supervisor verifies their own students' reports, but when the
+  /// Head opens one it's the supervisor of the office the student is
+  /// assigned to. Blank when the student has no office yet.
+  String _defaultSupervisorName(AppState state) {
+    if (_isSupervisor(state)) return state.currentUser?.name ?? '';
+    final student = widget.student;
+    final name = student.name.trim().toLowerCase();
+    for (final office in state.offices) {
+      final assigned =
+          office.assistantIds.contains(student.id) ||
+          (student.userId != null &&
+              office.assistantIds.contains(student.userId)) ||
+          office.assistantNames.any((n) => n.trim().toLowerCase() == name);
+      if (assigned && office.headNames.isNotEmpty) {
+        return office.headNames.first;
+      }
+    }
+    return '';
+  }
+
+  /// "Approved — Head, Student Assistantship", as the template reads: the
+  /// app's Head (the same title the Applicant Screening form gives them),
+  /// whether that's who is signed in or who the report goes to.
+  String _defaultApproverName(AppState state) {
+    if (state.role == 'Head') return state.currentUser?.name ?? '';
+    return state.users.where((u) => u.role == 'Head').firstOrNull?.name ?? '';
+  }
+
+  /// Only an office supervisor sends reports on to the Head; the Head
+  /// opening this screen is the one they'd be sent to.
+  bool _isSupervisor(AppState state) => state.role == 'Supervisor';
 
   List<TextEditingController> _controllersFor(DtrClassScheduleEntry row) => [
     TextEditingController(text: row.course),
@@ -862,7 +930,15 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
 
   @override
   void dispose() {
-    for (final c in _noteCtrls) {
+    for (final c in [
+      _studentNameCtrl,
+      _departmentCtrl,
+      _monthCtrl,
+      _studentSigCtrl,
+      _supervisorCtrl,
+      _approverCtrl,
+      ..._noteCtrls,
+    ]) {
       c.dispose();
     }
     for (final row in _scheduleCtrls) {
@@ -1209,23 +1285,14 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       ),
     );
 
-    final adminUser = state.users.cast<User?>().firstWhere(
-      (u) => u?.role == 'Admin',
-      orElse: () => null,
-    );
-
     return DtrAccomplishmentReportData(
       studentId: widget.student.id,
-      studentName: widget.student.name,
-      department: widget.student.department,
-      studentSignatureName: widget.student.name,
-      // This screen is only ever reached by a logged-in supervisor, so
-      // they're the one generating/approving the report.
-      supervisorName: state.currentUser?.name ?? '',
-      adminName: adminUser?.name ?? '',
-      monthYearLabel:
-          '${_months[widget.month.month - 1]} 01–$_daysInMonth, '
-          '${widget.month.year}',
+      studentName: _studentNameCtrl.text.trim(),
+      department: _departmentCtrl.text.trim(),
+      studentSignatureName: _studentSigCtrl.text.trim(),
+      supervisorName: _supervisorCtrl.text.trim(),
+      approverName: _approverCtrl.text.trim(),
+      monthYearLabel: _monthYearLabel,
       days: days,
       classSchedule: schedule,
     );
@@ -1386,48 +1453,53 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 700;
+    final hPad = isMobile ? 14.0 : 24.0;
 
+    // Laid out like the Applicant Screening form: an official header card,
+    // a live summary, numbered sections mirroring the printed report, and
+    // the sign-off names, with the actions at the foot.
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // In-page header (no separate route/AppBar) — stays inside the
         // parent screen so the sidebar and top bar remain visible.
         Padding(
-          padding: EdgeInsets.fromLTRB(
-            isMobile ? 14 : 24,
-            isMobile ? 14 : 20,
-            isMobile ? 14 : 24,
-            0,
-          ),
+          padding: EdgeInsets.fromLTRB(hPad - 8, isMobile ? 10 : 16, hPad, 0),
           child: Row(
             children: [
-              InkWell(
-                borderRadius: BorderRadius.circular(10),
-                onTap: widget.onBack,
-                child: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppTheme.slate200),
-                  ),
-                  child: const Icon(
-                    Icons.arrow_back_rounded,
-                    size: 18,
-                    color: AppTheme.slate700,
-                  ),
-                ),
+              IconButton(
+                onPressed: widget.onBack,
+                icon: const Icon(Icons.arrow_back_rounded),
+                color: AppTheme.slate700,
+                tooltip: 'Back to Students',
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 4),
               Expanded(
-                child: Text(
-                  '${widget.student.name} • ${_months[widget.month.month - 1]} ${widget.month.year}',
-                  style: const TextStyle(
-                    fontSize: 15.5,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slate900,
-                  ),
-                  overflow: TextOverflow.ellipsis,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'DTR / Accomplishment Report',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: isMobile ? 18 : 22,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate900,
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    Text(
+                      '${widget.student.name} · '
+                      '${_months[widget.month.month - 1]} ${widget.month.year}',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        color: AppTheme.slate400,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -1435,32 +1507,45 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         ),
         Expanded(
           child: ListView(
-            padding: EdgeInsets.all(isMobile ? 14 : 24),
+            padding: EdgeInsets.fromLTRB(hPad, 14, hPad, 28),
             children: [
-              _sectionCard(
+              _officialHeader(isMobile),
+              const SizedBox(height: 18),
+              _liveSummary(isMobile),
+              const SizedBox(height: 18),
+              _section(
                 number: 1,
-                title: 'Daily Time Record',
+                icon: Icons.badge_outlined,
+                title: 'Report Details',
+                isMobile: isMobile,
+                child: _grid(isMobile ? 1 : 3, [
+                  _input('Name of Student Assistant', _studentNameCtrl),
+                  _input('Assigned College/Department', _departmentCtrl),
+                  _input('For the Month/Year', _monthCtrl, readOnly: true),
+                ]),
+              ),
+              const SizedBox(height: 18),
+              _section(
+                number: 2,
                 icon: Icons.access_time_filled_rounded,
-                subtitle:
-                    'Automatically pulled from this student\'s actual clock-in/'
-                    'out records for the month — AM/PM in/out and hours are '
-                    'filled in for you. Days with no clock-in default to "Class '
-                    'Schedule", "Saturday", or "Sunday". You can still edit any '
-                    'field before generating.',
+                title: 'Daily Time Record',
+                description:
+                    'Pulled from this student\'s clock-in/out records for the '
+                    'month. Days without one default to "Class Schedule", '
+                    '"Saturday" or "Sunday". Edit anything before generating.',
+                isMobile: isMobile,
                 child: _dtrTable(isMobile),
               ),
               const SizedBox(height: 18),
-              _sectionCard(
-                number: 2,
-                title: 'Class Schedule',
+              _section(
+                number: 3,
                 icon: Icons.calendar_month_outlined,
-                subtitle:
-                    'Auto-filled from this student\'s saved weekly class '
-                    'schedule, if one exists — or their "Add Schedule" rules '
-                    'from the Schedule/Calendar screen if not. Edit as needed '
-                    '— your changes are saved automatically so next month\'s '
-                    'report starts pre-filled too. Use "Add Subject" for more '
-                    'rows (up to 12) or the × to remove one.',
+                title: 'Class Schedule',
+                description:
+                    'Filled from the student\'s saved class schedule, or their '
+                    'subjects on the Schedule/Calendar screen. Edits are '
+                    'remembered for next month. Up to 12 subjects.',
+                isMobile: isMobile,
                 trailing: TextButton.icon(
                   onPressed: _syncingSchedule
                       ? null
@@ -1475,7 +1560,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                           ),
                         )
                       : const Icon(Icons.sync_rounded, size: 15),
-                  label: const Text('Sync from Schedule'),
+                  label: Text(isMobile ? 'Sync' : 'Sync from Schedule'),
                   style: TextButton.styleFrom(
                     foregroundColor: AppTheme.maroon,
                     textStyle: const TextStyle(
@@ -1490,115 +1575,33 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 ),
                 child: _scheduleTable(isMobile),
               ),
-              const SizedBox(height: 24),
-              Flex(
-                direction: isMobile ? Axis.vertical : Axis.horizontal,
-                children: [
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: _generating ? null : _generate,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.maroon,
-                        foregroundColor: Colors.white,
-                        padding: EdgeInsets.symmetric(
-                          vertical: isMobile ? 14 : 16,
-                          horizontal: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        elevation: 0,
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _generating
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: Colors.white,
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.download_rounded,
-                                  size: isMobile ? 17 : 18,
-                                ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              _generating
-                                  ? 'Generating...'
-                                  : (isMobile
-                                        ? 'Generate Report'
-                                        : 'Generate & Download Report'),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: isMobile ? 13.5 : 14.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+              const SizedBox(height: 18),
+              _section(
+                number: 4,
+                icon: Icons.draw_outlined,
+                title: 'Sign-off',
+                description: 'Printed above each signature line on the report.',
+                isMobile: isMobile,
+                child: _grid(isMobile ? 1 : 3, [
+                  _signatory(
+                    'Prepared by',
+                    'Student Assistant',
+                    _studentSigCtrl,
                   ),
-                  SizedBox(width: isMobile ? 0 : 12, height: isMobile ? 10 : 0),
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: _sendingToHead ? null : _sendToHead,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.maroon,
-                        side: const BorderSide(
-                          color: AppTheme.maroon,
-                          width: 1.4,
-                        ),
-                        padding: EdgeInsets.symmetric(
-                          vertical: isMobile ? 14 : 16,
-                          horizontal: 12,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          _sendingToHead
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppTheme.maroon,
-                                  ),
-                                )
-                              : Icon(
-                                  Icons.send_rounded,
-                                  size: isMobile ? 17 : 18,
-                                ),
-                          const SizedBox(width: 8),
-                          Flexible(
-                            child: Text(
-                              _sendingToHead ? 'Sending...' : 'Send to Head',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: isMobile ? 13.5 : 14.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                  _signatory(
+                    'Verified and checked by',
+                    'Immediate Supervisor',
+                    _supervisorCtrl,
                   ),
-                ],
+                  _signatory(
+                    'Approved',
+                    'Head, Student Assistantship',
+                    _approverCtrl,
+                  ),
+                ]),
               ),
+              const SizedBox(height: 20),
+              _actions(isMobile),
             ],
           ),
         ),
@@ -1606,110 +1609,597 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     );
   }
 
-  Widget _sectionCard({
+  String get _monthYearLabel =>
+      '${_months[widget.month.month - 1]} 01–$_daysInMonth, '
+      '${widget.month.year}';
+
+  Widget _officialHeader(bool isMobile) {
+    final photoSize = isMobile ? 70.0 : 90.0;
+    final photo = Container(
+      width: photoSize,
+      height: photoSize,
+      decoration: BoxDecoration(
+        color: AppTheme.slate50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: _studentPhoto(photoSize),
+    );
+
+    final titleBlock = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'REPUBLIC OF THE PHILIPPINES',
+          style: TextStyle(
+            fontSize: isMobile ? 9 : 10,
+            color: AppTheme.slate500,
+            letterSpacing: 0.5,
+          ),
+        ),
+        Text(
+          'MARINDUQUE STATE UNIVERSITY',
+          style: TextStyle(
+            fontSize: isMobile ? 14.5 : 18,
+            fontWeight: FontWeight.w900,
+            color: AppTheme.slate900,
+            letterSpacing: -0.3,
+          ),
+        ),
+        Text(
+          isMobile
+              ? 'OFFICE OF THE VP FOR STUDENT AFFAIRS & SERVICES'
+              : 'OFFICE OF THE VICE PRESIDENT FOR STUDENT AFFAIRS & SERVICES',
+          style: TextStyle(
+            fontSize: isMobile ? 9.5 : 10.5,
+            color: AppTheme.maroon,
+            fontWeight: FontWeight.w800,
+            height: 1.3,
+          ),
+        ),
+        if (!isMobile)
+          const Text(
+            'Student Auxiliary & Employment Extension Division (SAEED)',
+            style: TextStyle(fontSize: 10, color: AppTheme.slate500),
+          ),
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.all(isMobile ? 16 : 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.slate200),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.slate900.withValues(alpha: 0.04),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // On a phone the long agency title needs the full width, so the
+          // photo moves below it, beside the student's name.
+          if (isMobile) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const AppLogo(size: 44),
+                const SizedBox(width: 10),
+                Expanded(child: titleBlock),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                photo,
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.student.name,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.slate900,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _monthYearLabel,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: AppTheme.slate500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ] else
+            Row(
+              children: [
+                const AppLogo(size: 60),
+                const SizedBox(width: 14),
+                Expanded(child: titleBlock),
+                photo,
+              ],
+            ),
+          SizedBox(height: isMobile ? 14 : 18),
+          Container(height: 1, color: AppTheme.slate200),
+          const SizedBox(height: 14),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.maroon50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              'STUDENT ASSISTANT\'S DTR / ACCOMPLISHMENT REPORT / CLASS SCHEDULE',
+              style: TextStyle(
+                fontSize: isMobile ? 11.5 : 13.5,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.maroon,
+                letterSpacing: 0.2,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// The student's profile photo for the 2x2 box, from their roster entry
+  /// or, failing that, their linked account.
+  String? _studentAvatarUrl() {
+    final own = widget.student.avatar;
+    if (own != null && own.isNotEmpty) return own;
+    final email = widget.student.email.toLowerCase();
+    for (final user in context.read<AppState>().users) {
+      final linked = widget.student.userId != null
+          ? user.id == widget.student.userId
+          : email.isNotEmpty && user.email.toLowerCase() == email;
+      if (linked && (user.avatar ?? '').isNotEmpty) return user.avatar;
+    }
+    return null;
+  }
+
+  Widget _studentPhoto(double size) {
+    Widget initials() => Container(
+      color: AppTheme.maroon50,
+      alignment: Alignment.center,
+      child: Text(
+        widget.student.initials,
+        style: TextStyle(
+          fontSize: size * 0.3,
+          fontWeight: FontWeight.w800,
+          color: AppTheme.maroon,
+        ),
+      ),
+    );
+
+    final url = _studentAvatarUrl();
+    if (url == null) return initials();
+    if (url.startsWith('data:image')) {
+      try {
+        final comma = url.indexOf(',');
+        final bytes = base64Decode(
+          url.substring(comma + 1).replaceAll(RegExp(r'\s+'), ''),
+        );
+        return Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          gaplessPlayback: true,
+          errorBuilder: (_, _, _) => initials(),
+        );
+      } catch (_) {
+        return initials();
+      }
+    }
+    return Image.network(
+      url,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      errorBuilder: (_, _, _) => initials(),
+    );
+  }
+
+  /// Hours logged this month against the payroll's 25–40 hour monthly
+  /// range, recomputed as days are edited — the report's counterpart of the
+  /// screening form's live score. Kept light (a white card, color only in
+  /// the ring and figures) to match the app's compact headers.
+  Widget _liveSummary(bool isMobile) {
+    final state = context.read<AppState>();
+    var totalHours = 0.0;
+    var presentDays = 0;
+    var needsReview = 0;
+    var holidays = 0;
+    for (final d in _days) {
+      final date = DateTime(widget.month.year, widget.month.month, d.day);
+      totalHours += d.totalHours ?? 0;
+      if ((d.totalHours ?? 0) > 0) presentDays++;
+      if (d.isInvalid || d.needsVerification) needsReview++;
+      if (state.isHoliday(date)) holidays++;
+    }
+
+    const minimum = PayrollRecord.minimumMonthlyHours;
+    const maximum = PayrollRecord.maximumMonthlyHours;
+    final (statusColor, status) = totalHours < minimum
+        ? (
+            AppTheme.amber500,
+            'Below the ${minimum.toStringAsFixed(0)}-hour monthly minimum',
+          )
+        : totalHours > maximum
+        ? (
+            AppTheme.maroon,
+            'Over the ${maximum.toStringAsFixed(0)}-hour cap — only '
+                '${maximum.toStringAsFixed(0)} hrs are payable',
+          )
+        : (AppTheme.emerald500, 'Within the payable 25–40 hour range');
+
+    final ringSize = isMobile ? 48.0 : 56.0;
+    final ring = SizedBox(
+      width: ringSize,
+      height: ringSize,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: ringSize,
+            height: ringSize,
+            child: CircularProgressIndicator(
+              value: (totalHours / maximum).clamp(0.0, 1.0),
+              strokeWidth: 5,
+              backgroundColor: AppTheme.slate100,
+              valueColor: AlwaysStoppedAnimation(statusColor),
+            ),
+          ),
+          Text(
+            totalHours.toStringAsFixed(totalHours % 1 == 0 ? 0 : 1),
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 14,
+              color: AppTheme.slate900,
+            ),
+          ),
+        ],
+      ),
+    );
+    final label = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Text(
+          'Hours This Month',
+          style: TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 13.5,
+            color: AppTheme.slate900,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          status,
+          style: TextStyle(
+            color: statusColor,
+            fontSize: 11.5,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 1),
+        const Text(
+          'Updates as you edit each day',
+          style: TextStyle(color: AppTheme.slate400, fontSize: 11),
+        ),
+      ],
+    );
+    final pills = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        _summaryPill('$presentDays', 'Days present', AppTheme.emerald500),
+        _summaryPill(
+          '$needsReview',
+          'Need review',
+          needsReview > 0 ? AppTheme.amber500 : AppTheme.slate500,
+        ),
+        _summaryPill('$holidays', 'Holidays', AppTheme.maroon),
+      ],
+    );
+
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 14 : 20,
+        vertical: isMobile ? 14 : 16,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.slate200),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.slate900.withValues(alpha: 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: isMobile
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    ring,
+                    const SizedBox(width: 12),
+                    Expanded(child: label),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                pills,
+              ],
+            )
+          : Row(
+              children: [
+                ring,
+                const SizedBox(width: 16),
+                Expanded(child: label),
+                pills,
+              ],
+            ),
+    );
+  }
+
+  Widget _summaryPill(String value, String label, Color color) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Column(
+      children: [
+        Text(
+          value,
+          style: TextStyle(
+            color: color,
+            fontWeight: FontWeight.w800,
+            fontSize: 13,
+          ),
+        ),
+        Text(
+          label,
+          style: const TextStyle(
+            color: AppTheme.slate500,
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  /// A numbered form section, styled after the Applicant Screening form.
+  Widget _section({
+    required int number,
+    required IconData icon,
     required String title,
-    required String subtitle,
     required Widget child,
-    int? number,
-    IconData icon = Icons.fact_check_outlined,
+    required bool isMobile,
+    String? description,
     Widget? trailing,
   }) => Container(
+    padding: EdgeInsets.all(isMobile ? 14 : 20),
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(14),
+      borderRadius: BorderRadius.circular(16),
       border: Border.all(color: AppTheme.slate200),
       boxShadow: [
         BoxShadow(
           color: AppTheme.slate900.withValues(alpha: 0.03),
-          blurRadius: 10,
-          offset: const Offset(0, 2),
+          blurRadius: 12,
+          offset: const Offset(0, 3),
         ),
       ],
     ),
-    child: Padding(
-      padding: const EdgeInsets.all(18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Step marker: flat tinted square with the section's own icon,
-              // and the step number beside the title rather than a filled
-              // maroon disc with a glow.
-              Container(
-                width: 30,
-                height: 30,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: AppTheme.maroon50,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Icon(icon, size: 16, color: AppTheme.maroon),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 26,
+              height: 26,
+              decoration: BoxDecoration(
+                color: AppTheme.maroon,
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        if (number != null) ...[
-                          Text(
-                            'STEP $number',
-                            style: const TextStyle(
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.slate400,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            width: 3,
-                            height: 3,
-                            decoration: const BoxDecoration(
-                              color: AppTheme.slate300,
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                        ],
-                        Flexible(
-                          child: Text(
-                            title,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.slate900,
-                              letterSpacing: -0.2,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.slate500,
-                        height: 1.4,
-                      ),
-                    ),
-                  ],
+              child: Center(
+                child: Text(
+                  '$number',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12,
+                  ),
                 ),
               ),
-              if (trailing != null) ...[const SizedBox(width: 10), trailing],
-            ],
+            ),
+            const SizedBox(width: 10),
+            Icon(icon, size: 16, color: AppTheme.maroon),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                title.toUpperCase(),
+                style: const TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.slate900,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+            ?trailing,
+          ],
+        ),
+        if (description != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            description,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.slate500,
+              height: 1.4,
+            ),
           ),
-          const SizedBox(height: 14),
-          child,
         ],
+        const SizedBox(height: 16),
+        child,
+      ],
+    ),
+  );
+
+  /// Lays [fields] out [columns] to a row, each the same width.
+  Widget _grid(int columns, List<Widget> fields) => LayoutBuilder(
+    builder: (context, constraints) {
+      final width = ((constraints.maxWidth - (columns - 1) * 12) / columns)
+          .floorToDouble();
+      return Wrap(
+        spacing: 12,
+        runSpacing: 12,
+        children: [
+          for (final field in fields) SizedBox(width: width, child: field),
+        ],
+      );
+    },
+  );
+
+  Widget _input(
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+  }) => TextField(
+    controller: controller,
+    readOnly: readOnly,
+    style: TextStyle(color: readOnly ? AppTheme.slate500 : null),
+    decoration: InputDecoration(
+      labelText: label,
+      isDense: true,
+      filled: true,
+      fillColor: AppTheme.slate50,
+      suffixIcon: readOnly
+          ? const Icon(
+              Icons.lock_outline_rounded,
+              size: 15,
+              color: AppTheme.slate300,
+            )
+          : null,
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide.none,
       ),
     ),
   );
+
+  Widget _signatory(
+    String caption,
+    String role,
+    TextEditingController controller,
+  ) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Row(
+        children: [
+          Container(width: 3, height: 12, color: AppTheme.maroon),
+          const SizedBox(width: 6),
+          Text(
+            caption.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.slate500,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      _input('Printed Name', controller),
+      const SizedBox(height: 4),
+      Padding(
+        padding: const EdgeInsets.only(left: 4),
+        child: Text(
+          role,
+          style: const TextStyle(fontSize: 11, color: AppTheme.slate400),
+        ),
+      ),
+    ],
+  );
+
+  Widget _actions(bool isMobile) {
+    Widget spinner(Color color) => SizedBox(
+      width: 14,
+      height: 14,
+      child: CircularProgressIndicator(strokeWidth: 2, color: color),
+    );
+    final generate = FilledButton.icon(
+      onPressed: _generating ? null : _generate,
+      icon: _generating
+          ? spinner(Colors.white)
+          : const Icon(Icons.download_rounded, size: 16),
+      label: Text(_generating ? 'Generating...' : 'Generate & Download'),
+      style: FilledButton.styleFrom(
+        backgroundColor: AppTheme.maroon,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+    final send = OutlinedButton.icon(
+      onPressed: _sendingToHead ? null : _sendToHead,
+      icon: _sendingToHead
+          ? spinner(AppTheme.maroon)
+          : const Icon(Icons.send_rounded, size: 16),
+      label: Text(_sendingToHead ? 'Sending...' : 'Send to Head'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppTheme.maroon,
+        side: const BorderSide(color: AppTheme.maroon200),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
+    final back = TextButton(
+      onPressed: widget.onBack,
+      child: const Text('Back to Students'),
+    );
+    final canSend = _isSupervisor(context.read<AppState>());
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          generate,
+          if (canSend) ...[const SizedBox(height: 10), send],
+          back,
+        ],
+      );
+    }
+    return Wrap(
+      alignment: WrapAlignment.end,
+      spacing: 8,
+      runSpacing: 8,
+      children: [back, if (canSend) send, generate],
+    );
+  }
 
   // ── Daily Time Record table — modernized card-style grid: a tinted,
   // sticky-feeling header, soft zebra striping, rounded "chip" date badges
@@ -1738,11 +2228,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     if (isMobile) {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _dtrSummaryBar(),
-          const SizedBox(height: 14),
-          ...List.generate(_days.length, (i) => _dtrMobileCard(i)),
-        ],
+        children: List.generate(_days.length, (i) => _dtrMobileCard(i)),
       );
     }
 
@@ -1757,8 +2243,6 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _dtrSummaryBar(),
-        const SizedBox(height: 16),
         Container(
           // No shadow: this grid already sits inside the section card, and
           // a second drop shadow just muddies the edge between them.
@@ -2138,66 +2622,6 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         ),
       ),
     ],
-  );
-
-  /// Modern stat chips: a soft tinted pill per metric, each with its own
-  /// icon and accent color instead of one repeated maroon dot.
-  Widget _dtrSummaryBar() {
-    final state = context.read<AppState>();
-    var totalHours = 0.0;
-    var presentDays = 0;
-    var holidays = 0;
-    for (var i = 0; i < _days.length; i++) {
-      final d = _days[i];
-      final date = DateTime(widget.month.year, widget.month.month, d.day);
-      totalHours += d.totalHours ?? 0;
-      if ((d.totalHours ?? 0) > 0) presentDays++;
-      if (state.isHoliday(date)) holidays++;
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _statChip(
-          Icons.schedule_rounded,
-          '${totalHours.toStringAsFixed(1)} hrs logged',
-          AppTheme.maroon,
-        ),
-        _statChip(
-          Icons.check_circle_rounded,
-          '$presentDays present',
-          AppTheme.emerald500,
-        ),
-        _statChip(
-          Icons.celebration_rounded,
-          '$holidays holidays',
-          AppTheme.amber500,
-        ),
-      ],
-    );
-  }
-
-  Widget _statChip(IconData icon, String label, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.09),
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 13, color: color),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
-        ),
-      ],
-    ),
   );
 
   /// Thin uppercase "MORNING" / "AFTERNOON" band spanning the In/Out pairs

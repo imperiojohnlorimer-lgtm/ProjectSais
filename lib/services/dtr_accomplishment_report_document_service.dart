@@ -30,9 +30,9 @@ class DtrAccomplishmentReportDocumentService {
   Future<ApplicationDocument> generateDtrAccomplishmentReport({
     required DtrAccomplishmentReportData data,
   }) async {
-    final templateBytes = (await rootBundle.load(_templateAssetPath))
-        .buffer
-        .asUint8List();
+    final templateBytes = (await rootBundle.load(
+      _templateAssetPath,
+    )).buffer.asUint8List();
 
     final replacements = <String, String>{
       '{{STUDENT_NAME}}': data.studentName,
@@ -42,7 +42,7 @@ class DtrAccomplishmentReportDocumentService {
       '{{TOTAL_UNITS}}': data.totalUnits,
       '{{STUDENT_SIG_NAME}}': data.studentSignatureName,
       '{{SUPERVISOR_SIG_NAME}}': data.supervisorName,
-      '{{ADMIN_SIG_NAME}}': data.adminName,
+      '{{ADMIN_SIG_NAME}}': data.approverName,
     };
 
     // 31 fixed day rows — days beyond the selected month's length are
@@ -53,8 +53,9 @@ class DtrAccomplishmentReportDocumentService {
       replacements['{{D${day}_AMOUT}}'] = row?.amOut ?? '';
       replacements['{{D${day}_PMIN}}'] = row?.pmIn ?? '';
       replacements['{{D${day}_PMOUT}}'] = row?.pmOut ?? '';
-      replacements['{{D${day}_TOTAL}}'] =
-          row?.totalHours == null ? '' : row!.totalHours!.toStringAsFixed(1);
+      replacements['{{D${day}_TOTAL}}'] = row?.totalHours == null
+          ? ''
+          : row!.totalHours!.toStringAsFixed(1);
       replacements['{{D${day}_NOTE}}'] = row?.note ?? '';
     }
 
@@ -150,7 +151,11 @@ class DtrAccomplishmentReportDocumentService {
         outArchive.addFile(ArchiveFile(file.name, bytes.length, bytes));
       } else {
         outArchive.addFile(
-          ArchiveFile(file.name, file.content.length, file.content as List<int>),
+          ArchiveFile(
+            file.name,
+            file.content.length,
+            file.content as List<int>,
+          ),
         );
       }
     }
