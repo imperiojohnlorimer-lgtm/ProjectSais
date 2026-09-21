@@ -1029,7 +1029,6 @@ class _OfficeCardState extends State<_OfficeCard> {
     final full = hasLimit && assigned >= office.capacity;
     final assignedUsers = acceptedAssistants
         .where((user) => office.assistantIds.contains(user.id))
-        .map((user) => user.name)
         .toList();
 
     return Column(
@@ -1294,7 +1293,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                     ),
                     if (assignedUsers.isNotEmpty) ...[
                       const SizedBox(height: 10),
-                      _AvatarStack(names: assignedUsers),
+                      _AvatarStack(users: assignedUsers),
                     ],
                   ],
                 ),
@@ -2385,15 +2384,15 @@ class _OfficesHero extends StatelessWidget {
 /// Overlapping initial bubbles for the assistants assigned to an office,
 /// with a "+N" bubble once the row would get too long.
 class _AvatarStack extends StatelessWidget {
-  final List<String> names;
+  final List<User> users;
   static const _max = 5;
 
-  const _AvatarStack({required this.names});
+  const _AvatarStack({required this.users});
 
   @override
   Widget build(BuildContext context) {
-    final shown = names.take(_max).toList();
-    final extra = names.length - shown.length;
+    final shown = users.take(_max).toList();
+    final extra = users.length - shown.length;
     return Row(
       children: [
         SizedBox(
@@ -2405,25 +2404,16 @@ class _AvatarStack extends StatelessWidget {
                 Positioned(
                   left: i * 19,
                   child: Tooltip(
-                    message: shown[i],
-                    child: Container(
-                      width: 26,
-                      height: 26,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: AppTheme.maroon,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: Colors.white, width: 2),
-                      ),
-                      child: Text(
-                        shown[i].trim().isEmpty
-                            ? '?'
-                            : shown[i].trim()[0].toUpperCase(),
-                        style: const TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
+                    message: shown[i].name,
+                    // UserAvatar falls back to initials on its own when
+                    // someone has no photo, or when the one they have
+                    // fails to load.
+                    child: UserAvatar(
+                      avatarUrl: shown[i].avatar,
+                      initials: shown[i].initials,
+                      size: 26,
+                      border: const Border.fromBorderSide(
+                        BorderSide(color: Colors.white, width: 2),
                       ),
                     ),
                   ),

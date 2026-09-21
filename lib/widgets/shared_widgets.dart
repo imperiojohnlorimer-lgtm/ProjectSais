@@ -8,11 +8,17 @@ class UserAvatar extends StatelessWidget {
   final String initials;
   final double size;
 
+  /// Ring drawn around the avatar. Defaults to the gold profile ring; pass
+  /// something else where that would be too loud, such as the white
+  /// separator ring used by overlapping avatar stacks.
+  final BoxBorder? border;
+
   const UserAvatar({
     super.key,
     this.avatarUrl,
     required this.initials,
     this.size = 40,
+    this.border,
   });
 
   @override
@@ -27,7 +33,7 @@ class UserAvatar extends StatelessWidget {
           end: Alignment.bottomRight,
           colors: [AppTheme.maroonLight, AppTheme.maroonDark],
         ),
-        border: Border.all(color: AppTheme.gold300, width: 1.5),
+        border: border ?? Border.all(color: AppTheme.gold300, width: 1.5),
       ),
       clipBehavior: Clip.antiAlias,
       child: avatarUrl != null && avatarUrl!.isNotEmpty
