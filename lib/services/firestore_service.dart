@@ -660,8 +660,7 @@ class FirestoreService {
   }
 
   // Class Schedule
-  CollectionReference get _classSchedules =>
-      _db.collection('classSchedules');
+  CollectionReference get _classSchedules => _db.collection('classSchedules');
 
   Future<List<ClassScheduleEntry>> getAllClassSchedules() async {
     final snap = await _classSchedules.get();
@@ -689,9 +688,7 @@ class FirestoreService {
         .toList();
   }
 
-  Future<ClassScheduleEntry> addClassScheduleEntry(
-    ClassScheduleEntry c,
-  ) async {
+  Future<ClassScheduleEntry> addClassScheduleEntry(ClassScheduleEntry c) async {
     final data = c.toJson()..remove('id');
     final docRef = await _classSchedules.add(data);
     return ClassScheduleEntry(
@@ -1099,8 +1096,7 @@ class FirestoreService {
 
   // Document Folders (Head's free-form file manager)
 
-  CollectionReference get _documentFolders =>
-      _db.collection('documentFolders');
+  CollectionReference get _documentFolders => _db.collection('documentFolders');
 
   Future<List<DocumentFolder>> getAllDocumentFolders() async {
     final snap = await _documentFolders.get();
@@ -1197,11 +1193,13 @@ class FirestoreService {
   }
 
   // Attendance QR token (single doc) ------------------------------------------------
-  /// Stores the current attendance QR token with a server timestamp.
-  Future<void> setCurrentQrToken(String token) async {
+  /// Stores the attendance QR token for a session (`yyyyMMdd-AM` /
+  /// `yyyyMMdd-PM`) with a server timestamp.
+  Future<void> setCurrentQrToken(String token, String sessionKey) async {
     final doc = _db.collection('meta').doc('current_qr');
     await doc.set({
       'token': token,
+      'sessionKey': sessionKey,
       'generatedAt': FieldValue.serverTimestamp(),
     });
   }

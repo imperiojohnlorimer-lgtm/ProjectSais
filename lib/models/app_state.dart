@@ -34,61 +34,133 @@ class AppState extends ChangeNotifier {
   );
 
   // ─── Attendance QR session ─────────────────────────
-  // Token currently displayed on the supervisor/admin's generator screen.
+  // One QR code per daily session: everyone scanning during the morning
+  // session uses the same code, and the afternoon session gets a different
+  // one. The code stays put for the whole session so a supervisor can print
+  // it once and post it instead of re-generating it every minute.
   String? currentQrToken;
   DateTime? qrGeneratedAt;
-  static const _qrValiditySeconds =
-      60; // how long a generated QR stays scannable
+
+  /// Session key (`yyyyMMdd-AM` / `yyyyMMdd-PM`) that [currentQrToken] belongs
+  /// to. A token is only accepted while its own session is still running.
+  String? currentQrSessionKey;
 
   // Attendance QR scanning is only allowed during these two daily windows
   // (morning session and afternoon session, with a lunch break in between).
-  static const _qrMorningStartMinutes = 6 * 60 + 30; // 6:30 AM
+  static const _qrMorningStartMinutes = 7 * 60 + 30; // 7:30 AM
   static const _qrMorningEndMinutes = 12 * 60; // 12:00 PM
   static const _qrAfternoonStartMinutes = 12 * 60 + 30; // 12:30 PM
   static const _qrAfternoonEndMinutes = 17 * 60; // 5:00 PM
 
   /// Whether the given time (defaults to now) falls within an allowed
   /// attendance QR scanning window.
-  bool isWithinAttendanceQrWindow([DateTime? at]) {
+  bool isWithinAttendanceQrWindow([DateTime? at]) =>
+      attendanceQrSessionKey(at) != null;
+
+  /// The session [at] (defaults to now) belongs to, or null when it falls
+  /// outside both windows.
+  String? attendanceQrSessionKey([DateTime? at]) {
     final now = at ?? DateTime.now();
     final minutes = now.hour * 60 + now.minute;
-    return (minutes >= _qrMorningStartMinutes &&
-            minutes <= _qrMorningEndMinutes) ||
-        (minutes >= _qrAfternoonStartMinutes &&
-            minutes <= _qrAfternoonEndMinutes);
+    final String half;
+    if (minutes >= _qrMorningStartMinutes && minutes <= _qrMorningEndMinutes) {
+      half = 'AM';
+    } else if (minutes >= _qrAfternoonStartMinutes &&
+        minutes <= _qrAfternoonEndMinutes) {
+      half = 'PM';
+    } else {
+      return null;
+    }
+    final y = now.year.toString().padLeft(4, '0');
+    final m = now.month.toString().padLeft(2, '0');
+    final d = now.day.toString().padLeft(2, '0');
+    return '$y$m$d-$half';
   }
 
-  /// Generates a brand-new one-time attendance token, persists it, and returns it.
-  Future<String> generateAttendanceQrToken() async {
+  /// Human label for the session running at [at], e.g. `Morning session`.
+  String? attendanceQrSessionLabel([DateTime? at]) {
+    final key = attendanceQrSessionKey(at);
+    if (key == null) return null;
+    return key.endsWith('AM') ? 'Morning session' : 'Afternoon session';
+  }
+
+  /// When the session running at [at] ends — the moment its QR code stops
+  /// being accepted.
+  DateTime? attendanceQrSessionEnd([DateTime? at]) {
+    final now = at ?? DateTime.now();
+    final key = attendanceQrSessionKey(now);
+    if (key == null) return null;
+    final endMinutes = key.endsWith('AM')
+        ? _qrMorningEndMinutes
+        : _qrAfternoonEndMinutes;
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).add(Duration(minutes: endMinutes));
+  }
+
+  /// Returns the QR token for the session running right now, minting and
+  /// persisting one only when that session doesn't have a token yet.
+  ///
+  /// Calling this again during the same session hands back the same code, so
+  /// a printed QR keeps working until the session ends. Returns null outside
+  /// the two daily windows.
+  Future<String?> generateAttendanceQrToken() async {
     final now = DateTime.now();
-    currentQrToken = 'SAIS-ATT-${now.millisecondsSinceEpoch}';
+    final sessionKey = attendanceQrSessionKey(now);
+    if (sessionKey == null) return null;
+
+    // Already holding this session's token locally.
+    if (currentQrToken != null && currentQrSessionKey == sessionKey) {
+      return currentQrToken;
+    }
+
+    _firestoreService ??= FirestoreService();
+
+    // Another device may have already created this session's token.
+    try {
+      final doc = await _firestoreService!.getCurrentQrToken();
+      final token = doc?['token'] as String?;
+      if (token != null && _sessionKeyOfQrDoc(doc!) == sessionKey) {
+        currentQrToken = token;
+        currentQrSessionKey = sessionKey;
+        qrGeneratedAt = _generatedAtOfQrDoc(doc) ?? now;
+        notifyListeners();
+        return token;
+      }
+    } catch (_) {
+      // Firestore unavailable — fall through and mint a local token.
+    }
+
+    final token = 'SAIS-ATT-$sessionKey-${now.millisecondsSinceEpoch}';
+    currentQrToken = token;
+    currentQrSessionKey = sessionKey;
     qrGeneratedAt = now;
     notifyListeners();
 
-    // Persist to Firestore so other devices can validate the token.
+    // Persist so other devices validate against the same session token.
     try {
-      _firestoreService ??= FirestoreService();
-      await _firestoreService!.setCurrentQrToken(currentQrToken!);
+      await _firestoreService!.setCurrentQrToken(token, sessionKey);
     } catch (_) {
-      // Firestore unavailable — continue with in-memory token.
+      // Firestore unavailable — continue with the in-memory token.
     }
 
-    return currentQrToken!;
+    return token;
   }
 
-  /// Validates a scanned code against the currently active token.
-  /// Validates a scanned code against the currently active token.
+  /// Validates a scanned code against the token of the session running now.
   ///
   /// This first checks the in-memory token (fast path) and falls back to
   /// querying Firestore's `meta/current_qr` document so other devices can
   /// validate tokens generated elsewhere.
   Future<bool> isQrTokenValid(String scanned) async {
+    final sessionKey = attendanceQrSessionKey();
+    if (sessionKey == null) return false;
+
     // Fast local check
-    if (currentQrToken != null && qrGeneratedAt != null) {
-      if (scanned == currentQrToken) {
-        final age = DateTime.now().difference(qrGeneratedAt!).inSeconds;
-        if (age <= _qrValiditySeconds) return true;
-      }
+    if (scanned == currentQrToken && currentQrSessionKey == sessionKey) {
+      return true;
     }
 
     // Fallback to Firestore
@@ -96,24 +168,27 @@ class AppState extends ChangeNotifier {
       _firestoreService ??= FirestoreService();
       final doc = await _firestoreService!.getCurrentQrToken();
       if (doc == null) return false;
-      final token = doc['token'] as String?;
-      if (token == null) return false;
-      if (token != scanned) return false;
-      final gen = doc['generatedAt'];
-      DateTime generatedAt;
-      if (gen is Timestamp) {
-        generatedAt = gen.toDate();
-      } else if (gen is String) {
-        generatedAt =
-            DateTime.tryParse(gen) ?? DateTime.fromMillisecondsSinceEpoch(0);
-      } else {
-        return false;
-      }
-      final age = DateTime.now().difference(generatedAt).inSeconds;
-      return age <= _qrValiditySeconds;
+      if (doc['token'] != scanned) return false;
+      return _sessionKeyOfQrDoc(doc) == sessionKey;
     } catch (_) {
       return false;
     }
+  }
+
+  /// The session a stored QR doc belongs to. Docs written before sessions
+  /// existed have no `sessionKey`, so derive it from when they were generated.
+  String? _sessionKeyOfQrDoc(Map<String, dynamic> doc) {
+    final stored = doc['sessionKey'] as String?;
+    if (stored != null) return stored;
+    final generatedAt = _generatedAtOfQrDoc(doc);
+    return generatedAt == null ? null : attendanceQrSessionKey(generatedAt);
+  }
+
+  DateTime? _generatedAtOfQrDoc(Map<String, dynamic> doc) {
+    final generatedAt = doc['generatedAt'];
+    if (generatedAt is Timestamp) return generatedAt.toDate();
+    if (generatedAt is String) return DateTime.tryParse(generatedAt);
+    return null;
   }
 
   // Mock Data
@@ -223,63 +298,71 @@ class AppState extends ChangeNotifier {
     try {
       _firestoreService ??= FirestoreService();
       _annSub?.cancel();
-      _annSub = _firestoreService!.announcementsStream().listen((list) {
-        announcements = list.map((m) {
-          final createdAt = m['createdAt'];
-          String postedAt = '';
-          if (createdAt is Timestamp) {
-            postedAt = createdAt.toDate().toString();
-          } else if (createdAt is String) {
-            postedAt = createdAt;
-          } else if (m['postedAt'] != null) {
-            postedAt = m['postedAt'].toString();
-          }
+      _annSub = _firestoreService!.announcementsStream().listen(
+        (list) {
+          announcements = list.map((m) {
+            final createdAt = m['createdAt'];
+            String postedAt = '';
+            if (createdAt is Timestamp) {
+              postedAt = createdAt.toDate().toString();
+            } else if (createdAt is String) {
+              postedAt = createdAt;
+            } else if (m['postedAt'] != null) {
+              postedAt = m['postedAt'].toString();
+            }
 
-          return Announcement(
-            id: m['id'] ?? '',
-            title: m['title'] ?? '',
-            body: m['body'] ?? '',
-            postedBy: m['postedBy'] ?? 'Admin',
-            postedByRole: m['postedByRole'] ?? 'Admin',
-            postedAt: postedAt,
-            deadline: m['deadline'],
-            slots: m['slots']?.toString(),
-            requirements:
-                (m['requirements'] as List<dynamic>?)
-                    ?.map((e) => e.toString())
-                    .toList() ??
-                [],
-            isOpen: m['isOpen'] ?? true,
-            acceptsApplications: m['acceptsApplications'] ?? true,
-            postedById: m['postedById'],
-            officeId: m['officeId'],
-            officeName: m['officeName'],
-            approvalStatus: m['approvalStatus'] ?? 'Approved',
-            rejectionReason: m['rejectionReason'],
-            academicYear: m['academicYear']?.toString(),
-            attachmentName: m['attachmentName'],
-            attachmentUrl: m['attachmentUrl'],
-            attachmentPath: m['attachmentPath'],
-            attachmentSize: (m['attachmentSize'] as num?)?.toDouble(),
-          );
-        }).toList();
-        notifyListeners();
-      }, onError: (Object error) {
-        debugPrint('Announcements stream error: $error');
-      });
+            return Announcement(
+              id: m['id'] ?? '',
+              title: m['title'] ?? '',
+              body: m['body'] ?? '',
+              postedBy: m['postedBy'] ?? 'Admin',
+              postedByRole: m['postedByRole'] ?? 'Admin',
+              postedAt: postedAt,
+              deadline: m['deadline'],
+              slots: m['slots']?.toString(),
+              requirements:
+                  (m['requirements'] as List<dynamic>?)
+                      ?.map((e) => e.toString())
+                      .toList() ??
+                  [],
+              isOpen: m['isOpen'] ?? true,
+              acceptsApplications: m['acceptsApplications'] ?? true,
+              postedById: m['postedById'],
+              officeId: m['officeId'],
+              officeName: m['officeName'],
+              approvalStatus: m['approvalStatus'] ?? 'Approved',
+              rejectionReason: m['rejectionReason'],
+              academicYear: m['academicYear']?.toString(),
+              attachmentName: m['attachmentName'],
+              attachmentUrl: m['attachmentUrl'],
+              attachmentPath: m['attachmentPath'],
+              attachmentSize: (m['attachmentSize'] as num?)?.toDouble(),
+            );
+          }).toList();
+          notifyListeners();
+        },
+        onError: (Object error) {
+          debugPrint('Announcements stream error: $error');
+        },
+      );
       // Start listening to attendance collection in real-time so supervisors
       // and admins see updates immediately without refreshing.
       _attSub?.cancel();
       final isStaffUser = role == 'Head' || role == 'Supervisor';
       final seesAllAttendance = isStaffUser || role == 'Admin';
-      _attSub = (seesAllAttendance
-              ? _firestoreService!.attendanceStream()
-              : _firestoreService!.attendanceStreamForStudent(currentUser!.id))
-          .listen((list) {
-        attendance = list.map((m) => AttendanceRecord.fromJson(m)).toList();
-        notifyListeners();
-        if (isStaffUser) invalidateMissedTimeOuts();
-      });
+      _attSub =
+          (seesAllAttendance
+                  ? _firestoreService!.attendanceStream()
+                  : _firestoreService!.attendanceStreamForStudent(
+                      currentUser!.id,
+                    ))
+              .listen((list) {
+                attendance = list
+                    .map((m) => AttendanceRecord.fromJson(m))
+                    .toList();
+                notifyListeners();
+                if (isStaffUser) invalidateMissedTimeOuts();
+              });
 
       // Head/Supervisor sessions periodically sweep for attendance records
       // whose session window closed while the student was still clocked in
@@ -296,23 +379,26 @@ class AppState extends ChangeNotifier {
       // Start listening to tasks collection in real-time so assigned tasks
       // propagate to student assistants automatically.
       _taskSub?.cancel();
-        if (isStaffUser) {
-          _taskSub = _firestoreService!.tasksStream().listen((list) {
-            tasks = list.map((m) => Task.fromJson(m)).toList();
-            notifyListeners();
-          });
-        }
+      if (isStaffUser) {
+        _taskSub = _firestoreService!.tasksStream().listen((list) {
+          tasks = list.map((m) => Task.fromJson(m)).toList();
+          notifyListeners();
+        });
+      }
 
       _appSub?.cancel();
-      _appSub = (isStaffUser
-              ? _firestoreService!.applicationsStream()
-              : _firestoreService!.applicationsStreamForApplicant(
-                  currentUser!.id,
-                ))
-          .listen((list) {
-        applications = list.map((m) => Application.fromJson(m)).toList();
-        notifyListeners();
-      });
+      _appSub =
+          (isStaffUser
+                  ? _firestoreService!.applicationsStream()
+                  : _firestoreService!.applicationsStreamForApplicant(
+                      currentUser!.id,
+                    ))
+              .listen((list) {
+                applications = list
+                    .map((m) => Application.fromJson(m))
+                    .toList();
+                notifyListeners();
+              });
 
       // Head/Supervisor: keep "Sent to Head" items in sync in real time so
       // a forward shows up immediately even if the Head's screen was
@@ -330,9 +416,7 @@ class AppState extends ChangeNotifier {
       // Admin: keep processed Payroll records in sync in real time.
       _payrollSub?.cancel();
       if (role == 'Admin') {
-        _payrollSub = _firestoreService!.payrollRecordsStream().listen((
-          list,
-        ) {
+        _payrollSub = _firestoreService!.payrollRecordsStream().listen((list) {
           payrollRecords = list.map((m) => PayrollRecord.fromJson(m)).toList();
           notifyListeners();
         });
@@ -353,9 +437,7 @@ class AppState extends ChangeNotifier {
       User? existing = await _loadUserProfile(uid: firebaseUser.uid);
       if (existing == null) {
         try {
-          existing = users.firstWhere(
-            (user) => user.id == firebaseUser.uid,
-          );
+          existing = users.firstWhere((user) => user.id == firebaseUser.uid);
         } catch (_) {}
       }
       if (existing == null) {
@@ -913,8 +995,7 @@ class AppState extends ChangeNotifier {
 
       Map<String, dynamic>? academicSettings;
       try {
-        academicSettings = await _firestoreService!
-            .getAcademicYearSettings();
+        academicSettings = await _firestoreService!.getAcademicYearSettings();
       } catch (error) {
         debugPrint('Failed to load academic settings: $error');
       }
@@ -976,16 +1057,16 @@ class AppState extends ChangeNotifier {
         for (final record in loadedScreeningRecords) {
           final normalizedName = record.fullName.trim().toLowerCase();
           final normalizedStudentNumber = record.studentNumber
-            .trim()
-            .toLowerCase();
-          final identity = normalizedName.isNotEmpty &&
-              normalizedStudentNumber.isNotEmpty
-            ? '$normalizedName|$normalizedStudentNumber'
-            : (record.applicantId.trim().isNotEmpty
-              ? record.applicantId
-              : (record.applicationId.trim().isNotEmpty
-                  ? record.applicationId
-                  : record.id));
+              .trim()
+              .toLowerCase();
+          final identity =
+              normalizedName.isNotEmpty && normalizedStudentNumber.isNotEmpty
+              ? '$normalizedName|$normalizedStudentNumber'
+              : (record.applicantId.trim().isNotEmpty
+                    ? record.applicantId
+                    : (record.applicationId.trim().isNotEmpty
+                          ? record.applicationId
+                          : record.id));
           final key = '$identity|${record.academicYear ?? ''}';
           final existing = byApplicantYear[key];
           if (existing == null ||
@@ -1015,9 +1096,9 @@ class AppState extends ChangeNotifier {
                 : u.campus,
             courseProgram:
                 (existing.courseProgram != null &&
-                        existing.courseProgram!.isNotEmpty)
-                    ? existing.courseProgram
-                    : u.courseProgram,
+                    existing.courseProgram!.isNotEmpty)
+                ? existing.courseProgram
+                : u.courseProgram,
             yearLevel:
                 (existing.yearLevel != null && existing.yearLevel!.isNotEmpty)
                 ? existing.yearLevel
@@ -1084,11 +1165,10 @@ class AppState extends ChangeNotifier {
 
       // Attendance
       try {
-        final rawAttendance = (role == 'Head' || role == 'Supervisor' || role == 'Admin')
+        final rawAttendance =
+            (role == 'Head' || role == 'Supervisor' || role == 'Admin')
             ? await _firestoreService!.getAllAttendance()
-            : await _firestoreService!.getAttendanceForStudent(
-                currentUser!.id,
-              );
+            : await _firestoreService!.getAttendanceForStudent(currentUser!.id);
         attendance = rawAttendance
             .map((m) => AttendanceRecord.fromJson(m))
             .toList();
@@ -1121,17 +1201,16 @@ class AppState extends ChangeNotifier {
             );
           } catch (_) {}
           try {
-            final studentIds = await _firestoreService!
-                .getStudentIdsForUser(currentUser!.id);
+            final studentIds = await _firestoreService!.getStudentIdsForUser(
+              currentUser!.id,
+            );
             fsTasks.addAll(
               await _firestoreService!.getTasksForAssigneeIds(studentIds),
             );
           } catch (_) {}
           try {
             fsTasks.addAll(
-              await _firestoreService!.getTasksForUserName(
-                currentUser!.name,
-              ),
+              await _firestoreService!.getTasksForUserName(currentUser!.name),
             );
           } catch (_) {}
         }
@@ -1145,7 +1224,8 @@ class AppState extends ChangeNotifier {
 
       // Reports
       try {
-        final fsReports = (role == 'Head' || role == 'Supervisor' || role == 'Admin')
+        final fsReports =
+            (role == 'Head' || role == 'Supervisor' || role == 'Admin')
             ? await _firestoreService!.getAllReports()
             : [
                 ...await _firestoreService!.getReportsForApplicant(
@@ -1397,9 +1477,7 @@ class AppState extends ChangeNotifier {
 
       // Notify admins locally and persist notifications to Firestore so
       // admins signed in on other devices will receive them.
-      List<User> adminUsers = users
-          .where((u) => u.role == 'Head')
-          .toList();
+      List<User> adminUsers = users.where((u) => u.role == 'Head').toList();
       if (adminUsers.isEmpty) {
         try {
           final fsUsers = await _firestoreService!.getAllUserProfiles();
@@ -1779,10 +1857,9 @@ class AppState extends ChangeNotifier {
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.updateSkill(oldName, normalized);
-      skills = skills
-          .map((skill) => skill == oldName ? normalized : skill)
-          .toList()
-        ..sort();
+      skills =
+          skills.map((skill) => skill == oldName ? normalized : skill).toList()
+            ..sort();
       notifyListeners();
       return true;
     } catch (_) {
@@ -1853,15 +1930,16 @@ class AppState extends ChangeNotifier {
     final normalizedName = record.fullName.trim().toLowerCase();
     final normalizedStudentNumber = record.studentNumber.trim().toLowerCase();
     final duplicates = (await _firestoreService!.getAllScreeningRecords())
-      .where(
-        (candidate) =>
-          candidate.id != stableRecord.id &&
-          (candidate.academicYear ?? '') == (stableRecord.academicYear ?? '') &&
-          candidate.fullName.trim().toLowerCase() == normalizedName &&
-          candidate.studentNumber.trim().toLowerCase() ==
-            normalizedStudentNumber,
-      )
-      .toList();
+        .where(
+          (candidate) =>
+              candidate.id != stableRecord.id &&
+              (candidate.academicYear ?? '') ==
+                  (stableRecord.academicYear ?? '') &&
+              candidate.fullName.trim().toLowerCase() == normalizedName &&
+              candidate.studentNumber.trim().toLowerCase() ==
+                  normalizedStudentNumber,
+        )
+        .toList();
     for (final duplicate in duplicates) {
       if (duplicate.id != stableRecord.id) {
         await _firestoreService!.deleteScreeningRecord(duplicate.id);
@@ -1891,7 +1969,12 @@ class AppState extends ChangeNotifier {
     );
     final id = await _firestoreService!.addDocumentFolder(folder);
     documentFolders = [
-      DocumentFolder(id: id, name: folder.name, createdBy: folder.createdBy, createdAt: folder.createdAt),
+      DocumentFolder(
+        id: id,
+        name: folder.name,
+        createdBy: folder.createdBy,
+        createdAt: folder.createdAt,
+      ),
       ...documentFolders,
     ];
     notifyListeners();
@@ -1899,7 +1982,9 @@ class AppState extends ChangeNotifier {
 
   Future<void> deleteDocumentFolder(String folderId) async {
     _firestoreService ??= FirestoreService();
-    final docsInFolder = documents.where((d) => d.folderId == folderId).toList();
+    final docsInFolder = documents
+        .where((d) => d.folderId == folderId)
+        .toList();
     for (final doc in docsInFolder) {
       await _firestoreService!.deleteDocument(doc.id);
     }
@@ -2335,12 +2420,14 @@ class AppState extends ChangeNotifier {
   /// Finds the most relevant completed screening/assessment record for
   /// [user], matched by applicant id first and falling back to name.
   ScreeningRecord? screeningRecordForUser(User user) {
-    final matches = screeningRecords.where(
-      (record) =>
-          record.applicantId == user.id ||
-          (record.fullName.trim().toLowerCase() ==
-              user.name.trim().toLowerCase()),
-    ).toList();
+    final matches = screeningRecords
+        .where(
+          (record) =>
+              record.applicantId == user.id ||
+              (record.fullName.trim().toLowerCase() ==
+                  user.name.trim().toLowerCase()),
+        )
+        .toList();
     if (matches.isEmpty) return null;
     matches.sort((a, b) {
       final byYear = (a.academicYear ?? '').compareTo(b.academicYear ?? '');
@@ -2353,12 +2440,14 @@ class AppState extends ChangeNotifier {
   /// Full screening/assessment history for [user] across all academic
   /// years, most recent first.
   List<ScreeningRecord> screeningHistoryForUser(User user) {
-    final matches = screeningRecords.where(
-      (record) =>
-          record.applicantId == user.id ||
-          (record.fullName.trim().toLowerCase() ==
-              user.name.trim().toLowerCase()),
-    ).toList();
+    final matches = screeningRecords
+        .where(
+          (record) =>
+              record.applicantId == user.id ||
+              (record.fullName.trim().toLowerCase() ==
+                  user.name.trim().toLowerCase()),
+        )
+        .toList();
     matches.sort((a, b) {
       final byYear = (b.academicYear ?? '').compareTo(a.academicYear ?? '');
       if (byYear != 0) return byYear;
@@ -2643,9 +2732,9 @@ class AppState extends ChangeNotifier {
     final timeOut = '$hour:$minute $period';
 
     final existing = attendance.cast<AttendanceRecord?>().firstWhere(
-          (r) => r?.id == recordId,
-          orElse: () => null,
-        );
+      (r) => r?.id == recordId,
+      orElse: () => null,
+    );
     final totalHours = _hoursBetween(existing?.timeIn, timeOut);
 
     attendance = attendance.map((r) {
@@ -2702,9 +2791,9 @@ class AppState extends ChangeNotifier {
   /// since a human has now confirmed when the student actually left.
   Future<void> setManualTimeOut(String recordId, String timeOut) async {
     final existing = attendance.cast<AttendanceRecord?>().firstWhere(
-          (r) => r?.id == recordId,
-          orElse: () => null,
-        );
+      (r) => r?.id == recordId,
+      orElse: () => null,
+    );
     final totalHours = _hoursBetween(existing?.timeIn, timeOut);
 
     attendance = attendance.map((r) {
@@ -2782,9 +2871,9 @@ class AppState extends ChangeNotifier {
         (entry) => _firestoreService!
             .updateAttendance(entry.key, {'totalHours': entry.value})
             .catchError((_) {
-          // Firestore unavailable for this record — local state is still
-          // fixed; a later run will retry the Firestore write.
-        }),
+              // Firestore unavailable for this record — local state is still
+              // fixed; a later run will retry the Firestore write.
+            }),
       ),
     );
 
@@ -3102,7 +3191,8 @@ class AppState extends ChangeNotifier {
     try {
       await _firestoreService!.setReport(updated);
       reports = reports.map((r) => r.id == id ? updated : r).toList();
-      if (old.applicantId != null && (status == 'Approved' || status == 'Rejected')) {
+      if (old.applicantId != null &&
+          (status == 'Approved' || status == 'Rejected')) {
         _addNotification(
           AppNotification(
             id: 'n_${DateTime.now().millisecondsSinceEpoch}_${old.applicantId}',
@@ -3173,7 +3263,8 @@ class AppState extends ChangeNotifier {
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_${head.id}',
           userId: head.id,
           title: 'New Item Forwarded',
-          message: '${currentUser?.name ?? "A supervisor"} sent "$title" for $studentName.',
+          message:
+              '${currentUser?.name ?? "A supervisor"} sent "$title" for $studentName.',
           type: 'head_forward',
           createdAt: _formattedToday(),
         ),
@@ -3191,14 +3282,18 @@ class AppState extends ChangeNotifier {
           .map((f) => f.id == id ? f.copyWith(reviewed: reviewed) : f)
           .toList();
       if (reviewed) {
-        final forward = headForwards.firstWhere((f) => f.id == id, orElse: () => headForwards.first);
+        final forward = headForwards.firstWhere(
+          (f) => f.id == id,
+          orElse: () => headForwards.first,
+        );
         if (forward.sentById != null) {
           _addNotification(
             AppNotification(
               id: 'n_${DateTime.now().millisecondsSinceEpoch}_${forward.sentById}',
               userId: forward.sentById!,
               title: 'Item Reviewed',
-              message: 'The Head reviewed "${forward.title}" for ${forward.studentName}.',
+              message:
+                  'The Head reviewed "${forward.title}" for ${forward.studentName}.',
               type: 'head_forward',
               createdAt: _formattedToday(),
             ),
@@ -3282,7 +3377,9 @@ class AppState extends ChangeNotifier {
       // 'reports' and 'applications' as valid roots), keyed by the
       // supervisor's own Firebase UID as the storage rules require.
       final uploaderUid =
-          fb_auth.FirebaseAuth.instance.currentUser?.uid ?? currentUser?.id ?? 'user';
+          fb_auth.FirebaseAuth.instance.currentUser?.uid ??
+          currentUser?.id ??
+          'user';
       final storagePath = 'reports/$uploaderUid/$timestamp/${doc.fileName}';
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,
@@ -3361,7 +3458,9 @@ class AppState extends ChangeNotifier {
       // 'reports' and 'applications' as valid roots), keyed by the
       // supervisor's own Firebase UID as the storage rules require.
       final uploaderUid =
-          fb_auth.FirebaseAuth.instance.currentUser?.uid ?? currentUser?.id ?? 'user';
+          fb_auth.FirebaseAuth.instance.currentUser?.uid ??
+          currentUser?.id ??
+          'user';
       final storagePath = 'reports/$uploaderUid/$timestamp/$fileName';
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,
@@ -3691,7 +3790,7 @@ class AppState extends ChangeNotifier {
                         supervisor.name.trim().toLowerCase(),
                   )),
         )
-          .expand((office) => office.assistantIds)
+        .expand((office) => office.assistantIds)
         .toSet();
   }
 
@@ -3728,7 +3827,7 @@ class AppState extends ChangeNotifier {
     final assistantIds = _assistantIdsForSupervisor();
     final assistantNames = _officeAssistantNamesForSupervisor();
     return assistantIds.contains(student.id) ||
-      (student.userId != null && assistantIds.contains(student.userId)) ||
+        (student.userId != null && assistantIds.contains(student.userId)) ||
         assistantNames.contains(student.name.trim().toLowerCase());
   }
 
@@ -3790,8 +3889,7 @@ class AppState extends ChangeNotifier {
       return attendance
           .where(
             (record) =>
-                (record.studentId != null &&
-                    ids.contains(record.studentId)) ||
+                (record.studentId != null && ids.contains(record.studentId)) ||
                 normalizedNames.contains(
                   record.studentName.trim().toLowerCase(),
                 ),
@@ -3814,13 +3912,14 @@ class AppState extends ChangeNotifier {
         if (s.userId != null) s.userId!,
         if (user != null) user.id,
       };
-      final hours = hoursFor(identityIds, {s.name, if (user != null) user.name});
+      final hours = hoursFor(identityIds, {
+        s.name,
+        if (user != null) user.name,
+      });
       return s.copyWith(
         name: user?.name,
         email: user?.email,
-        department: s.department.isNotEmpty
-            ? s.department
-            : user?.department,
+        department: s.department.isNotEmpty ? s.department : user?.department,
         campus: s.campus ?? user?.campus,
         totalHours: hours > 0 ? hours : s.totalHours,
         phone: s.phone ?? user?.phone,
@@ -4063,12 +4162,32 @@ class AppState extends ChangeNotifier {
     }
 
     const abbrMonths = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     const fullMonths = [
-      'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     final named = RegExp(r'^([A-Za-z]+)\s+(\d{1,2}),\s*(\d{4})$').firstMatch(s);
     if (named != null) {
@@ -4094,13 +4213,18 @@ class AppState extends ChangeNotifier {
     if (parsed == null) return false;
     final day = DateTime(parsed.year, parsed.month, parsed.day);
     return !day.isBefore(DateTime(start.year, start.month, start.day)) &&
-        !day.isAfter(DateTime(endInclusive.year, endInclusive.month, endInclusive.day));
+        !day.isAfter(
+          DateTime(endInclusive.year, endInclusive.month, endInclusive.day),
+        );
   }
 
   /// Every calendar month touched by [start]..[endInclusive] (both ends
   /// inclusive), so a semester-long pay period can still have the 25–40
   /// hour rule checked and capped one month at a time.
-  List<(int month, int year)> _monthsInRange(DateTime start, DateTime endInclusive) {
+  List<(int month, int year)> _monthsInRange(
+    DateTime start,
+    DateTime endInclusive,
+  ) {
     final months = <(int, int)>[];
     var cursor = DateTime(start.year, start.month);
     final last = DateTime(endInclusive.year, endInclusive.month);
@@ -4130,7 +4254,9 @@ class AppState extends ChangeNotifier {
     required Map<String, Student> studentsByEmail,
   }) {
     final keys = <String>{user.name.trim().toLowerCase()};
-    final linked = studentsByUserId[user.id] ?? studentsByEmail[user.email.trim().toLowerCase()];
+    final linked =
+        studentsByUserId[user.id] ??
+        studentsByEmail[user.email.trim().toLowerCase()];
     if (linked != null) keys.add(linked.name.trim().toLowerCase());
     return keys;
   }
@@ -4146,14 +4272,17 @@ class AppState extends ChangeNotifier {
     DateTime endInclusive,
   ) {
     bool belongsToStudent(AttendanceRecord a) =>
-        a.studentId == studentId || studentNameKeys.contains(a.studentName.trim().toLowerCase());
+        a.studentId == studentId ||
+        studentNameKeys.contains(a.studentName.trim().toLowerCase());
 
     return _monthsInRange(start, endInclusive).map((entry) {
       final (month, year) = entry;
       final monthStart = DateTime(year, month, 1);
       final monthEndInclusive = DateTime(year, month + 1, 0);
       final rangeStart = monthStart.isBefore(start) ? start : monthStart;
-      final rangeEnd = monthEndInclusive.isAfter(endInclusive) ? endInclusive : monthEndInclusive;
+      final rangeEnd = monthEndInclusive.isAfter(endInclusive)
+          ? endInclusive
+          : monthEndInclusive;
 
       final hours = attendance
           .where(
@@ -4169,7 +4298,9 @@ class AppState extends ChangeNotifier {
         month: month,
         year: year,
         hoursWorked: hours,
-        payableHours: hours.clamp(0, PayrollRecord.maximumMonthlyHours).toDouble(),
+        payableHours: hours
+            .clamp(0, PayrollRecord.maximumMonthlyHours)
+            .toDouble(),
       );
     }).toList();
   }
@@ -4235,9 +4366,18 @@ class AppState extends ChangeNotifier {
         studentsByUserId: studentsByUserId,
         studentsByEmail: studentsByEmail,
       );
-      final breakdown = monthlyHoursInPeriod(user.id, nameKeys, start, endInclusive);
+      final breakdown = monthlyHoursInPeriod(
+        user.id,
+        nameKeys,
+        start,
+        endInclusive,
+      );
       final dtrVerified = breakdown.any((m) => m.hoursWorked > 0);
-      final reportVerified = hasApprovedReportInPeriod(nameKeys, start, endInclusive);
+      final reportVerified = hasApprovedReportInPeriod(
+        nameKeys,
+        start,
+        endInclusive,
+      );
       final assignedOffices = officesForUser(user);
       final office = assignedOffices.isNotEmpty
           ? assignedOffices.first.name
@@ -4311,7 +4451,10 @@ class AppState extends ChangeNotifier {
     final isoEnd = _isoDate(endInclusive);
 
     final toRelease = payrollRecords.where(
-      (p) => p.periodStart == isoStart && p.periodEnd == isoEnd && p.status == 'Approved',
+      (p) =>
+          p.periodStart == isoStart &&
+          p.periodEnd == isoEnd &&
+          p.status == 'Approved',
     );
 
     for (final record in toRelease) {

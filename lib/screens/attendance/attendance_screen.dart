@@ -1,13 +1,29 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:provider/provider.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/web_print_stub.dart'
+    if (dart.library.html) '../../utils/web_print.dart'
+    as web_print;
 import '../../widgets/shared_widgets.dart';
-import 'package:projectsais/services/firestore_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+
+void _showSnack(BuildContext ctx, String msg, Color color) {
+  ScaffoldMessenger.of(ctx).showSnackBar(
+    SnackBar(
+      content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
+      backgroundColor: color,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.all(16),
+    ),
+  );
+}
 
 class AttendanceScreen extends StatefulWidget {
   const AttendanceScreen({super.key});
@@ -471,17 +487,8 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     );
   }
 
-  void _snack(BuildContext ctx, String msg, Color color) {
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text(msg, style: const TextStyle(fontWeight: FontWeight.w600)),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-      ),
-    );
-  }
+  void _snack(BuildContext ctx, String msg, Color color) =>
+      _showSnack(ctx, msg, color);
 
   void _showQrScanner(BuildContext context) {
     showDialog(
@@ -501,66 +508,26 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!state.isWithinAttendanceQrWindow()) {
       _snack(
         context,
-        'Attendance QR scanning is only available 6:30 AM–12:00 PM and '
+        'Attendance QR scanning is only available 7:30 AM–12:00 PM and '
         '12:30 PM–5:00 PM.',
         AppTheme.amber500,
       );
       return;
     }
 
-    // Reject codes that aren't a valid, still-active attendance QR
+    // Reject codes that aren't this session's attendance QR. The message
+    // deliberately says nothing about the expected token — the session code
+    // stays the same all morning or afternoon, so echoing it here would hand
+    // out a working code to anyone who scans something wrong.
     final valid = await state.isQrTokenValid(code);
+    if (!context.mounted) return;
     if (!valid) {
-      // Try to fetch current Firestore token for diagnostics to help debugging.
-      try {
-        final fs = FirestoreService();
-        final doc = await fs.getCurrentQrToken();
-        String token = doc?['token']?.toString() ?? '<none>';
-        final gen = doc?['generatedAt'];
-        String genStr = '<unknown>';
-        int age = -1;
-        if (gen is Timestamp) {
-          final dt = gen.toDate();
-          genStr = dt.toString();
-          age = DateTime.now().difference(dt).inSeconds;
-        } else if (gen is String) {
-          genStr = gen;
-          final dt = DateTime.tryParse(gen);
-          if (dt != null) age = DateTime.now().difference(dt).inSeconds;
-        }
-
-        await showDialog(
-          context: context,
-          builder: (_) => AlertDialog(
-            title: const Text('QR Validation Failed'),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Scanned: $code'),
-                const SizedBox(height: 6),
-                Text('Current token: $token'),
-                const SizedBox(height: 6),
-                Text('Generated at: $genStr'),
-                const SizedBox(height: 6),
-                Text('Token age (s): ${age >= 0 ? age.toString() : "unknown"}'),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('OK'),
-              ),
-            ],
-          ),
-        );
-      } catch (e) {
-        _snack(
-          context,
-          'Invalid or expired QR code. Ask your supervisor to generate a new one.',
-          AppTheme.red500,
-        );
-      }
+      _snack(
+        context,
+        'That is not this session\'s attendance QR. Scan the code posted by '
+        'your supervisor.',
+        AppTheme.red500,
+      );
       return;
     }
 
@@ -578,14 +545,24 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     if (!state.isWithinAttendanceQrWindow()) {
       _snack(
         context,
-        'Attendance QR can only be generated 6:30 AM–12:00 PM and '
+        'Attendance QR can only be generated 7:30 AM–12:00 PM and '
         '12:30 PM–5:00 PM.',
         AppTheme.amber500,
       );
       return;
     }
-    await state.generateAttendanceQrToken();
+    // Returns the session's existing code when there already is one, so
+    // re-opening the generator never invalidates a QR that's already posted.
+    final token = await state.generateAttendanceQrToken();
     if (!context.mounted) return;
+    if (token == null) {
+      _snack(
+        context,
+        'The attendance session ended before the code could be generated.',
+        AppTheme.amber500,
+      );
+      return;
+    }
     showDialog(context: context, builder: (_) => const _QrGenerateDialog());
   }
 }
@@ -1750,22 +1727,105 @@ class _QrGenerateDialog extends StatefulWidget {
 }
 
 class _QrGenerateDialogState extends State<_QrGenerateDialog> {
-  static const _validitySeconds = 60;
+  /// The QR only changes when the session does, so a slow tick is enough to
+  /// notice the session ending.
   late final Stream<int> _tick = Stream.periodic(
-    const Duration(seconds: 1),
+    const Duration(seconds: 10),
     (i) => i,
   );
 
-  int _secondsLeft(AppState state) {
-    if (state.qrGeneratedAt == null) return 0;
-    final elapsed = DateTime.now().difference(state.qrGeneratedAt!).inSeconds;
-    final left = _validitySeconds - elapsed;
-    return left < 0 ? 0 : left;
+  /// Wraps the QR so it can be rasterised for printing.
+  final GlobalKey _qrKey = GlobalKey();
+
+  /// Set while the QR is being rasterised, so the button can say so.
+  bool _preparingPrint = false;
+
+  Future<void> _print(BuildContext context) async {
+    if (_preparingPrint) return;
+
+    final state = context.read<AppState>();
+    final sessionLabel = state.attendanceQrSessionLabel();
+    final sessionEnd = state.attendanceQrSessionEnd();
+
+    if (!web_print.WebPrintUtils.isSupported) {
+      _showSnack(
+        context,
+        'Printing is available from the web version of SAIS.',
+        AppTheme.amber500,
+      );
+      return;
+    }
+
+    setState(() => _preparingPrint = true);
+    try {
+      final boundary =
+          _qrKey.currentContext?.findRenderObject() as RenderRepaintBoundary?;
+      if (boundary == null) {
+        throw StateError('The QR code is not on screen yet.');
+      }
+      final image = await boundary.toImage(pixelRatio: 4);
+      final data = await image.toByteData(format: ui.ImageByteFormat.png);
+      image.dispose();
+      if (data == null) throw StateError('The QR code could not be rendered.');
+
+      await web_print.WebPrintUtils.printImage(
+        data.buffer.asUint8List(),
+        title: 'SAIS Attendance QR',
+        captions: [
+          if (sessionLabel != null) sessionLabel,
+          _printableSessionRange(sessionEnd),
+          'Scan to log in or out.',
+        ],
+      );
+      if (!context.mounted) return;
+      _showSnack(
+        context,
+        'Print dialog opened. If nothing appeared, check that your browser '
+        'is not blocking it.',
+        AppTheme.emerald500,
+      );
+    } catch (error) {
+      if (!context.mounted) return;
+      // The reason is shown rather than swallowed: a print that quietly does
+      // nothing is impossible to tell apart from a stuck button.
+      _showSnack(context, 'Could not print the QR: $error', AppTheme.red500);
+    } finally {
+      if (mounted) setState(() => _preparingPrint = false);
+    }
   }
 
-  Future<void> _regenerate(BuildContext context) async {
-    await context.read<AppState>().generateAttendanceQrToken();
-    setState(() {});
+  /// Caption naming the day and the hours the printed code covers.
+  String _printableSessionRange(DateTime? sessionEnd) {
+    final now = DateTime.now();
+    final date = _fmtPrintDate(now);
+    if (sessionEnd == null) return date;
+    final isMorning = sessionEnd.hour < 13;
+    final hours = isMorning ? '7:30 AM – 12:00 PM' : '12:30 PM – 5:00 PM';
+    return '$date · valid $hours';
+  }
+
+  static String _fmtPrintDate(DateTime d) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${months[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+  static String _fmtTime(DateTime d) {
+    final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final minute = d.minute.toString().padLeft(2, '0');
+    return '$hour:$minute ${d.hour < 12 ? 'AM' : 'PM'}';
   }
 
   @override
@@ -1850,18 +1910,23 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
                   borderRadius: BorderRadius.circular(16),
                   border: Border.all(color: AppTheme.slate200),
                 ),
-                child: QrImageView(
-                  data: token,
-                  version: QrVersions.auto,
-                  size: 220,
-                  backgroundColor: Colors.white,
-                  eyeStyle: const QrEyeStyle(
-                    eyeShape: QrEyeShape.square,
-                    color: AppTheme.maroon,
-                  ),
-                  dataModuleStyle: const QrDataModuleStyle(
-                    dataModuleShape: QrDataModuleShape.square,
-                    color: AppTheme.slate900,
+                // Only the code itself is captured for printing, so the
+                // printed sheet carries no dialog chrome.
+                child: RepaintBoundary(
+                  key: _qrKey,
+                  child: QrImageView(
+                    data: token,
+                    version: QrVersions.auto,
+                    size: 220,
+                    backgroundColor: Colors.white,
+                    eyeStyle: const QrEyeStyle(
+                      eyeShape: QrEyeShape.square,
+                      color: AppTheme.maroon,
+                    ),
+                    dataModuleStyle: const QrDataModuleStyle(
+                      dataModuleShape: QrDataModuleShape.square,
+                      color: AppTheme.slate900,
+                    ),
                   ),
                 ),
               ),
@@ -1874,34 +1939,52 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
                   StreamBuilder<int>(
                     stream: _tick,
                     builder: (_, __) {
-                      final left = _secondsLeft(state);
-                      final expired = left <= 0;
-                      return Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                      final sessionLabel = state.attendanceQrSessionLabel();
+                      final sessionEnd = state.attendanceQrSessionEnd();
+                      final ended = sessionLabel == null || sessionEnd == null;
+                      return Column(
                         children: [
-                          Container(
-                            width: 8,
-                            height: 8,
-                            decoration: BoxDecoration(
-                              color: expired
-                                  ? AppTheme.red500
-                                  : AppTheme.emerald500,
-                              shape: BoxShape.circle,
-                            ),
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Container(
+                                width: 8,
+                                height: 8,
+                                decoration: BoxDecoration(
+                                  color: ended
+                                      ? AppTheme.red500
+                                      : AppTheme.emerald500,
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                ended
+                                    ? 'Session over — this code no longer works'
+                                    : '$sessionLabel · valid until '
+                                          '${_fmtTime(sessionEnd)}',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: ended
+                                      ? AppTheme.red500
+                                      : AppTheme.slate500,
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            expired
-                                ? 'Expired — generate a new code'
-                                : 'Valid for ${left}s',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: expired
-                                  ? AppTheme.red500
-                                  : AppTheme.slate500,
+                          if (!ended) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              'The same code works for everyone all session — '
+                              'print it and post it.',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.slate500.withValues(alpha: 0.8),
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       );
                     },
@@ -1910,11 +1993,22 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: () => _regenerate(context),
-                      icon: const Icon(Icons.refresh_rounded, size: 15),
-                      label: const Text(
-                        'Generate New Code',
-                        style: TextStyle(
+                      onPressed: token.isEmpty || _preparingPrint
+                          ? null
+                          : () => _print(context),
+                      icon: _preparingPrint
+                          ? const SizedBox(
+                              width: 15,
+                              height: 15,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppTheme.maroon,
+                              ),
+                            )
+                          : const Icon(Icons.print_rounded, size: 15),
+                      label: Text(
+                        _preparingPrint ? 'Preparing print…' : 'Print QR Code',
+                        style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
                         ),
