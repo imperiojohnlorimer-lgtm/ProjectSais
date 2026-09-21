@@ -75,284 +75,285 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 700;
+        final hPad = isMobile ? 16.0 : 28.0;
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ── Main content ───────────────────────────────────────
+            // NestedScrollView links the header with the tab lists so one
+            // drag scrolls both: the header scrolls away first, and pulling
+            // down past the top of a list brings it back. A plain scroll view
+            // wrapping a fixed-height list trapped touch drags inside the list.
             Expanded(
-              child: SingleChildScrollView(
-                primary: false,
-                padding: EdgeInsets.fromLTRB(
-                  isMobile ? 16.0 : 28.0,
-                  24,
-                  isMobile ? 16.0 : 28.0,
-                  28,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header
-                    HeroBanner(
-                      isMobile: isMobile,
-                      icon: Icons.access_time_filled_rounded,
-                      title: 'Attendance',
-                      subtitle: 'Track and manage attendance records',
-                      searchHint: isStudent
-                          ? 'Search your records...'
-                          : 'Search by student name...',
-                      onSearch: (value) => setState(() => _search = value),
-                      filters: [
-                        if (!isStudent)
-                          _toggleChip(
-                            label: _showArchived
-                                ? 'Viewing archived'
-                                : 'Archived',
-                            icon: _showArchived
-                                ? Icons.inventory_2_rounded
-                                : Icons.archive_outlined,
-                            selected: _showArchived,
-                            color: AppTheme.amber500,
-                            onTap: () =>
-                                setState(() => _showArchived = !_showArchived),
-                          ),
-                        if (state.role == 'Head' || state.role == 'Supervisor')
-                          OutlinedButton.icon(
-                            onPressed: () async {
-                              final fixed = await state
-                                  .recalculateAttendanceHours();
-                              if (!context.mounted) return;
-                              _snack(
-                                context,
-                                fixed == 0
-                                    ? 'All completed records already have correct hours'
-                                    : 'Recalculated hours for $fixed record(s)',
-                                AppTheme.emerald500,
-                              );
-                            },
-                            icon: const Icon(
-                              Icons.calculate_outlined,
-                              size: 16,
-                            ),
-                            label: const Text('Recalculate'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppTheme.maroon,
-                              side: const BorderSide(color: AppTheme.maroon),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 11,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              textStyle: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
-                              ),
-                            ),
-                          ),
-                      ],
-                      stats: [
-                        HeroStatData(
-                          label: 'Records',
-                          value: '${liveRecords.length}',
-                          icon: Icons.list_alt_rounded,
-                        ),
-                        HeroStatData(
-                          label: 'Clocked in',
-                          value: '$clockedInCount',
-                          icon: Icons.play_circle_fill_rounded,
-                        ),
-                        HeroStatData(
-                          label: 'Hours',
-                          value: '${totalHours.toStringAsFixed(0)}h',
-                          icon: Icons.schedule_rounded,
-                        ),
-                        HeroStatData(
-                          label: 'Missed out',
-                          value: '$invalidCount',
-                          icon: Icons.error_outline_rounded,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Mobile-only clock/QR card (desktop shows this in the right panel)
-                    if (isMobile) ...[
-                      _ClockCard(
-                        isStudent: isStudent,
-                        active: active,
-                        onScanQr: isStudent
-                            ? () => _showQrScanner(context)
-                            : null,
-                        onGenerateQr: !isStudent
-                            ? () => _showQrGenerator(context)
-                            : null,
-                      ),
-                      const SizedBox(height: 20),
-                    ],
-
-                    // Tab bar
-                    Container(
-                      decoration: BoxDecoration(
-                        color: AppTheme.slate100,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      padding: const EdgeInsets.all(4),
-                      child: TabBar(
-                        controller: _tab,
-                        indicator: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(9),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.07),
-                              blurRadius: 6,
-                              offset: const Offset(0, 2),
-                            ),
-                          ],
-                        ),
-                        indicatorSize: TabBarIndicatorSize.tab,
-                        dividerColor: Colors.transparent,
-                        labelColor: AppTheme.maroon,
-                        unselectedLabelColor: AppTheme.slate500,
-                        labelStyle: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 13,
-                        ),
-                        unselectedLabelStyle: const TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 13,
-                        ),
-                        tabs: const [
-                          Tab(text: 'Log'),
-                          Tab(text: 'Schedule'),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // Tab content
-                    SizedBox(
-                      height: 600,
-                      child: TabBarView(
-                        controller: _tab,
+              child: NestedScrollView(
+                headerSliverBuilder: (_, _) => [
+                  SliverPadding(
+                    padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 20),
+                    sliver: SliverToBoxAdapter(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Log tab
-                          Column(
-                            children: [
-                              Expanded(
-                                child: records.isEmpty
-                                    ? _emptyState()
-                                    : ListView.separated(
-                                        itemCount: records.length,
-                                        separatorBuilder: (_, __) =>
-                                            const SizedBox(height: 10),
-                                        itemBuilder: (_, i) {
-                                          final r = records[i];
-                                          return _RecordCard(
-                                            record: r,
-                                            canDelete:
-                                                state.role == 'Head' ||
-                                                state.role == 'Supervisor',
-                                            onArchive: () async {
-                                              final restoring = r.isArchived;
-                                              final saved = await state
-                                                  .setAttendanceArchived(
-                                                    r.id,
-                                                    !restoring,
-                                                  );
-                                              if (!context.mounted) return;
-                                              _snack(
-                                                context,
-                                                saved
-                                                    ? (restoring
-                                                          ? 'Record restored to the log'
-                                                          : 'Record archived')
-                                                    : 'Could not save that — the record is unchanged on the server.',
-                                                saved
-                                                    ? AppTheme.emerald500
-                                                    : AppTheme.red500,
-                                              );
-                                            },
-                                            onDelete: () async {
-                                              final ok = await showConfirmDialog(
-                                                context,
-                                                title: 'Delete Record',
-                                                message:
-                                                    'Remove this attendance record? '
-                                                    'Archive it instead if you only want it out of the log.',
-                                                confirmLabel: 'Delete',
-                                                confirmColor: AppTheme.red500,
-                                              );
-                                              if (!ok || !context.mounted) {
-                                                return;
-                                              }
-                                              final deleted = await state
-                                                  .deleteAttendance(r.id);
-                                              if (!context.mounted) return;
-                                              _snack(
-                                                context,
-                                                deleted
-                                                    ? 'Attendance record deleted'
-                                                    : 'Could not delete that record on the server.',
-                                                deleted
-                                                    ? AppTheme.red500
-                                                    : AppTheme.amber500,
-                                              );
-                                            },
-                                            onSetTimeOut:
-                                                r.isActive &&
-                                                    (state.role == 'Head' ||
-                                                        state.role ==
-                                                            'Supervisor')
-                                                ? () async {
-                                                    final picked =
-                                                        await showTimePicker(
-                                                          context: context,
-                                                          initialTime:
-                                                              TimeOfDay.now(),
-                                                        );
-                                                    if (picked == null ||
-                                                        !context.mounted)
-                                                      return;
-                                                    final hour =
-                                                        picked.hourOfPeriod == 0
-                                                        ? 12
-                                                        : picked.hourOfPeriod;
-                                                    final minute = picked.minute
-                                                        .toString()
-                                                        .padLeft(2, '0');
-                                                    final period =
-                                                        picked.period ==
-                                                            DayPeriod.am
-                                                        ? 'AM'
-                                                        : 'PM';
-                                                    await state.setManualTimeOut(
-                                                      r.id,
-                                                      '$hour:$minute $period',
-                                                    );
-                                                    if (!context.mounted)
-                                                      return;
-                                                    _snack(
-                                                      context,
-                                                      'Time-out recorded and verified',
-                                                      AppTheme.emerald500,
-                                                    );
-                                                  }
-                                                : null,
-                                          );
-                                        },
-                                      ),
+                          // Header
+                          HeroBanner(
+                            isMobile: isMobile,
+                            icon: Icons.access_time_filled_rounded,
+                            title: 'Attendance',
+                            subtitle: 'Track and manage attendance records',
+                            searchHint: isStudent
+                                ? 'Search your records...'
+                                : 'Search by student name...',
+                            onSearch: (value) =>
+                                setState(() => _search = value),
+                            filters: [
+                              if (!isStudent)
+                                _toggleChip(
+                                  label: _showArchived
+                                      ? 'Viewing archived'
+                                      : 'Archived',
+                                  icon: _showArchived
+                                      ? Icons.inventory_2_rounded
+                                      : Icons.archive_outlined,
+                                  selected: _showArchived,
+                                  color: AppTheme.amber500,
+                                  onTap: () => setState(
+                                    () => _showArchived = !_showArchived,
+                                  ),
+                                ),
+                              if (state.role == 'Head' ||
+                                  state.role == 'Supervisor')
+                                OutlinedButton.icon(
+                                  onPressed: () async {
+                                    final fixed = await state
+                                        .recalculateAttendanceHours();
+                                    if (!context.mounted) return;
+                                    _snack(
+                                      context,
+                                      fixed == 0
+                                          ? 'All completed records already have correct hours'
+                                          : 'Recalculated hours for $fixed record(s)',
+                                      AppTheme.emerald500,
+                                    );
+                                  },
+                                  icon: const Icon(
+                                    Icons.calculate_outlined,
+                                    size: 16,
+                                  ),
+                                  label: const Text('Recalculate'),
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: AppTheme.maroon,
+                                    side: const BorderSide(
+                                      color: AppTheme.maroon,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 11,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    textStyle: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                            ],
+                            stats: [
+                              HeroStatData(
+                                label: 'Records',
+                                value: '${liveRecords.length}',
+                                icon: Icons.list_alt_rounded,
+                              ),
+                              HeroStatData(
+                                label: 'Clocked in',
+                                value: '$clockedInCount',
+                                icon: Icons.play_circle_fill_rounded,
+                              ),
+                              HeroStatData(
+                                label: 'Hours',
+                                value: '${totalHours.toStringAsFixed(0)}h',
+                                icon: Icons.schedule_rounded,
+                              ),
+                              HeroStatData(
+                                label: 'Missed out',
+                                value: '$invalidCount',
+                                icon: Icons.error_outline_rounded,
                               ),
                             ],
                           ),
+                          const SizedBox(height: 18),
 
-                          // Schedule tab
-                          _ScheduleTab(),
+                          // Mobile-only clock/QR card (desktop shows this in the right panel)
+                          if (isMobile) ...[
+                            _ClockCard(
+                              isStudent: isStudent,
+                              active: active,
+                              onScanQr: isStudent
+                                  ? () => _showQrScanner(context)
+                                  : null,
+                              onGenerateQr: !isStudent
+                                  ? () => _showQrGenerator(context)
+                                  : null,
+                            ),
+                            const SizedBox(height: 20),
+                          ],
+
+                          // Tab bar
+                          Container(
+                            decoration: BoxDecoration(
+                              color: AppTheme.slate100,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            padding: const EdgeInsets.all(4),
+                            child: TabBar(
+                              controller: _tab,
+                              indicator: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(9),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withValues(alpha: 0.07),
+                                    blurRadius: 6,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              indicatorSize: TabBarIndicatorSize.tab,
+                              dividerColor: Colors.transparent,
+                              labelColor: AppTheme.maroon,
+                              unselectedLabelColor: AppTheme.slate500,
+                              labelStyle: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
+                              unselectedLabelStyle: const TextStyle(
+                                fontWeight: FontWeight.w500,
+                                fontSize: 13,
+                              ),
+                              tabs: const [
+                                Tab(text: 'Log'),
+                                Tab(text: 'Schedule'),
+                              ],
+                            ),
+                          ),
                         ],
                       ),
                     ),
-                  ],
+                  ),
+                ],
+
+                // Tab content
+                body: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: hPad),
+                  child: TabBarView(
+                    controller: _tab,
+                    children: [
+                      // Log tab
+                      records.isEmpty
+                          ? ListView(
+                              padding: const EdgeInsets.only(bottom: 28),
+                              children: [_emptyState()],
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.only(bottom: 28),
+                              itemCount: records.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (_, i) {
+                                final r = records[i];
+                                return _RecordCard(
+                                  record: r,
+                                  canDelete:
+                                      state.role == 'Head' ||
+                                      state.role == 'Supervisor',
+                                  onArchive: () async {
+                                    final restoring = r.isArchived;
+                                    final saved = await state
+                                        .setAttendanceArchived(
+                                          r.id,
+                                          !restoring,
+                                        );
+                                    if (!context.mounted) return;
+                                    _snack(
+                                      context,
+                                      saved
+                                          ? (restoring
+                                                ? 'Record restored to the log'
+                                                : 'Record archived')
+                                          : 'Could not save that — the record is unchanged on the server.',
+                                      saved
+                                          ? AppTheme.emerald500
+                                          : AppTheme.red500,
+                                    );
+                                  },
+                                  onDelete: () async {
+                                    final ok = await showConfirmDialog(
+                                      context,
+                                      title: 'Delete Record',
+                                      message:
+                                          'Remove this attendance record? '
+                                          'Archive it instead if you only want it out of the log.',
+                                      confirmLabel: 'Delete',
+                                      confirmColor: AppTheme.red500,
+                                    );
+                                    if (!ok || !context.mounted) {
+                                      return;
+                                    }
+                                    final deleted = await state
+                                        .deleteAttendance(r.id);
+                                    if (!context.mounted) return;
+                                    _snack(
+                                      context,
+                                      deleted
+                                          ? 'Attendance record deleted'
+                                          : 'Could not delete that record on the server.',
+                                      deleted
+                                          ? AppTheme.red500
+                                          : AppTheme.amber500,
+                                    );
+                                  },
+                                  onSetTimeOut:
+                                      r.isActive &&
+                                          (state.role == 'Head' ||
+                                              state.role == 'Supervisor')
+                                      ? () async {
+                                          final picked = await showTimePicker(
+                                            context: context,
+                                            initialTime: TimeOfDay.now(),
+                                          );
+                                          if (picked == null ||
+                                              !context.mounted)
+                                            return;
+                                          final hour = picked.hourOfPeriod == 0
+                                              ? 12
+                                              : picked.hourOfPeriod;
+                                          final minute = picked.minute
+                                              .toString()
+                                              .padLeft(2, '0');
+                                          final period =
+                                              picked.period == DayPeriod.am
+                                              ? 'AM'
+                                              : 'PM';
+                                          await state.setManualTimeOut(
+                                            r.id,
+                                            '$hour:$minute $period',
+                                          );
+                                          if (!context.mounted) return;
+                                          _snack(
+                                            context,
+                                            'Time-out recorded and verified',
+                                            AppTheme.emerald500,
+                                          );
+                                        }
+                                      : null,
+                                );
+                              },
+                            ),
+
+                      // Schedule tab
+                      _ScheduleTab(),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -1035,6 +1036,7 @@ class _ScheduleTab extends StatelessWidget {
     final todayName = _weekdays[(DateTime.now().weekday - 1).clamp(0, 5)].$1;
 
     return ListView(
+      padding: const EdgeInsets.only(bottom: 28),
       children: slots
           .map(
             (s) => Container(

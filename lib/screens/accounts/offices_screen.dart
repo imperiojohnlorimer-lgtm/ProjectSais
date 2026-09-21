@@ -862,6 +862,16 @@ class _OfficeCardState extends State<_OfficeCard> {
   String _assignmentFilter = 'All assistants';
   bool _groupByDepartment = true;
 
+  // Held so "Clear filters" can empty the visible text, not just [_search].
+  // The mobile and desktop layouts share it; only one is built at a time.
+  final _searchController = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   Office get office => widget.office;
   List<User> get acceptedAssistants => widget.acceptedAssistants;
 
@@ -1623,161 +1633,63 @@ class _OfficeCardState extends State<_OfficeCard> {
                           ),
                   ),
                   const Divider(height: 1, color: AppTheme.slate200),
-                  SizedBox(
-                    width: double.infinity,
-                    child: InputDecorator(
-                      decoration: isMobile
-                          ? const InputDecoration(
-                              border: InputBorder.none,
-                              contentPadding: EdgeInsets.zero,
-                            )
-                          : InputDecoration(
-                              prefixIcon: const Icon(
-                                Icons.people_alt_outlined,
-                                size: 18,
-                              ),
-                              helperText: acceptedAssistants.isEmpty
-                                  ? 'No active student assistants available'
-                                  : '${acceptedAssistants.length} available • Select one or more',
-                              helperStyle: const TextStyle(
-                                fontSize: 11,
-                                color: AppTheme.slate400,
-                              ),
-                              contentPadding: const EdgeInsets.fromLTRB(
-                                12,
-                                12,
-                                12,
-                                12,
-                              ),
-                              filled: true,
-                              fillColor: AppTheme.slate50,
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: AppTheme.slate200,
+                  Padding(
+                    // On mobile the decorator draws no box of its own, so the
+                    // filters and roster need their own inset to clear the
+                    // panel's border.
+                    padding: isMobile
+                        ? const EdgeInsets.fromLTRB(12, 12, 12, 8)
+                        : EdgeInsets.zero,
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: InputDecorator(
+                        decoration: isMobile
+                            ? const InputDecoration(
+                                border: InputBorder.none,
+                                contentPadding: EdgeInsets.zero,
+                              )
+                            : InputDecoration(
+                                prefixIcon: const Icon(
+                                  Icons.people_alt_outlined,
+                                  size: 18,
+                                ),
+                                helperText: acceptedAssistants.isEmpty
+                                    ? 'No active student assistants available'
+                                    : '${acceptedAssistants.length} available • Select one or more',
+                                helperStyle: const TextStyle(
+                                  fontSize: 11,
+                                  color: AppTheme.slate400,
+                                ),
+                                contentPadding: const EdgeInsets.fromLTRB(
+                                  12,
+                                  12,
+                                  12,
+                                  12,
+                                ),
+                                filled: true,
+                                fillColor: AppTheme.slate50,
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.slate200,
+                                  ),
+                                ),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.slate200,
+                                  ),
                                 ),
                               ),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: AppTheme.slate200,
-                                ),
-                              ),
-                            ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (isMobile)
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                TextField(
-                                  decoration: const InputDecoration(
-                                    hintText: 'Search assistants',
-                                    prefixIcon: Icon(
-                                      Icons.search_rounded,
-                                      size: 17,
-                                    ),
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 9,
-                                    ),
-                                  ),
-                                  onChanged: (value) =>
-                                      setState(() => _search = value),
-                                ),
-                                const SizedBox(height: 10),
-                                DropdownButtonFormField<String>(
-                                  initialValue: _skillFilter,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Skill',
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 9,
-                                    ),
-                                  ),
-                                  items: ['All skills', ...allSkills]
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(
-                                            value,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) => setState(
-                                    () => _skillFilter = value ?? 'All skills',
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                DropdownButtonFormField<String>(
-                                  initialValue: _departmentFilter,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Department',
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 9,
-                                    ),
-                                  ),
-                                  items: ['All departments', ...allDepartments]
-                                      .map(
-                                        (value) => DropdownMenuItem(
-                                          value: value,
-                                          child: Text(
-                                            value,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                      )
-                                      .toList(),
-                                  onChanged: (value) => setState(
-                                    () => _departmentFilter =
-                                        value ?? 'All departments',
-                                  ),
-                                ),
-                                const SizedBox(height: 10),
-                                DropdownButtonFormField<String>(
-                                  initialValue: _assignmentFilter,
-                                  isExpanded: true,
-                                  decoration: const InputDecoration(
-                                    labelText: 'Status',
-                                    contentPadding: EdgeInsets.symmetric(
-                                      horizontal: 10,
-                                      vertical: 9,
-                                    ),
-                                  ),
-                                  items:
-                                      const [
-                                            'All assistants',
-                                            'Assigned here',
-                                            'Available',
-                                            'Other offices',
-                                          ]
-                                          .map(
-                                            (value) => DropdownMenuItem(
-                                              value: value,
-                                              child: Text(value),
-                                            ),
-                                          )
-                                          .toList(),
-                                  onChanged: (value) => setState(
-                                    () => _assignmentFilter =
-                                        value ?? 'All assistants',
-                                  ),
-                                ),
-                              ],
-                            )
-                          else
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  flex: 2,
-                                  child: TextField(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (isMobile)
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  TextField(
+                                    controller: _searchController,
                                     decoration: const InputDecoration(
                                       hintText: 'Search assistants',
                                       prefixIcon: Icon(
@@ -1792,12 +1704,41 @@ class _OfficeCardState extends State<_OfficeCard> {
                                     onChanged: (value) =>
                                         setState(() => _search = value),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  flex: 3,
-                                  child: DropdownButtonFormField<String>(
+                                  const SizedBox(height: 10),
+                                  DropdownButtonFormField<String>(
+                                    key: ValueKey('skill:$_skillFilter'),
+                                    initialValue: _skillFilter,
+                                    isExpanded: true,
+                                    decoration: const InputDecoration(
+                                      labelText: 'Skill',
+                                      contentPadding: EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 9,
+                                      ),
+                                    ),
+                                    items: ['All skills', ...allSkills]
+                                        .map(
+                                          (value) => DropdownMenuItem(
+                                            value: value,
+                                            child: Text(
+                                              value,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        )
+                                        .toList(),
+                                    onChanged: (value) => setState(
+                                      () =>
+                                          _skillFilter = value ?? 'All skills',
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+                                  DropdownButtonFormField<String>(
+                                    key: ValueKey(
+                                      'department:$_departmentFilter',
+                                    ),
                                     initialValue: _departmentFilter,
+                                    isExpanded: true,
                                     decoration: const InputDecoration(
                                       labelText: 'Department',
                                       contentPadding: EdgeInsets.symmetric(
@@ -1823,408 +1764,483 @@ class _OfficeCardState extends State<_OfficeCard> {
                                           value ?? 'All departments',
                                     ),
                                   ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  flex: 2,
-                                  child: DropdownButtonFormField<String>(
-                                    initialValue: _skillFilter,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Skill',
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 9,
+                                  // No Status dropdown on mobile: the chips
+                                  // below set the same filter, and a second
+                                  // control cost a row and fell out of sync
+                                  // whenever a chip was tapped.
+                                ],
+                              )
+                            else
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    flex: 2,
+                                    child: TextField(
+                                      controller: _searchController,
+                                      decoration: const InputDecoration(
+                                        hintText: 'Search assistants',
+                                        prefixIcon: Icon(
+                                          Icons.search_rounded,
+                                          size: 17,
+                                        ),
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 9,
+                                        ),
+                                      ),
+                                      onChanged: (value) =>
+                                          setState(() => _search = value),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 3,
+                                    child: DropdownButtonFormField<String>(
+                                      key: ValueKey(
+                                        'department:$_departmentFilter',
+                                      ),
+                                      initialValue: _departmentFilter,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Department',
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 9,
+                                        ),
+                                      ),
+                                      items:
+                                          ['All departments', ...allDepartments]
+                                              .map(
+                                                (value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(
+                                                    value,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                  ),
+                                                ),
+                                              )
+                                              .toList(),
+                                      onChanged: (value) => setState(
+                                        () => _departmentFilter =
+                                            value ?? 'All departments',
                                       ),
                                     ),
-                                    items: ['All skills', ...allSkills]
-                                        .map(
-                                          (value) => DropdownMenuItem(
-                                            value: value,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 2,
+                                    child: DropdownButtonFormField<String>(
+                                      key: ValueKey('skill:$_skillFilter'),
+                                      initialValue: _skillFilter,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Skill',
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 9,
+                                        ),
+                                      ),
+                                      items: ['All skills', ...allSkills]
+                                          .map(
+                                            (value) => DropdownMenuItem(
+                                              value: value,
+                                              child: Text(
+                                                value,
+                                                overflow: TextOverflow.ellipsis,
+                                              ),
+                                            ),
+                                          )
+                                          .toList(),
+                                      onChanged: (value) => setState(
+                                        () => _skillFilter =
+                                            value ?? 'All skills',
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    flex: 2,
+                                    child: DropdownButtonFormField<String>(
+                                      key: ValueKey(
+                                        'status:$_assignmentFilter',
+                                      ),
+                                      initialValue: _assignmentFilter,
+                                      decoration: const InputDecoration(
+                                        labelText: 'Status',
+                                        contentPadding: EdgeInsets.symmetric(
+                                          horizontal: 10,
+                                          vertical: 9,
+                                        ),
+                                      ),
+                                      items:
+                                          const [
+                                                'All assistants',
+                                                'Assigned here',
+                                                'Available',
+                                                'Other offices',
+                                              ]
+                                              .map(
+                                                (value) => DropdownMenuItem(
+                                                  value: value,
+                                                  child: Text(value),
+                                                ),
+                                              )
+                                              .toList(),
+                                      onChanged: (value) => setState(
+                                        () => _assignmentFilter =
+                                            value ?? 'All assistants',
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            const SizedBox(height: 10),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                _filterChip(
+                                  'All Assistants',
+                                  acceptedAssistants.length,
+                                  _assignmentFilter == 'All assistants',
+                                  () => setState(
+                                    () => _assignmentFilter = 'All assistants',
+                                  ),
+                                ),
+                                _filterChip(
+                                  'Assigned Here',
+                                  assignedHereCount,
+                                  _assignmentFilter == 'Assigned here',
+                                  () => setState(
+                                    () => _assignmentFilter = 'Assigned here',
+                                  ),
+                                  color: AppTheme.emerald500,
+                                ),
+                                _filterChip(
+                                  'Available',
+                                  availableCount,
+                                  _assignmentFilter == 'Available',
+                                  () => setState(
+                                    () => _assignmentFilter = 'Available',
+                                  ),
+                                  color: Colors.blue,
+                                ),
+                                _filterChip(
+                                  'Other Offices',
+                                  otherOfficeCount,
+                                  _assignmentFilter == 'Other offices',
+                                  () => setState(
+                                    () => _assignmentFilter = 'Other offices',
+                                  ),
+                                ),
+                                if (hasFilters)
+                                  TextButton.icon(
+                                    onPressed: () => setState(() {
+                                      _search = '';
+                                      _searchController.clear();
+                                      _departmentFilter = 'All departments';
+                                      _skillFilter = 'All skills';
+                                      _assignmentFilter = 'All assistants';
+                                    }),
+                                    icon: const Icon(Icons.close, size: 14),
+                                    label: const Text('Clear filters'),
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            // The assigned count shares a line with the view
+                            // toggle rather than each taking a row of its own.
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: office.assistantIds.isEmpty
+                                      ? const SizedBox.shrink()
+                                      : Text(
+                                          '${office.assistantIds.length} assigned to this office',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.emerald500,
+                                          ),
+                                        ),
+                                ),
+                                const SizedBox(width: 8),
+                                InkWell(
+                                  onTap: () => setState(
+                                    () => _groupByDepartment =
+                                        !_groupByDepartment,
+                                  ),
+                                  borderRadius: BorderRadius.circular(12),
+                                  child: Container(
+                                    constraints: const BoxConstraints(
+                                      minWidth: 126,
+                                      minHeight: 38,
+                                    ),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      border: Border.all(
+                                        color: AppTheme.maroon,
+                                      ),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(
+                                          Icons.layers_outlined,
+                                          size: 15,
+                                          color: AppTheme.maroon,
+                                        ),
+                                        const SizedBox(width: 8),
+                                        Text(
+                                          _groupByDepartment
+                                              ? 'Grouped'
+                                              : 'Flat list',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                            color: AppTheme.maroon,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            if (visibleAssistants.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 18),
+                                child: Center(
+                                  child: Text(
+                                    'No assistants match these filters',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: AppTheme.slate400,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            if (acceptedAssistants.isEmpty)
+                              const Text(
+                                'No active student assistants available',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppTheme.slate400,
+                                ),
+                              ),
+                            if (_groupByDepartment)
+                              ...departments.expand(
+                                (department) => [
+                                  Padding(
+                                    padding: const EdgeInsets.only(
+                                      top: 8,
+                                      bottom: 2,
+                                    ),
+                                    child: Text(
+                                      department.toUpperCase(),
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w800,
+                                        color: AppTheme.maroon,
+                                        letterSpacing: 0.6,
+                                      ),
+                                    ),
+                                  ),
+                                  ...assistantsByDepartment[department]!.map((
+                                    user,
+                                  ) {
+                                    final selected = office.assistantIds
+                                        .contains(user.id);
+                                    final assignedOfficeNames = state.offices
+                                        .where(
+                                          (item) => item.assistantIds.contains(
+                                            user.id,
+                                          ),
+                                        )
+                                        .map((item) => item.name)
+                                        .toList();
+                                    final matchScore = state
+                                        .recommendationScoreForOffice(
+                                          user,
+                                          office,
+                                        );
+                                    final locked = _isLockedElsewhere(
+                                      state,
+                                      user,
+                                    );
+                                    return CheckboxListTile(
+                                      dense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      value: selected,
+                                      title: Row(
+                                        children: [
+                                          Flexible(
                                             child: Text(
-                                              value,
+                                              user.name,
                                               overflow: TextOverflow.ellipsis,
                                             ),
                                           ),
-                                        )
-                                        .toList(),
-                                    onChanged: (value) => setState(
-                                      () =>
-                                          _skillFilter = value ?? 'All skills',
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  flex: 2,
-                                  child: DropdownButtonFormField<String>(
-                                    initialValue: _assignmentFilter,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Status',
-                                      contentPadding: EdgeInsets.symmetric(
-                                        horizontal: 10,
-                                        vertical: 9,
+                                          const SizedBox(width: 8),
+                                          _matchBadge(matchScore),
+                                        ],
                                       ),
-                                    ),
-                                    items:
-                                        const [
-                                              'All assistants',
-                                              'Assigned here',
-                                              'Available',
-                                              'Other offices',
-                                            ]
-                                            .map(
-                                              (value) => DropdownMenuItem(
-                                                value: value,
-                                                child: Text(value),
-                                              ),
-                                            )
-                                            .toList(),
-                                    onChanged: (value) => setState(
-                                      () => _assignmentFilter =
-                                          value ?? 'All assistants',
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
-                            children: [
-                              _filterChip(
-                                'All Assistants',
-                                acceptedAssistants.length,
-                                _assignmentFilter == 'All assistants',
-                                () => setState(
-                                  () => _assignmentFilter = 'All assistants',
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              _filterChip(
-                                'Assigned Here',
-                                assignedHereCount,
-                                _assignmentFilter == 'Assigned here',
-                                () => setState(
-                                  () => _assignmentFilter = 'Assigned here',
-                                ),
-                                color: AppTheme.emerald500,
-                              ),
-                              const SizedBox(width: 6),
-                              _filterChip(
-                                'Available',
-                                availableCount,
-                                _assignmentFilter == 'Available',
-                                () => setState(
-                                  () => _assignmentFilter = 'Available',
-                                ),
-                                color: Colors.blue,
-                              ),
-                              const SizedBox(width: 6),
-                              _filterChip(
-                                'Other Offices',
-                                otherOfficeCount,
-                                _assignmentFilter == 'Other offices',
-                                () => setState(
-                                  () => _assignmentFilter = 'Other offices',
-                                ),
-                              ),
-                              if (hasFilters) ...[
-                                const SizedBox(width: 12),
-                                TextButton.icon(
-                                  onPressed: () => setState(() {
-                                    _search = '';
-                                    _departmentFilter = 'All departments';
-                                    _skillFilter = 'All skills';
-                                    _assignmentFilter = 'All assistants';
-                                  }),
-                                  icon: const Icon(Icons.close, size: 14),
-                                  label: const Text('Clear filters'),
-                                ),
-                              ],
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Align(
-                            alignment: Alignment.centerRight,
-                            child: InkWell(
-                              onTap: () => setState(
-                                () => _groupByDepartment = !_groupByDepartment,
-                              ),
-                              borderRadius: BorderRadius.circular(12),
-                              child: Container(
-                                constraints: const BoxConstraints(
-                                  minWidth: 126,
-                                  minHeight: 38,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 14,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white,
-                                  border: Border.all(color: AppTheme.maroon),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    const Icon(
-                                      Icons.layers_outlined,
-                                      size: 15,
-                                      color: AppTheme.maroon,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      _groupByDepartment
-                                          ? 'Grouped'
-                                          : 'Flat list',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w700,
-                                        color: AppTheme.maroon,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          if (visibleAssistants.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 18),
-                              child: Center(
-                                child: Text(
-                                  'No assistants match these filters',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: AppTheme.slate400,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          if (office.assistantIds.isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(bottom: 6),
-                              child: Text(
-                                '${office.assistantIds.length} assigned to this office',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: AppTheme.emerald500,
-                                ),
-                              ),
-                            ),
-                          if (acceptedAssistants.isEmpty)
-                            const Text(
-                              'No active student assistants available',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: AppTheme.slate400,
-                              ),
-                            ),
-                          if (_groupByDepartment)
-                            ...departments.expand(
-                              (department) => [
-                                Padding(
-                                  padding: const EdgeInsets.only(
-                                    top: 8,
-                                    bottom: 2,
-                                  ),
-                                  child: Text(
-                                    department.toUpperCase(),
-                                    style: const TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w800,
-                                      color: AppTheme.maroon,
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                ),
-                                ...assistantsByDepartment[department]!.map((
-                                  user,
-                                ) {
-                                  final selected = office.assistantIds.contains(
-                                    user.id,
-                                  );
-                                  final assignedOfficeNames = state.offices
-                                      .where(
-                                        (item) =>
-                                            item.assistantIds.contains(user.id),
-                                      )
-                                      .map((item) => item.name)
-                                      .toList();
-                                  final matchScore = state
-                                      .recommendationScoreForOffice(
-                                        user,
-                                        office,
-                                      );
-                                  final locked = _isLockedElsewhere(
-                                    state,
-                                    user,
-                                  );
-                                  return CheckboxListTile(
-                                    dense: true,
-                                    contentPadding: EdgeInsets.zero,
-                                    value: selected,
-                                    title: Row(
-                                      children: [
-                                        Flexible(
-                                          child: Text(
-                                            user.name,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
+                                      subtitle: Text(
+                                        [
+                                          assignedOfficeNames.isEmpty
+                                              ? 'Unassigned'
+                                              : locked
+                                              ? 'Assigned: ${assignedOfficeNames.join(', ')} — remove there first'
+                                              : 'Assigned: ${assignedOfficeNames.join(', ')}',
+                                          if (state
+                                              .skillsForUser(user)
+                                              .isNotEmpty)
+                                            'Skills: ${state.skillsForUser(user).join(', ')}',
+                                        ].join(' • '),
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: locked
+                                              ? AppTheme.amber500
+                                              : AppTheme.slate500,
                                         ),
-                                        const SizedBox(width: 8),
-                                        _matchBadge(matchScore),
-                                      ],
-                                    ),
-                                    subtitle: Text(
-                                      [
-                                        assignedOfficeNames.isEmpty
-                                            ? 'Unassigned'
-                                            : locked
-                                            ? 'Assigned: ${assignedOfficeNames.join(', ')} — remove there first'
-                                            : 'Assigned: ${assignedOfficeNames.join(', ')}',
-                                        if (state
-                                            .skillsForUser(user)
-                                            .isNotEmpty)
-                                          'Skills: ${state.skillsForUser(user).join(', ')}',
-                                      ].join(' • '),
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        color: locked
-                                            ? AppTheme.amber500
-                                            : AppTheme.slate500,
                                       ),
-                                    ),
-                                    onChanged: locked
-                                        ? null
-                                        : (checked) async {
-                                            final confirmed = await showConfirmDialog(
-                                              context,
-                                              title: checked == true
-                                                  ? 'Assign Student Assistant'
-                                                  : 'Remove Student Assistant',
-                                              message: checked == true
-                                                  ? 'Assign ${user.name} to ${office.name}?'
-                                                  : 'Remove ${user.name} from ${office.name}?',
-                                              confirmLabel: checked == true
-                                                  ? 'Assign'
-                                                  : 'Remove',
-                                              confirmColor: checked == true
-                                                  ? AppTheme.maroon
-                                                  : AppTheme.red500,
-                                            );
-                                            if (!confirmed || !context.mounted)
-                                              return;
-                                            final ids = [
-                                              ...office.assistantIds,
-                                            ];
-                                            if (checked == true &&
-                                                !ids.contains(user.id))
-                                              ids.add(user.id);
-                                            if (checked != true)
-                                              ids.remove(user.id);
-                                            final assistants =
-                                                acceptedAssistants
-                                                    .where(
-                                                      (item) =>
-                                                          ids.contains(item.id),
-                                                    )
-                                                    .toList();
-                                            final assigned = await context
-                                                .read<AppState>()
-                                                .assignStudentAssistantsToOffice(
-                                                  office.id,
-                                                  assistants,
-                                                );
-                                            if (!assigned && context.mounted) {
-                                              ScaffoldMessenger.of(
+                                      onChanged: locked
+                                          ? null
+                                          : (checked) async {
+                                              final confirmed = await showConfirmDialog(
                                                 context,
-                                              ).showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    '${office.name} can have at most ${office.capacity} student assistant${office.capacity == 1 ? '' : 's'}.',
-                                                  ),
-                                                  backgroundColor:
-                                                      AppTheme.red500,
-                                                  behavior:
-                                                      SnackBarBehavior.floating,
-                                                  shape: RoundedRectangleBorder(
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                          10,
+                                                title: checked == true
+                                                    ? 'Assign Student Assistant'
+                                                    : 'Remove Student Assistant',
+                                                message: checked == true
+                                                    ? 'Assign ${user.name} to ${office.name}?'
+                                                    : 'Remove ${user.name} from ${office.name}?',
+                                                confirmLabel: checked == true
+                                                    ? 'Assign'
+                                                    : 'Remove',
+                                                confirmColor: checked == true
+                                                    ? AppTheme.maroon
+                                                    : AppTheme.red500,
+                                              );
+                                              if (!confirmed ||
+                                                  !context.mounted)
+                                                return;
+                                              final ids = [
+                                                ...office.assistantIds,
+                                              ];
+                                              if (checked == true &&
+                                                  !ids.contains(user.id))
+                                                ids.add(user.id);
+                                              if (checked != true)
+                                                ids.remove(user.id);
+                                              final assistants =
+                                                  acceptedAssistants
+                                                      .where(
+                                                        (item) => ids.contains(
+                                                          item.id,
+                                                        ),
+                                                      )
+                                                      .toList();
+                                              final assigned = await context
+                                                  .read<AppState>()
+                                                  .assignStudentAssistantsToOffice(
+                                                    office.id,
+                                                    assistants,
+                                                  );
+                                              if (!assigned &&
+                                                  context.mounted) {
+                                                ScaffoldMessenger.of(
+                                                  context,
+                                                ).showSnackBar(
+                                                  SnackBar(
+                                                    content: Text(
+                                                      '${office.name} can have at most ${office.capacity} student assistant${office.capacity == 1 ? '' : 's'}.',
+                                                    ),
+                                                    backgroundColor:
+                                                        AppTheme.red500,
+                                                    behavior: SnackBarBehavior
+                                                        .floating,
+                                                    shape: RoundedRectangleBorder(
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            10,
+                                                          ),
+                                                    ),
+                                                    margin:
+                                                        const EdgeInsets.all(
+                                                          16,
                                                         ),
                                                   ),
-                                                  margin: const EdgeInsets.all(
-                                                    16,
-                                                  ),
-                                                ),
-                                              );
-                                            }
-                                          },
-                                  );
-                                }),
-                              ],
-                            ),
-                          if (!_groupByDepartment)
-                            ...sortedVisibleAssistants.map((user) {
-                              final selected = office.assistantIds.contains(
-                                user.id,
-                              );
-                              final matchScore = state
-                                  .recommendationScoreForOffice(user, office);
-                              final locked = _isLockedElsewhere(state, user);
-                              return CheckboxListTile(
-                                dense: true,
-                                contentPadding: EdgeInsets.zero,
-                                value: selected,
-                                title: Row(
-                                  children: [
-                                    Flexible(
-                                      child: Text(
-                                        user.name,
-                                        overflow: TextOverflow.ellipsis,
+                                                );
+                                              }
+                                            },
+                                    );
+                                  }),
+                                ],
+                              ),
+                            if (!_groupByDepartment)
+                              ...sortedVisibleAssistants.map((user) {
+                                final selected = office.assistantIds.contains(
+                                  user.id,
+                                );
+                                final matchScore = state
+                                    .recommendationScoreForOffice(user, office);
+                                final locked = _isLockedElsewhere(state, user);
+                                return CheckboxListTile(
+                                  dense: true,
+                                  contentPadding: EdgeInsets.zero,
+                                  value: selected,
+                                  title: Row(
+                                    children: [
+                                      Flexible(
+                                        child: Text(
+                                          user.name,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    _matchBadge(matchScore),
-                                  ],
-                                ),
-                                subtitle: Text(
-                                  state.offices
-                                          .where(
-                                            (item) => item.assistantIds
-                                                .contains(user.id),
-                                          )
-                                          .isEmpty
-                                      ? 'Available'
-                                      : selected
-                                      ? 'Assigned to this office'
-                                      : 'Assigned to another office — remove there first',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: selected
-                                        ? AppTheme.emerald500
-                                        : locked
-                                        ? AppTheme.amber500
-                                        : AppTheme.slate500,
-                                    fontWeight: FontWeight.w600,
+                                      const SizedBox(width: 8),
+                                      _matchBadge(matchScore),
+                                    ],
                                   ),
-                                ),
-                                onChanged: locked
-                                    ? null
-                                    : (checked) => _toggleAssistant(
-                                        context,
-                                        user,
-                                        checked == true,
-                                      ),
-                              );
-                            }),
-                        ],
+                                  subtitle: Text(
+                                    state.offices
+                                            .where(
+                                              (item) => item.assistantIds
+                                                  .contains(user.id),
+                                            )
+                                            .isEmpty
+                                        ? 'Available'
+                                        : selected
+                                        ? 'Assigned to this office'
+                                        : 'Assigned to another office — remove there first',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: selected
+                                          ? AppTheme.emerald500
+                                          : locked
+                                          ? AppTheme.amber500
+                                          : AppTheme.slate500,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  onChanged: locked
+                                      ? null
+                                      : (checked) => _toggleAssistant(
+                                          context,
+                                          user,
+                                          checked == true,
+                                        ),
+                                );
+                              }),
+                          ],
+                        ),
                       ),
                     ),
                   ),

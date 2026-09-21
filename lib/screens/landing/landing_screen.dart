@@ -145,12 +145,21 @@ class _LandingScreenState extends State<LandingScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _maxContentWidth),
             child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 32),
+              // The menu button's 24px icon sits centred in a 48px tap target,
+              // so trimming 12px on that side lines the icon up with the page
+              // edge the logo and hero copy use.
+              padding: EdgeInsets.only(
+                left: isMobile ? 20 : 32,
+                right: (isMobile ? 20 : 32) - (useDrawerNav ? 12 : 0),
+              ),
               child: Row(
                 children: [
                   const AppLogo(size: 40, shadow: []),
                   const SizedBox(width: 12),
-                  Flexible(
+                  // Expanded, not Flexible + Spacer: those split the free
+                  // space in half, and the half the wordmark didn't use was
+                  // left empty after the menu, stranding it mid-bar.
+                  Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -186,7 +195,6 @@ class _LandingScreenState extends State<LandingScreen> {
                       ],
                     ),
                   ),
-                  const Spacer(),
                   if (!useDrawerNav) ...[
                     _navLink(
                       'Features',

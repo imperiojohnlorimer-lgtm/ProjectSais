@@ -364,84 +364,93 @@ class _PerformanceEvaluationScreenState
                     ),
                   ],
                   const SizedBox(height: 14),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (existing != null) ...[
-                        OutlinedButton.icon(
-                          onPressed: () =>
-                              _downloadEvaluation(context, existing),
-                          icon: const Icon(Icons.download_rounded, size: 16),
-                          label: const Text(
-                            'Download',
-                            style: TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
+                  LayoutBuilder(
+                    builder: (_, constraints) {
+                      // Three buttons don't fit on one line on a phone, so
+                      // there the secondary actions pair up above a
+                      // full-width primary button instead of running off the
+                      // edge of the card.
+                      final compact = constraints.maxWidth < 480;
+                      final buttonPadding = EdgeInsets.symmetric(
+                        horizontal: compact ? 10 : 16,
+                        vertical: 11,
+                      );
+                      final buttonShape = RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(11),
+                      );
+                      Widget label(String text) {
+                        final t = Text(
+                          text,
+                          maxLines: 1,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
                           ),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.maroon,
-                            side: const BorderSide(
-                              color: AppTheme.maroon,
-                              width: 1.3,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 11,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(11),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (existing.status == 'Submitted')
-                          OutlinedButton.icon(
-                            onPressed: existing.sentToHead
-                                ? null
-                                : () => _sendEvaluationToHead(
-                                    context,
-                                    state,
-                                    existing,
-                                  ),
-                            icon: Icon(
-                              existing.sentToHead
-                                  ? Icons.check_circle_rounded
-                                  : Icons.send_rounded,
-                              size: 16,
-                            ),
-                            label: Text(
-                              existing.sentToHead
-                                  ? 'Sent to Head'
-                                  : 'Send to Head',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13,
+                        );
+                        // Shrink rather than clip when half a phone-width
+                        // button is still too narrow for the label.
+                        return compact
+                            ? FittedBox(fit: BoxFit.scaleDown, child: t)
+                            : t;
+                      }
+
+                      final downloadButton = existing == null
+                          ? null
+                          : OutlinedButton.icon(
+                              onPressed: () =>
+                                  _downloadEvaluation(context, existing),
+                              icon: const Icon(
+                                Icons.download_rounded,
+                                size: 16,
                               ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: existing.sentToHead
-                                  ? AppTheme.emerald500
-                                  : AppTheme.maroon,
-                              disabledForegroundColor: AppTheme.emerald500,
-                              side: BorderSide(
-                                color: existing.sentToHead
+                              label: label('Download'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: AppTheme.maroon,
+                                side: const BorderSide(
+                                  color: AppTheme.maroon,
+                                  width: 1.3,
+                                ),
+                                padding: buttonPadding,
+                                shape: buttonShape,
+                              ),
+                            );
+                      final sendButton = existing?.status != 'Submitted'
+                          ? null
+                          : OutlinedButton.icon(
+                              onPressed: existing!.sentToHead
+                                  ? null
+                                  : () => _sendEvaluationToHead(
+                                      context,
+                                      state,
+                                      existing,
+                                    ),
+                              icon: Icon(
+                                existing.sentToHead
+                                    ? Icons.check_circle_rounded
+                                    : Icons.send_rounded,
+                                size: 16,
+                              ),
+                              label: label(
+                                existing.sentToHead
+                                    ? 'Sent to Head'
+                                    : 'Send to Head',
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: existing.sentToHead
                                     ? AppTheme.emerald500
                                     : AppTheme.maroon,
-                                width: 1.3,
+                                disabledForegroundColor: AppTheme.emerald500,
+                                side: BorderSide(
+                                  color: existing.sentToHead
+                                      ? AppTheme.emerald500
+                                      : AppTheme.maroon,
+                                  width: 1.3,
+                                ),
+                                padding: buttonPadding,
+                                shape: buttonShape,
                               ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                                vertical: 11,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(11),
-                              ),
-                            ),
-                          ),
-                        const SizedBox(width: 8),
-                      ],
-                      ElevatedButton.icon(
+                            );
+                      final primaryButton = ElevatedButton.icon(
                         onPressed: () => _openEvaluationForm(
                           context,
                           state,
@@ -456,29 +465,50 @@ class _PerformanceEvaluationScreenState
                               : Icons.edit_rounded,
                           size: 16,
                         ),
-                        label: Text(
+                        label: label(
                           existing == null
                               ? 'Evaluate'
                               : 'View / Edit Evaluation',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w700,
-                            fontSize: 13,
-                          ),
                         ),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.maroon,
                           foregroundColor: Colors.white,
                           elevation: 0,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 11,
-                          ),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(11),
-                          ),
+                          padding: buttonPadding,
+                          shape: buttonShape,
                         ),
-                      ),
-                    ],
+                      );
+                      final secondary = [?downloadButton, ?sendButton];
+
+                      if (!compact) {
+                        return Align(
+                          alignment: Alignment.centerRight,
+                          child: Wrap(
+                            alignment: WrapAlignment.end,
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [...secondary, primaryButton],
+                          ),
+                        );
+                      }
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          if (secondary.isNotEmpty) ...[
+                            Row(
+                              children: [
+                                for (var i = 0; i < secondary.length; i++) ...[
+                                  if (i > 0) const SizedBox(width: 8),
+                                  Expanded(child: secondary[i]),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          primaryButton,
+                        ],
+                      );
+                    },
                   ),
                 ],
               ),
