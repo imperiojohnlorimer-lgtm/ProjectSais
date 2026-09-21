@@ -8,16 +8,26 @@ import '../theme/app_theme.dart';
 // always request a fresh one from attachmentPath first — the edge function
 // treats the 'announcements' storage root as public, so any signed-in
 // viewer can refresh it, not just the Head who uploaded it.
-Future<void> _openAttachment(BuildContext context, Announcement announcement) async {
+Future<void> _openAttachment(
+  BuildContext context,
+  Announcement announcement,
+) async {
   if (!announcement.hasAttachment) return;
   final messenger = ScaffoldMessenger.of(context);
   try {
     String? url = announcement.attachmentUrl;
-    if (announcement.attachmentPath != null && announcement.attachmentPath!.isNotEmpty) {
-      url = await SupabaseStorageService.instance.getDocumentUrl(announcement.attachmentPath!);
+    if (announcement.attachmentPath != null &&
+        announcement.attachmentPath!.isNotEmpty) {
+      url = await SupabaseStorageService.instance.getDocumentUrl(
+        announcement.attachmentPath!,
+      );
     }
-    if (url == null || url.isEmpty) throw Exception('No file content available.');
-    final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    if (url == null || url.isEmpty)
+      throw Exception('No file content available.');
+    final opened = await launchUrl(
+      Uri.parse(url),
+      mode: LaunchMode.externalApplication,
+    );
     if (!opened) throw Exception('The browser could not open the file.');
   } catch (e) {
     messenger.showSnackBar(
@@ -110,184 +120,205 @@ class AnnouncementCard extends StatelessWidget {
     final statusIcon = _statusIconFor(announcement);
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.slate200),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor ?? AppTheme.slate200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
+            color: AppTheme.slate900.withValues(alpha: 0.03),
             blurRadius: 10,
-            offset: const Offset(0, 3),
+            offset: const Offset(0, 2),
           ),
         ],
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 40,
-                height: 40,
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Icon(
-                  Icons.campaign_rounded,
-                  color: Colors.white,
-                  size: 20,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            announcement.title,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              fontWeight: FontWeight.w800,
-                              color: AppTheme.slate900,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        // Status shows as a rail down the side, matching the Reports and
+        // Performance Evaluation cards. Positioned rather than a Row child,
+        // because the card is laid out inside a scroll view where a
+        // stretching Row would be handed an unbounded height.
+        child: Stack(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(17, 12, 14, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 38,
+                        height: 38,
+                        decoration: BoxDecoration(
+                          color: statusColor.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Icon(
+                          Icons.campaign_rounded,
+                          color: statusColor,
+                          size: 19,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    announcement.title,
+                                    style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.slate900,
+                                    ),
+                                  ),
+                                ),
+                                if (trailing != null) ...[
+                                  const SizedBox(width: 8),
+                                  trailing!,
+                                ] else
+                                  _StatusBadge(
+                                    color: statusColor,
+                                    icon: statusIcon,
+                                    label: statusLabel,
+                                  ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Posted by ${announcement.postedBy} · ${announcement.postedAt}',
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: AppTheme.slate400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    announcement.body,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppTheme.slate600,
+                      height: 1.6,
+                    ),
+                    maxLines: compact ? 2 : 4,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      if (announcement.officeName != null)
+                        _Chip(
+                          Icons.apartment_rounded,
+                          announcement.officeName!,
+                          AppTheme.maroon,
+                        ),
+                      if (announcement.deadline != null)
+                        _Chip(
+                          Icons.event_rounded,
+                          'Due ${announcement.deadline!}',
+                          AppTheme.amber500,
+                        ),
+                      if (announcement.slots != null)
+                        _Chip(
+                          Icons.people_rounded,
+                          '${announcement.slots} slots',
+                          AppTheme.blue500,
+                        ),
+                    ],
+                  ),
+                  if (announcement.requirements.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: announcement.requirements
+                          .map((req) => RequirementChip(label: req))
+                          .toList(),
+                    ),
+                  ],
+                  if (announcement.hasAttachment) ...[
+                    const SizedBox(height: 12),
+                    AnnouncementAttachmentTile(announcement: announcement),
+                  ],
+                  if (announcement.isRejected &&
+                      announcement.rejectionReason != null &&
+                      announcement.rejectionReason!.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: AppTheme.red50,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: AppTheme.red500.withValues(alpha: 0.2),
+                        ),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(
+                            Icons.comment_outlined,
+                            size: 14,
+                            color: AppTheme.red500,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Reason: ${announcement.rejectionReason}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate700,
+                              ),
                             ),
                           ),
-                        ),
-                        if (trailing != null) ...[
-                          const SizedBox(width: 8),
-                          trailing!,
-                        ] else
-                          _StatusBadge(
-                            color: statusColor,
-                            icon: statusIcon,
-                            label: statusLabel,
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Posted by ${announcement.postedBy} · ${announcement.postedAt}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AppTheme.slate400,
+                        ],
                       ),
                     ),
                   ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            announcement.body,
-            style: const TextStyle(
-              fontSize: 12.5,
-              color: AppTheme.slate600,
-              height: 1.6,
-            ),
-            maxLines: compact ? 2 : 4,
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              if (announcement.officeName != null)
-                _Chip(
-                  Icons.apartment_rounded,
-                  announcement.officeName!,
-                  AppTheme.maroon,
-                ),
-              if (announcement.deadline != null)
-                _Chip(
-                  Icons.event_rounded,
-                  'Due ${announcement.deadline!}',
-                  AppTheme.amber500,
-                ),
-              if (announcement.slots != null)
-                _Chip(
-                  Icons.people_rounded,
-                  '${announcement.slots} slots',
-                  AppTheme.blue500,
-                ),
-            ],
-          ),
-          if (announcement.requirements.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: announcement.requirements
-                  .map((req) => RequirementChip(label: req))
-                  .toList(),
-            ),
-          ],
-          if (announcement.hasAttachment) ...[
-            const SizedBox(height: 12),
-            AnnouncementAttachmentTile(announcement: announcement),
-          ],
-          if (announcement.isRejected &&
-              announcement.rejectionReason != null &&
-              announcement.rejectionReason!.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(10),
-              decoration: BoxDecoration(
-                color: AppTheme.red50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: AppTheme.red500.withValues(alpha: 0.2),
-                ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Icon(
-                    Icons.comment_outlined,
-                    size: 14,
-                    color: AppTheme.red500,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Reason: ${announcement.rejectionReason}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.slate700,
+                  const SizedBox(height: 14),
+                  Divider(color: AppTheme.slate100, height: 1),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Submitted ${announcement.postedAt}',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.slate400,
+                          ),
+                        ),
                       ),
-                    ),
+                      if (showActions && footerActions != null)
+                        ...footerActions!,
+                    ],
                   ),
                 ],
               ),
             ),
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 3,
+              child: ColoredBox(color: statusColor),
+            ),
           ],
-          const SizedBox(height: 14),
-          Divider(color: AppTheme.slate100, height: 1),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Submitted ${announcement.postedAt}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.slate400,
-                  ),
-                ),
-              ),
-              if (showActions && footerActions != null) ...footerActions!,
-            ],
-          ),
-        ],
+        ),
       ),
     );
   }

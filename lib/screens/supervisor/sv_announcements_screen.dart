@@ -4,6 +4,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/announcement_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class SvAnnouncementsScreen extends StatelessWidget {
   const SvAnnouncementsScreen({super.key});
@@ -15,38 +16,70 @@ class SvAnnouncementsScreen extends StatelessWidget {
     final isMobile = MediaQuery.of(context).size.width < 700;
     final hPad = isMobile ? 16.0 : 28.0;
 
+    final pending = mine.where((a) => a.approvalStatus == 'Pending').length;
+    final approved = mine.where((a) => a.approvalStatus == 'Approved').length;
+    final rejected = mine.where((a) => a.approvalStatus == 'Rejected').length;
+    final reviewedFraction = mine.isEmpty
+        ? 0.0
+        : (mine.length - pending) / mine.length;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // ── Header ──────────────────────────────────────────
         Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-          child: isMobile
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _header(),
-                    const SizedBox(height: 16),
-                    SizedBox(
-                      width: double.infinity,
-                      child: _submitButton(context, state),
-                    ),
-                  ],
-                )
-              : Row(
-                  children: [
-                    _header(),
-                    const Spacer(),
-                    _submitButton(context, state),
-                  ],
-                ),
+          child: HeroBanner(
+            isMobile: isMobile,
+            icon: Icons.campaign_rounded,
+            title: 'Request Student Assistant',
+            subtitle:
+                'Request a student assistant for your office — sent to '
+                'admin for approval',
+            addLabel: 'New Request',
+            onAdd: () => _showSubmitDialog(context, state),
+            stats: [
+              HeroStatData(
+                label: 'Requests',
+                value: '${mine.length}',
+                icon: Icons.inbox_rounded,
+              ),
+              HeroStatData(
+                label: 'Pending',
+                value: '$pending',
+                icon: Icons.hourglass_top_rounded,
+              ),
+              HeroStatData(
+                label: 'Approved',
+                value: '$approved',
+                icon: Icons.check_circle_rounded,
+              ),
+              HeroStatData(
+                label: 'Rejected',
+                value: '$rejected',
+                icon: Icons.cancel_rounded,
+              ),
+            ],
+          ),
         ),
-        const SizedBox(height: 20),
+        const SizedBox(height: 14),
+
+        // ── Content ─────────────────────────────────────────
         Expanded(
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                if (mine.isNotEmpty) ...[
+                  ProgressStrip(
+                    label: 'Reviewed',
+                    icon: Icons.fact_check_rounded,
+                    progress: reviewedFraction,
+                    trailing: '${mine.length - pending}/${mine.length}',
+                  ),
+                  const SizedBox(height: 14),
+                ],
                 if (mine.isEmpty)
                   Center(
                     child: Padding(
@@ -112,60 +145,6 @@ class SvAnnouncementsScreen extends StatelessWidget {
     );
   }
 
-  Widget _header() => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Row(
-        children: [
-          Container(
-            width: 4,
-            height: 28,
-            decoration: BoxDecoration(
-              color: AppTheme.maroon,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          ),
-          const SizedBox(width: 10),
-          const Text(
-            'Request Student Assistant',
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              letterSpacing: -0.3,
-            ),
-          ),
-        ],
-      ),
-      const Padding(
-        padding: EdgeInsets.only(left: 14, top: 3),
-        child: Text(
-          'Request a student assistant for your office — sent to admin for approval',
-          style: TextStyle(fontSize: 13, color: AppTheme.slate400),
-        ),
-      ),
-    ],
-  );
-
-  Widget _submitButton(BuildContext context, AppState state) =>
-      ElevatedButton.icon(
-        onPressed: () => _showSubmitDialog(context, state),
-        icon: const Icon(Icons.add_rounded, size: 15),
-        label: const Text(
-          'Request Student Assistant',
-          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-        ),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: AppTheme.maroon,
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          elevation: 0,
-        ),
-      );
-
   void _showSubmitDialog(BuildContext context, AppState state) {
     final titleCtrl = TextEditingController();
     final bodyCtrl = TextEditingController();
@@ -183,7 +162,8 @@ class SvAnnouncementsScreen extends StatelessWidget {
       context: context,
       builder: (_) => AnnouncementDialog(
         title: 'Request Student Assistant',
-        subtitle: 'Request a student assistant for your office — sent to admin for review',
+        subtitle:
+            'Request a student assistant for your office — sent to admin for review',
         icon: Icons.campaign_outlined,
         onClose: () => Navigator.pop(context),
         fields: [
@@ -372,11 +352,16 @@ class SvAnnouncementsScreen extends StatelessWidget {
             if (officeName == null || officeName.isEmpty) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Please select or enter an office for this request.'),
-        backgroundColor: AppTheme.amber500,
+                  content: Text(
+                    'Please select or enter an office for this request.',
+                  ),
+                  backgroundColor: AppTheme.amber500,
                   behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  margin: const EdgeInsets.all(16),
+                ),
               );
               return;
             }
@@ -384,10 +369,13 @@ class SvAnnouncementsScreen extends StatelessWidget {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Title and description are required.'),
-        backgroundColor: AppTheme.amber500,
+                  backgroundColor: AppTheme.amber500,
                   behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  margin: const EdgeInsets.all(16),
+                ),
               );
               return;
             }
@@ -500,29 +488,28 @@ class _OfficePickerFieldState extends State<_OfficePickerField> {
     text: widget.selection.customName,
   );
 
-  InputDecoration _decoration({required String label, required IconData icon}) =>
-      InputDecoration(
-        labelText: label,
-        prefixIcon: Icon(icon, color: AppTheme.maroon, size: 17),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.slate200),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.slate200),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
-        ),
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
-        ),
-      );
+  InputDecoration _decoration({
+    required String label,
+    required IconData icon,
+  }) => InputDecoration(
+    labelText: label,
+    prefixIcon: Icon(icon, color: AppTheme.maroon, size: 17),
+    border: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: AppTheme.slate200),
+    ),
+    enabledBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: AppTheme.slate200),
+    ),
+    focusedBorder: OutlineInputBorder(
+      borderRadius: BorderRadius.circular(10),
+      borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
+    ),
+    filled: true,
+    fillColor: Colors.white,
+    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+  );
 
   @override
   Widget build(BuildContext context) {

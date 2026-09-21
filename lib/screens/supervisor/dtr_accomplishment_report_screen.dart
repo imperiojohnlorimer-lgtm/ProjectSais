@@ -1440,6 +1440,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
               _sectionCard(
                 number: 1,
                 title: 'Daily Time Record',
+                icon: Icons.access_time_filled_rounded,
                 subtitle:
                     'Automatically pulled from this student\'s actual clock-in/'
                     'out records for the month — AM/PM in/out and hours are '
@@ -1615,98 +1616,98 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   }) => Container(
     decoration: BoxDecoration(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.slate200),
       boxShadow: [
         BoxShadow(
-          color: AppTheme.maroon.withValues(alpha: 0.06),
-          blurRadius: 20,
-          offset: const Offset(0, 4),
-        ),
-        BoxShadow(
-          color: Colors.black.withValues(alpha: 0.03),
-          blurRadius: 6,
-          offset: const Offset(0, 1),
+          color: AppTheme.slate900.withValues(alpha: 0.03),
+          blurRadius: 10,
+          offset: const Offset(0, 2),
         ),
       ],
     ),
-    child: Column(
-      children: [
-        // Top accent strip — matches the Schedule calendar card.
-        Container(
-          height: 5,
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppTheme.maroon, AppTheme.maroonDark],
-            ),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.all(18),
-          child: Column(
+    child: Padding(
+      padding: const EdgeInsets.all(18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  if (number != null) ...[
-                    Container(
-                      width: 24,
-                      height: 24,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [AppTheme.maroon, AppTheme.maroonDark],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        shape: BoxShape.circle,
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.maroon.withValues(alpha: 0.3),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: Text(
-                        '$number',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                  ],
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.slate900,
-                      ),
-                    ),
-                  ),
-                  if (trailing != null) trailing,
-                ],
+              // Step marker: flat tinted square with the section's own icon,
+              // and the step number beside the title rather than a filled
+              // maroon disc with a glow.
+              Container(
+                width: 30,
+                height: 30,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: AppTheme.maroon50,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 16, color: AppTheme.maroon),
               ),
-              const SizedBox(height: 4),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: AppTheme.slate500,
-                  height: 1.4,
+              const SizedBox(width: 11),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (number != null) ...[
+                          Text(
+                            'STEP $number',
+                            style: const TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.slate400,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Container(
+                            width: 3,
+                            height: 3,
+                            decoration: const BoxDecoration(
+                              color: AppTheme.slate300,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                        Flexible(
+                          child: Text(
+                            title,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.slate900,
+                              letterSpacing: -0.2,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.slate500,
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 14),
-              child,
+              if (trailing != null) ...[const SizedBox(width: 10), trailing],
             ],
           ),
-        ),
-      ],
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
     ),
   );
 
@@ -1759,17 +1760,12 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         _dtrSummaryBar(),
         const SizedBox(height: 16),
         Container(
+          // No shadow: this grid already sits inside the section card, and
+          // a second drop shadow just muddies the edge between them.
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppTheme.slate200),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.slate900.withValues(alpha: 0.05),
-                blurRadius: 18,
-                offset: const Offset(0, 6),
-              ),
-            ],
           ),
           clipBehavior: Clip.antiAlias,
           child: LayoutBuilder(
@@ -1832,36 +1828,22 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: accentColor?.withValues(alpha: 0.25) ?? AppTheme.slate200,
-        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.slate200),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.slate900.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: AppTheme.slate900.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Stack(
         children: [
-          // Thin top accent strip — only for weekends/holidays or rows that
-          // need attention, so a glance down the list tells you which days
-          // to look at twice.
-          if (accentColor != null)
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [accentColor, accentColor.withValues(alpha: 0.35)],
-                ),
-              ),
-            ),
           Padding(
-            padding: const EdgeInsets.all(14),
+            // Left inset leaves room for the attention rail below.
+            padding: const EdgeInsets.fromLTRB(17, 14, 14, 14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1871,21 +1853,13 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       width: 42,
                       padding: const EdgeInsets.symmetric(vertical: 7),
                       decoration: BoxDecoration(
-                        gradient: special
-                            ? LinearGradient(
-                                begin: Alignment.topCenter,
-                                end: Alignment.bottomCenter,
-                                colors: [
-                                  AppTheme.maroon.withValues(alpha: 0.16),
-                                  AppTheme.maroon.withValues(alpha: 0.07),
-                                ],
-                              )
-                            : null,
-                        color: special ? null : AppTheme.slate50,
-                        borderRadius: BorderRadius.circular(12),
-                        border: special
-                            ? null
-                            : Border.all(color: AppTheme.slate100),
+                        color: special ? AppTheme.maroon50 : AppTheme.slate50,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                          color: special
+                              ? AppTheme.maroon100
+                              : AppTheme.slate100,
+                        ),
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
@@ -2049,6 +2023,16 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
               ],
             ),
           ),
+          // Attention rail: only weekends/holidays and rows that need a
+          // second look get one, so scanning the list stays cheap.
+          if (accentColor != null)
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 3,
+              child: ColoredBox(color: accentColor),
+            ),
         ],
       ),
     );
@@ -2220,7 +2204,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// beneath it, so the grid reads as two clear sessions instead of four
   /// loose columns.
   Widget _dtrGroupHeaderRow({bool flexible = false}) => Container(
-    color: AppTheme.maroon.withValues(alpha: 0.045),
+    color: AppTheme.slate50,
     padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
     child: Row(
       children: [
@@ -2245,9 +2229,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
         decoration: BoxDecoration(
-          color: Colors.white,
+          color: AppTheme.maroon50,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.18)),
         ),
         child: Text(
           label,
@@ -2369,28 +2352,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 width: 36,
                 padding: const EdgeInsets.symmetric(vertical: 6),
                 decoration: BoxDecoration(
-                  gradient: special
-                      ? LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            AppTheme.maroon.withValues(alpha: 0.14),
-                            AppTheme.maroon.withValues(alpha: 0.07),
-                          ],
-                        )
-                      : null,
-                  color: special ? null : AppTheme.slate50,
-                  borderRadius: BorderRadius.circular(12),
-                  border: special ? null : Border.all(color: AppTheme.slate100),
-                  boxShadow: special
-                      ? [
-                          BoxShadow(
-                            color: AppTheme.maroon.withValues(alpha: 0.12),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : null,
+                  color: special ? AppTheme.maroon50 : AppTheme.slate50,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: special ? AppTheme.maroon100 : AppTheme.slate100,
+                  ),
                 ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,

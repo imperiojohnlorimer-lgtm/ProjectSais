@@ -5,9 +5,11 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 import '../../services/performance_evaluation_document_service.dart';
 import '../../utils/web_download_stub.dart'
-    if (dart.library.html) '../../utils/web_download.dart' as web_download;
+    if (dart.library.html) '../../utils/web_download.dart'
+    as web_download;
 
 /// Supervisor screen: evaluate a student assistant's performance at the
 /// end of the semester, based on their verified DTR (attendance) and an
@@ -59,258 +61,151 @@ class _PerformanceEvaluationScreenState
       return q.isEmpty ||
           s.name.toLowerCase().contains(q) ||
           s.department.toLowerCase().contains(q);
-    }).toList()
-      ..sort((a, b) => a.name.compareTo(b.name));
+    }).toList()..sort((a, b) => a.name.compareTo(b.name));
 
     final submittedCount = allForTerm
         .where((s) => state.existingEvaluationFor(s.name, _term) != null)
         .length;
 
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [AppTheme.slate50, Colors.white],
-          stops: [0.0, 0.25],
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-            child: _header(allForTerm.length, submittedCount),
-          ),
-          const SizedBox(height: 20),
-          Padding(
-            padding: EdgeInsets.symmetric(horizontal: hPad),
-            child: isMobile
-                ? Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _termDropdown(),
-                      const SizedBox(height: 10),
-                      _searchField(),
-                    ],
-                  )
-                : Row(
-                    children: [
-                      SizedBox(width: 230, child: _termDropdown()),
-                      const SizedBox(width: 12),
-                      Expanded(child: _searchField()),
-                    ],
-                  ),
-          ),
-          const SizedBox(height: 18),
-          Expanded(
-            child: students.isEmpty
-                ? _emptyState()
-                : ListView.builder(
-                    padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-                    itemCount: students.length,
-                    itemBuilder: (context, i) =>
-                        _studentCard(context, state, students[i]),
-                  ),
-          ),
-        ],
-      ),
-    );
-  }
+    final evaluatedFraction = allForTerm.isEmpty
+        ? 0.0
+        : submittedCount / allForTerm.length;
 
-  Widget _header(int total, int submitted) => Row(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Expanded(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ShaderMask(
-              shaderCallback: (bounds) => const LinearGradient(
-                colors: [AppTheme.maroon, AppTheme.maroonDark],
-              ).createShader(bounds),
-              child: const Text(
-                'Performance Evaluation',
-                style: TextStyle(
-                  fontSize: 24,
-                  fontWeight: FontWeight.w800,
-                  color: Colors.white,
-                  letterSpacing: -0.4,
-                ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // ── Header ──────────────────────────────────────────
+        Padding(
+          padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
+          child: HeroBanner(
+            isMobile: isMobile,
+            icon: Icons.fact_check_rounded,
+            title: 'Performance Evaluation',
+            subtitle:
+                'Evaluate student assistants from their verified DTR and '
+                'approved reports',
+            searchHint: 'Search by name or department...',
+            onSearch: (value) => setState(() => _search = value),
+            filters: [_termFilter()],
+            stats: [
+              HeroStatData(
+                label: 'Assistants',
+                value: '${allForTerm.length}',
+                icon: Icons.groups_rounded,
               ),
-            ),
-            const SizedBox(height: 5),
-            const Text(
-              'Evaluate student assistants based on verified DTR and an '
-              'approved accomplishment report',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.slate500,
-                height: 1.3,
+              HeroStatData(
+                label: 'Evaluated',
+                value: '$submittedCount',
+                icon: Icons.check_circle_rounded,
               ),
-            ),
-          ],
-        ),
-      ),
-      const SizedBox(width: 12),
-      if (total > 0) _progressBadge(total, submitted),
-    ],
-  );
-
-  Widget _progressBadge(int total, int submitted) {
-    final pct = total == 0 ? 0.0 : submitted / total;
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.slate200),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.03),
-            blurRadius: 8,
-            offset: const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          SizedBox(
-            width: 34,
-            height: 34,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                CircularProgressIndicator(
-                  value: pct,
-                  strokeWidth: 3.5,
-                  backgroundColor: AppTheme.slate100,
-                  valueColor: const AlwaysStoppedAnimation(AppTheme.emerald500),
-                ),
-                Text(
-                  '${(pct * 100).round()}',
-                  style: const TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slate700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '$submitted / $total',
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                ),
-              ),
-              const Text(
-                'evaluated',
-                style: TextStyle(fontSize: 10.5, color: AppTheme.slate400),
+              HeroStatData(
+                label: 'Remaining',
+                value: '${allForTerm.length - submittedCount}',
+                icon: Icons.pending_actions_rounded,
               ),
             ],
           ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 14),
+
+        // ── Content ─────────────────────────────────────────
+        Expanded(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (allForTerm.isNotEmpty) ...[
+                  ProgressStrip(
+                    label: 'Evaluated',
+                    icon: Icons.how_to_reg_rounded,
+                    progress: evaluatedFraction,
+                    trailing: '$submittedCount/${allForTerm.length}',
+                  ),
+                  const SizedBox(height: 14),
+                ],
+                if (students.isEmpty)
+                  _emptyState(allForTerm.isEmpty)
+                else
+                  for (final student in students)
+                    _studentCard(context, state, student),
+              ],
+            ),
+          ),
+        ),
+      ],
     );
   }
 
-  Widget _termDropdown() => DropdownButtonFormField<String>(
-    initialValue: _term,
-    icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
-    decoration: InputDecoration(
-      labelText: 'Term',
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: 14,
-        vertical: 12,
-      ),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
-      ),
+  /// Term picker, sized to sit in the header toolbar beside the search box.
+  Widget _termFilter() => Container(
+    height: 40,
+    constraints: const BoxConstraints(minWidth: 190),
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: AppTheme.slate200),
     ),
-    items: _terms
-        .map((t) => DropdownMenuItem(value: t, child: Text(t)))
-        .toList(),
-    onChanged: (v) => setState(() => _term = v ?? _term),
-  );
-
-  Widget _searchField() => TextField(
-    onChanged: (v) => setState(() => _search = v),
-    decoration: InputDecoration(
-      hintText: 'Search student assistant by name or department...',
-      prefixIcon: const Icon(Icons.search_rounded, size: 20, color: AppTheme.slate400),
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(vertical: 12),
-      border: OutlineInputBorder(
+    child: DropdownButtonHideUnderline(
+      child: DropdownButton<String>(
+        value: _term,
+        isDense: true,
+        isExpanded: true,
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.slate200),
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
+        icon: const Icon(
+          Icons.expand_more_rounded,
+          size: 18,
+          color: AppTheme.slate400,
+        ),
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.slate700,
+        ),
+        items: _terms
+            .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+            .toList(),
+        onChanged: (v) => setState(() => _term = v ?? _term),
       ),
     ),
   );
 
-  Widget _emptyState() => Center(
+  Widget _emptyState(bool noneAtAll) => Center(
     child: Padding(
       padding: const EdgeInsets.symmetric(vertical: 60),
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(22),
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [AppTheme.slate100, AppTheme.slate50],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
+            padding: const EdgeInsets.all(20),
+            decoration: const BoxDecoration(
+              color: AppTheme.slate100,
               shape: BoxShape.circle,
             ),
             child: const Icon(
               Icons.fact_check_outlined,
-              size: 38,
+              size: 36,
               color: AppTheme.slate300,
             ),
           ),
-          const SizedBox(height: 18),
-          const Text(
-            'No student assistants found',
-            style: TextStyle(
-              fontSize: 14.5,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.slate500,
+          const SizedBox(height: 16),
+          Text(
+            noneAtAll
+                ? 'No student assistants to evaluate'
+                : 'No student assistants match this search',
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate400,
             ),
           ),
-          const SizedBox(height: 4),
-          const Text(
-            'Try a different search term or switch the selected term.',
-            style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
-          ),
+          if (!noneAtAll) ...[
+            const SizedBox(height: 4),
+            const Text(
+              'Try a different name, department or term.',
+              style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+            ),
+          ],
         ],
       ),
     ),
@@ -322,64 +217,47 @@ class _PerformanceEvaluationScreenState
     final existing = state.existingEvaluationFor(student.name, _term);
     final hasBasis = verifiedHours > 0 && approvedReports.isNotEmpty;
 
+    final railColor = existing != null ? AppTheme.emerald500 : AppTheme.maroon;
+
     return Container(
-      margin: const EdgeInsets.only(bottom: 14),
+      margin: const EdgeInsets.only(bottom: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: existing != null ? AppTheme.emerald500.withValues(alpha: 0.25) : AppTheme.slate200,
-        ),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.slate200),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.035),
-            blurRadius: 14,
-            offset: const Offset(0, 4),
+            color: AppTheme.slate900.withValues(alpha: 0.03),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        borderRadius: BorderRadius.circular(14),
+        // Evaluated/not reads from a rail down the side instead of a
+        // gradient band across the top. The rail is positioned rather than
+        // a Row child because the card sits in a scroll view, where a
+        // stretching Row would hand it an unbounded height.
+        child: Stack(
           children: [
-            // Accent top strip
-            Container(
-              height: 4,
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: existing != null
-                      ? [AppTheme.emerald500, AppTheme.emerald500.withValues(alpha: 0.5)]
-                      : [AppTheme.maroon, AppTheme.gold],
-                ),
-              ),
-            ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(18, 16, 18, 16),
+              padding: const EdgeInsets.fromLTRB(21, 16, 18, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Container(
-                        padding: const EdgeInsets.all(2.5),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          gradient: const LinearGradient(
-                            colors: [AppTheme.maroon, AppTheme.maroonLight],
-                          ),
-                        ),
-                        child: CircleAvatar(
-                          radius: 20,
-                          backgroundColor: AppTheme.maroon50,
-                          child: Text(
-                            student.initials,
-                            style: const TextStyle(
-                              color: AppTheme.maroon,
-                              fontWeight: FontWeight.w800,
-                              fontSize: 14,
-                            ),
+                      CircleAvatar(
+                        radius: 20,
+                        backgroundColor: AppTheme.maroon50,
+                        child: Text(
+                          student.initials,
+                          style: const TextStyle(
+                            color: AppTheme.maroon,
+                            fontWeight: FontWeight.w800,
+                            fontSize: 14,
                           ),
                         ),
                       ),
@@ -400,7 +278,11 @@ class _PerformanceEvaluationScreenState
                             const SizedBox(height: 2),
                             Row(
                               children: [
-                                const Icon(Icons.apartment_rounded, size: 12, color: AppTheme.slate400),
+                                const Icon(
+                                  Icons.apartment_rounded,
+                                  size: 12,
+                                  color: AppTheme.slate400,
+                                ),
                                 const SizedBox(width: 4),
                                 Expanded(
                                   child: Text(
@@ -428,7 +310,8 @@ class _PerformanceEvaluationScreenState
                     children: [
                       _basisChip(
                         icon: Icons.access_time_filled_rounded,
-                        label: 'Verified DTR: ${verifiedHours.toStringAsFixed(1)} hrs',
+                        label:
+                            'Verified DTR: ${verifiedHours.toStringAsFixed(1)} hrs',
                         ok: verifiedHours > 0,
                       ),
                       _basisChip(
@@ -441,16 +324,25 @@ class _PerformanceEvaluationScreenState
                   if (!hasBasis) ...[
                     const SizedBox(height: 10),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 10,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: AppTheme.amber50,
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppTheme.amber500.withValues(alpha: 0.25)),
+                        border: Border.all(
+                          color: AppTheme.amber500.withValues(alpha: 0.25),
+                        ),
                       ),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.info_outline_rounded, size: 14, color: AppTheme.amber500),
+                          const Icon(
+                            Icons.info_outline_rounded,
+                            size: 14,
+                            color: AppTheme.amber500,
+                          ),
                           const SizedBox(width: 7),
                           Expanded(
                             child: Text(
@@ -460,7 +352,9 @@ class _PerformanceEvaluationScreenState
                               style: TextStyle(
                                 fontSize: 11,
                                 height: 1.3,
-                                color: AppTheme.amber500.withValues(alpha: 0.95),
+                                color: AppTheme.amber500.withValues(
+                                  alpha: 0.95,
+                                ),
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
@@ -475,15 +369,22 @@ class _PerformanceEvaluationScreenState
                     children: [
                       if (existing != null) ...[
                         OutlinedButton.icon(
-                          onPressed: () => _downloadEvaluation(context, existing),
+                          onPressed: () =>
+                              _downloadEvaluation(context, existing),
                           icon: const Icon(Icons.download_rounded, size: 16),
                           label: const Text(
                             'Download',
-                            style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                            style: TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                            ),
                           ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.maroon,
-                            side: const BorderSide(color: AppTheme.maroon, width: 1.3),
+                            side: const BorderSide(
+                              color: AppTheme.maroon,
+                              width: 1.3,
+                            ),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 11,
@@ -498,7 +399,11 @@ class _PerformanceEvaluationScreenState
                           OutlinedButton.icon(
                             onPressed: existing.sentToHead
                                 ? null
-                                : () => _sendEvaluationToHead(context, state, existing),
+                                : () => _sendEvaluationToHead(
+                                    context,
+                                    state,
+                                    existing,
+                                  ),
                             icon: Icon(
                               existing.sentToHead
                                   ? Icons.check_circle_rounded
@@ -506,8 +411,13 @@ class _PerformanceEvaluationScreenState
                               size: 16,
                             ),
                             label: Text(
-                              existing.sentToHead ? 'Sent to Head' : 'Send to Head',
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
+                              existing.sentToHead
+                                  ? 'Sent to Head'
+                                  : 'Send to Head',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 13,
+                              ),
                             ),
                             style: OutlinedButton.styleFrom(
                               foregroundColor: existing.sentToHead
@@ -531,48 +441,40 @@ class _PerformanceEvaluationScreenState
                           ),
                         const SizedBox(width: 8),
                       ],
-                      Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(11),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.maroon.withValues(alpha: 0.25),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
+                      ElevatedButton.icon(
+                        onPressed: () => _openEvaluationForm(
+                          context,
+                          state,
+                          student,
+                          existing,
+                          verifiedHours,
+                          approvedReports.length,
                         ),
-                        child: ElevatedButton.icon(
-                          onPressed: () => _openEvaluationForm(
-                            context,
-                            state,
-                            student,
-                            existing,
-                            verifiedHours,
-                            approvedReports.length,
+                        icon: Icon(
+                          existing == null
+                              ? Icons.rate_review_rounded
+                              : Icons.edit_rounded,
+                          size: 16,
+                        ),
+                        label: Text(
+                          existing == null
+                              ? 'Evaluate'
+                              : 'View / Edit Evaluation',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13,
                           ),
-                          icon: Icon(
-                            existing == null ? Icons.rate_review_rounded : Icons.edit_rounded,
-                            size: 16,
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.maroon,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 11,
                           ),
-                          label: Text(
-                            existing == null ? 'Evaluate' : 'View / Edit Evaluation',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                          ),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.maroon,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 11,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(11),
-                            ),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
                           ),
                         ),
                       ),
@@ -580,6 +482,13 @@ class _PerformanceEvaluationScreenState
                   ),
                 ],
               ),
+            ),
+            Positioned(
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 3,
+              child: ColoredBox(color: railColor),
             ),
           ],
         ),
@@ -597,7 +506,9 @@ class _PerformanceEvaluationScreenState
       color: ok ? AppTheme.emerald50 : AppTheme.slate50,
       borderRadius: BorderRadius.circular(9),
       border: Border.all(
-        color: ok ? AppTheme.emerald500.withValues(alpha: 0.2) : AppTheme.slate200,
+        color: ok
+            ? AppTheme.emerald500.withValues(alpha: 0.2)
+            : AppTheme.slate200,
       ),
     ),
     child: Row(
@@ -622,7 +533,9 @@ class _PerformanceEvaluationScreenState
   );
 
   Widget _statusPill(String status) {
-    final color = status == 'Submitted' ? AppTheme.emerald500 : AppTheme.amber500;
+    final color = status == 'Submitted'
+        ? AppTheme.emerald500
+        : AppTheme.amber500;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
       decoration: BoxDecoration(
@@ -668,8 +581,11 @@ class _PerformanceEvaluationScreenState
             content: Text('Downloading ${doc.fileName}...'),
             backgroundColor: AppTheme.emerald500,
             behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
         return;
       }
@@ -687,8 +603,11 @@ class _PerformanceEvaluationScreenState
           content: Text('Opening ${doc.fileName}...'),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } catch (e) {
       messenger.showSnackBar(
@@ -696,8 +615,11 @@ class _PerformanceEvaluationScreenState
           content: Text('Could not generate document: $e'),
           backgroundColor: AppTheme.red500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     }
   }
@@ -750,7 +672,7 @@ class _PerformanceEvaluationScreenState
           ok
               ? 'Evaluation sent to Head'
               : 'Failed to send evaluation to Head'
-                  '${errorText != null ? ': $errorText' : ''}',
+                    '${errorText != null ? ': $errorText' : ''}',
         ),
         backgroundColor: ok ? AppTheme.emerald500 : AppTheme.red500,
         duration: const Duration(seconds: 4),
@@ -817,7 +739,8 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
       for (final key in EvaluationCriteria.keys)
         key: existing?.ratings[key] ?? 6,
     };
-    final autoPeriod = existing?.periodCovered ??
+    final autoPeriod =
+        existing?.periodCovered ??
         PerformanceEvaluationScreen.defaultPeriodCovered(
           state.academicYear,
           widget.term,
@@ -855,10 +778,13 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Please enter the period covered.'),
-        backgroundColor: AppTheme.amber500,
+          backgroundColor: AppTheme.amber500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
       return;
     }
@@ -892,12 +818,15 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          ok ? 'Evaluation saved for ${widget.student.name}' : 'Failed to save evaluation',
+          ok
+              ? 'Evaluation saved for ${widget.student.name}'
+              : 'Failed to save evaluation',
         ),
         backgroundColor: ok ? AppTheme.emerald500 : AppTheme.red500,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        margin: const EdgeInsets.all(16),
+      ),
     );
   }
 
@@ -931,7 +860,12 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
             children: [
               // Header with gradient
               Container(
-                padding: EdgeInsets.fromLTRB(isMobile ? 18 : 24, 20, isMobile ? 12 : 16, 18),
+                padding: EdgeInsets.fromLTRB(
+                  isMobile ? 18 : 24,
+                  20,
+                  isMobile ? 12 : 16,
+                  18,
+                ),
                 decoration: BoxDecoration(
                   gradient: const LinearGradient(
                     colors: [AppTheme.maroon, AppTheme.maroonDark],
@@ -951,7 +885,11 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                         color: Colors.white.withValues(alpha: 0.15),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(Icons.rate_review_rounded, color: Colors.white, size: 20),
+                      child: const Icon(
+                        Icons.rate_review_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
                     ),
                     const SizedBox(width: 12),
                     Expanded(
@@ -981,11 +919,16 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close_rounded, color: Colors.white),
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.white,
+                      ),
                       onPressed: () => Navigator.pop(context),
                       style: IconButton.styleFrom(
                         backgroundColor: Colors.white.withValues(alpha: 0.12),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ],
@@ -1004,20 +947,30 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                         decoration: InputDecoration(
                           labelText: 'Period Covered',
                           hintText: 'e.g. Aug 2026 – Dec 2026',
-                          prefixIcon: const Icon(Icons.date_range_rounded, size: 19),
+                          prefixIcon: const Icon(
+                            Icons.date_range_rounded,
+                            size: 19,
+                          ),
                           filled: true,
                           fillColor: AppTheme.slate50,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppTheme.slate200),
+                            borderSide: const BorderSide(
+                              color: AppTheme.slate200,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppTheme.slate200),
+                            borderSide: const BorderSide(
+                              color: AppTheme.slate200,
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
+                            borderSide: const BorderSide(
+                              color: AppTheme.maroon,
+                              width: 1.6,
+                            ),
                           ),
                         ),
                       ),
@@ -1025,7 +978,11 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                       Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Icon(Icons.tune_rounded, size: 16, color: AppTheme.slate400),
+                          const Icon(
+                            Icons.tune_rounded,
+                            size: 16,
+                            color: AppTheme.slate400,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -1050,7 +1007,9 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                           border: Border.all(color: AppTheme.slate200),
                         ),
                         child: Column(
-                          children: EvaluationCriteria.keys.map(_ratingRow).toList(),
+                          children: EvaluationCriteria.keys
+                              .map(_ratingRow)
+                              .toList(),
                         ),
                       ),
                       const SizedBox(height: 20),
@@ -1059,7 +1018,9 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                         decoration: BoxDecoration(
                           color: _overallColor.withValues(alpha: 0.07),
                           borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: _overallColor.withValues(alpha: 0.25)),
+                          border: Border.all(
+                            color: _overallColor.withValues(alpha: 0.25),
+                          ),
                         ),
                         child: Wrap(
                           alignment: WrapAlignment.spaceBetween,
@@ -1085,7 +1046,9 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                                 borderRadius: BorderRadius.circular(20),
                                 boxShadow: [
                                   BoxShadow(
-                                    color: _overallColor.withValues(alpha: 0.35),
+                                    color: _overallColor.withValues(
+                                      alpha: 0.35,
+                                    ),
                                     blurRadius: 8,
                                     offset: const Offset(0, 2),
                                   ),
@@ -1111,7 +1074,9 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                           border: Border.all(color: AppTheme.slate200),
                         ),
                         child: SwitchListTile(
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
                           value: _eligibleForRehire,
                           onChanged: (v) =>
                               setState(() => _eligibleForRehire = v),
@@ -1140,15 +1105,22 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                           fillColor: AppTheme.slate50,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppTheme.slate200),
+                            borderSide: const BorderSide(
+                              color: AppTheme.slate200,
+                            ),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppTheme.slate200),
+                            borderSide: const BorderSide(
+                              color: AppTheme.slate200,
+                            ),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(12),
-                            borderSide: const BorderSide(color: AppTheme.maroon, width: 1.6),
+                            borderSide: const BorderSide(
+                              color: AppTheme.maroon,
+                              width: 1.6,
+                            ),
                           ),
                         ),
                       ),
@@ -1157,7 +1129,12 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                 ),
               ),
               Container(
-                padding: EdgeInsets.fromLTRB(isMobile ? 18 : 24, 14, isMobile ? 18 : 24, isMobile ? 18 : 22),
+                padding: EdgeInsets.fromLTRB(
+                  isMobile ? 18 : 24,
+                  14,
+                  isMobile ? 18 : 24,
+                  isMobile ? 18 : 22,
+                ),
                 decoration: const BoxDecoration(
                   border: Border(top: BorderSide(color: AppTheme.slate100)),
                 ),
@@ -1201,7 +1178,10 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                                 SizedBox(width: 8),
                                 Text(
                                   'Save Evaluation',
-                                  style: TextStyle(fontWeight: FontWeight.w800, fontSize: 14.5),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 14.5,
+                                  ),
                                 ),
                               ],
                             ),
@@ -1233,7 +1213,11 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
             color: Colors.white,
             borderRadius: BorderRadius.circular(9),
           ),
-          child: const Icon(Icons.verified_rounded, size: 16, color: AppTheme.blue500),
+          child: const Icon(
+            Icons.verified_rounded,
+            size: 16,
+            color: AppTheme.blue500,
+          ),
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -1313,8 +1297,7 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
               max: 10,
               divisions: 9,
               label: '$value',
-              onChanged: (v) =>
-                  setState(() => _ratings[key] = v.round()),
+              onChanged: (v) => setState(() => _ratings[key] = v.round()),
             ),
           ),
         ],
