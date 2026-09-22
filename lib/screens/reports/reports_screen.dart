@@ -1099,6 +1099,18 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   Expanded(
                     child: OutlinedButton.icon(
                       onPressed: () async {
+                        final confirmed = await showConfirmDialog(
+                          context,
+                          title: 'Reject this report?',
+                          message:
+                              '"${report.title}" by ${report.studentName} '
+                              'will be marked as rejected'
+                              '${feedbackCtrl.text.trim().isEmpty ? '' : ', with your feedback'}.'
+                              ' It won\'t count toward their evaluation or '
+                              'payroll.',
+                          confirmLabel: 'Reject',
+                        );
+                        if (!confirmed || !context.mounted) return;
                         final ok = await state.updateReportStatus(
                           report.id,
                           'Rejected',
@@ -1158,6 +1170,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                       child: ElevatedButton.icon(
                         onPressed: () async {
+                          final confirmed = await showConfirmDialog(
+                            context,
+                            title: 'Approve this report?',
+                            message:
+                                '"${report.title}" by ${report.studentName} '
+                                'will count as an approved accomplishment '
+                                'report for their evaluation and payroll.',
+                            confirmLabel: 'Approve',
+                            confirmColor: AppTheme.emerald500,
+                          );
+                          if (!confirmed || !context.mounted) return;
                           final ok = await state.updateReportStatus(
                             report.id,
                             'Approved',

@@ -907,6 +907,22 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
   bool generatingEndorsement = false;
   String? downloadingDocumentId;
 
+  /// 'approve', 'waitlist' or 'reject' while that decision is saving.
+  String? _deciding;
+
+  /// The decision button's icon, or a spinner while that decision saves.
+  Widget _decisionIcon(String action, IconData icon, Color spinnerColor) =>
+      _deciding == action
+      ? SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            color: spinnerColor,
+          ),
+        )
+      : Icon(icon, size: 14);
+
   @override
   Widget build(BuildContext context) {
     User? applicant;
@@ -1264,14 +1280,26 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                     const SizedBox(height: 16),
                   ],
                   // Action buttons
-                  if (app.status == 'Pending')
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
+                  if (app.status == 'Pending' || app.status == 'Waitlisted')
+                    // Wrap rather than Row so the buttons drop to a second
+                    // line instead of running off a narrow card.
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 10,
+                      runSpacing: 10,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: () => _showRejectDialog(context),
-                          icon: const Icon(Icons.clear_outlined, size: 14),
-                          label: const Text('Reject'),
+                          onPressed: _deciding != null
+                              ? null
+                              : () => _showRejectDialog(context),
+                          icon: _decisionIcon(
+                            'reject',
+                            Icons.clear_outlined,
+                            AppTheme.red500,
+                          ),
+                          label: Text(
+                            _deciding == 'reject' ? 'Rejecting...' : 'Reject',
+                          ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.red500,
                             side: const BorderSide(color: AppTheme.red500),
@@ -1281,62 +1309,59 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        OutlinedButton.icon(
-                          onPressed: () => _waitlistApplication(context),
-                          icon: const Icon(Icons.schedule_outlined, size: 14),
-                          label: const Text('Waitlist'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.blue500,
-                            side: const BorderSide(color: AppTheme.blue500),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
+                        if (app.status == 'Pending')
+                          OutlinedButton.icon(
+                            onPressed: _deciding != null
+                                ? null
+                                : () => _waitlistApplication(context),
+                            icon: _decisionIcon(
+                              'waitlist',
+                              Icons.schedule_outlined,
+                              AppTheme.blue500,
+                            ),
+                            label: Text(
+                              _deciding == 'waitlist'
+                                  ? 'Waitlisting...'
+                                  : 'Waitlist',
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.blue500,
+                              side: const BorderSide(color: AppTheme.blue500),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 10,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 10),
                         ElevatedButton.icon(
-                          onPressed: () => _approveApplication(context),
-                          icon: const Icon(Icons.check_rounded, size: 14),
-                          label: const Text('Approve'),
+                          onPressed: _deciding != null
+                              ? null
+                              : () => _approveApplication(context),
+                          icon: _decisionIcon(
+                            'approve',
+                            app.status == 'Waitlisted'
+                                ? Icons.how_to_reg_outlined
+                                : Icons.check_rounded,
+                            Colors.white,
+                          ),
+                          label: Text(
+                            _deciding == 'approve'
+                                ? 'Approving...'
+                                : app.status == 'Waitlisted'
+                                ? 'Approve Anyway'
+                                : 'Approve',
+                          ),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppTheme.emerald500,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                            elevation: 0,
-                          ),
-                        ),
-                      ],
-                    )
-                  else if (app.status == 'Waitlisted')
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () => _showRejectDialog(context),
-                          icon: const Icon(Icons.clear_outlined, size: 14),
-                          label: const Text('Reject'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.red500,
-                            side: const BorderSide(color: AppTheme.red500),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 16,
-                              vertical: 10,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        ElevatedButton.icon(
-                          onPressed: () => _approveApplication(context),
-                          icon: const Icon(Icons.how_to_reg_outlined, size: 14),
-                          label: const Text('Approve Anyway'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.emerald500,
-                            foregroundColor: Colors.white,
+                            // Stays green, slightly faded, while approving
+                            // instead of turning grey like a dead button.
+                            disabledBackgroundColor: _deciding == 'approve'
+                                ? AppTheme.emerald500.withValues(alpha: 0.75)
+                                : null,
+                            disabledForegroundColor: _deciding == 'approve'
+                                ? Colors.white
+                                : null,
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
                               vertical: 10,
@@ -1356,6 +1381,11 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                           onPressed: generatingContract
                               ? null
                               : () async {
+                                  if (!await _confirmReplace(
+                                    'Contract of Appointment',
+                                  )) {
+                                    return;
+                                  }
                                   setState(() => generatingContract = true);
                                   try {
                                     await state
@@ -1432,6 +1462,11 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                           onPressed: generatingEndorsement
                               ? null
                               : () async {
+                                  if (!await _confirmReplace(
+                                    'Endorsement Letter',
+                                  )) {
+                                    return;
+                                  }
                                   setState(() => generatingEndorsement = true);
                                   try {
                                     await state
@@ -1617,22 +1652,13 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
             ),
             ElevatedButton(
               onPressed: () {
-                state.updateApplicationStatus(
-                  app.id,
+                Navigator.pop(dialogContext);
+                _decide(
+                  'reject',
                   'Rejected',
                   remarks: remarks,
-                );
-                Navigator.pop(dialogContext);
-                ScaffoldMessenger.of(ctx).showSnackBar(
-                  SnackBar(
-                    content: Text('Application rejected'),
-                    backgroundColor: AppTheme.red500,
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    margin: const EdgeInsets.all(16),
-                  ),
+                  success: '${app.applicantName}\'s application rejected',
+                  color: AppTheme.red500,
                 );
               },
               style: ElevatedButton.styleFrom(
@@ -1647,29 +1673,109 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
     );
   }
 
-  void _approveApplication(BuildContext context) {
-    state.updateApplicationStatus(app.id, 'Approved');
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text('${app.applicantName}\'s application approved'),
-        backgroundColor: AppTheme.emerald500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-      ),
+  /// Generating a document again replaces the copy already on file, so ask
+  /// first when there is one. Returns whether to go ahead.
+  Future<bool> _confirmReplace(String requirementName) async {
+    final exists = app.submittedDocuments.any(
+      (doc) => doc.requirementName == requirementName,
+    );
+    if (!exists) return true;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Replace the $requirementName?',
+      message:
+          'A $requirementName was already generated for '
+          '${app.applicantName}. Generating it again replaces that copy with '
+          'a new one.',
+      confirmLabel: 'Replace',
+      confirmColor: AppTheme.maroon,
+    );
+    return confirmed && mounted;
+  }
+
+  Future<void> _approveApplication(BuildContext context) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Approve application?',
+      message:
+          '${app.applicantName} will become a Student Assistant and get an '
+          'SA ID, and their Contract of Appointment and Endorsement Letter '
+          'will be generated. They will be notified.',
+      confirmLabel: 'Approve',
+      confirmColor: AppTheme.emerald500,
+    );
+    if (!confirmed || !mounted) return;
+    await _decide(
+      'approve',
+      'Approved',
+      success:
+          '${app.applicantName}\'s application approved — their contract '
+          'and endorsement letter are ready',
+      color: AppTheme.emerald500,
     );
   }
 
-  void _waitlistApplication(BuildContext context) {
-    state.updateApplicationStatus(app.id, 'Waitlisted');
-    ScaffoldMessenger.of(ctx).showSnackBar(
-      SnackBar(
-        content: Text('${app.applicantName} was added to the waitlist'),
-        backgroundColor: AppTheme.blue500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),
-      ),
+  /// Saves a decision while its button shows a spinner, and only then says
+  /// how it went. Approving takes a few seconds (it generates and uploads
+  /// the contract and endorsement letter), so the message used to appear
+  /// before the work was actually done — or even if it failed.
+  Future<void> _decide(
+    String action,
+    String status, {
+    required String success,
+    required Color color,
+    String? remarks,
+  }) async {
+    final messenger = ScaffoldMessenger.of(ctx);
+    setState(() => _deciding = action);
+    try {
+      await state.updateApplicationStatus(app.id, status, remarks: remarks);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(success),
+          backgroundColor: color,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Could not update ${app.applicantName}\'s application: $error',
+          ),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _deciding = null);
+    }
+  }
+
+  Future<void> _waitlistApplication(BuildContext context) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Waitlist application?',
+      message:
+          '${app.applicantName}\'s application will be moved to the waitlist '
+          'and they will be notified. You can still approve them later.',
+      confirmLabel: 'Waitlist',
+      confirmColor: AppTheme.amber500,
+    );
+    if (!confirmed || !mounted) return;
+    await _decide(
+      'waitlist',
+      'Waitlisted',
+      success: '${app.applicantName} was added to the waitlist',
+      color: AppTheme.blue500,
     );
   }
 }

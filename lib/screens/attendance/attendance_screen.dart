@@ -268,6 +268,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                       state.role == 'Supervisor',
                                   onArchive: () async {
                                     final restoring = r.isArchived;
+                                    // Archived records stop counting toward
+                                    // verified hours, so taking one out of
+                                    // the log is worth a second look.
+                                    if (!restoring) {
+                                      final ok = await showConfirmDialog(
+                                        context,
+                                        title: 'Archive Record',
+                                        message:
+                                            'Archive ${r.studentName}\'s record for ${r.date}? '
+                                            'Its hours will no longer count toward their verified '
+                                            'DTR hours or payroll. You can restore it later.',
+                                        confirmLabel: 'Archive',
+                                        confirmColor: AppTheme.amber500,
+                                      );
+                                      if (!ok || !context.mounted) return;
+                                    }
                                     final saved = await state
                                         .setAttendanceArchived(
                                           r.id,
@@ -334,6 +350,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                               picked.period == DayPeriod.am
                                               ? 'AM'
                                               : 'PM';
+                                          final confirmed = await showConfirmDialog(
+                                            context,
+                                            title: 'Record Time-out',
+                                            message:
+                                                'Set ${r.studentName}\'s time-out to '
+                                                '$hour:$minute $period on ${r.date} '
+                                                '(timed in at ${r.timeIn})? The record '
+                                                'will count as verified hours.',
+                                            confirmLabel: 'Record',
+                                            confirmColor: AppTheme.maroon,
+                                          );
+                                          if (!confirmed || !context.mounted) {
+                                            return;
+                                          }
                                           await state.setManualTimeOut(
                                             r.id,
                                             '$hour:$minute $period',

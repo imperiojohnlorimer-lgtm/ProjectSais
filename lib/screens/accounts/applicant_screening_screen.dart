@@ -2732,6 +2732,44 @@ Widget _form(AppState state) {
 
   Future<void> _save() async {
     final state = context.read<AppState>();
+    // Saving also decides the application from the recommendation, and an
+    // approval promotes the applicant and generates their documents.
+    if (activeApplication != null) {
+      final applicant = activeApplication!.applicantName;
+      final (title, message, label, color) = switch (recommendation) {
+        'Not Recommended' => (
+          'Save and reject?',
+          'With "Not Recommended", $applicant\'s application will be '
+              'rejected and they will be notified.',
+          'Save & Reject',
+          AppTheme.red500,
+        ),
+        'Recommended with Reservations' => (
+          'Save and waitlist?',
+          'With "Recommended with Reservations", $applicant\'s application '
+              'will be waitlisted and they will be notified.',
+          'Save & Waitlist',
+          AppTheme.amber500,
+        ),
+        _ => (
+          'Save and approve?',
+          'With "$recommendation", $applicant\'s application will be '
+              'approved: they become a Student Assistant, get an SA ID, and '
+              'their Contract of Appointment and Endorsement Letter are '
+              'generated.',
+          'Save & Approve',
+          AppTheme.emerald500,
+        ),
+      };
+      final confirmed = await showConfirmDialog(
+        context,
+        title: title,
+        message: message,
+        confirmLabel: label,
+        confirmColor: color,
+      );
+      if (!confirmed || !mounted) return;
+    }
     final recordYear = activeApplication?.academicYear ??
         activeRecord?.academicYear ??
         state.academicYear;

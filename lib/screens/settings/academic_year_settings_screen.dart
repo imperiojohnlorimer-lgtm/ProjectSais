@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 class AcademicYearSettingsScreen extends StatefulWidget {
   const AcademicYearSettingsScreen({super.key});
@@ -87,6 +88,33 @@ class _AcademicYearSettingsScreenState
       _showMessage('The end date must be after the start date.', true);
       return;
     }
+
+    // Moving to a new academic year archives the old one, and a new term
+    // is what puts pending rehire decisions into effect — neither is
+    // something to do by accident.
+    final state = context.read<AppState>();
+    final yearChanged = year != state.academicYear;
+    final semesterChanged = _semester != state.academicSemester;
+    if (yearChanged || semesterChanged) {
+      final confirmed = await showConfirmDialog(
+        context,
+        title: yearChanged
+            ? 'Start academic year $year?'
+            : 'Switch to $_semester?',
+        message: yearChanged
+            ? 'AY ${state.academicYear}\'s reports, applications, tasks, '
+                  'announcements and calendar events will be archived, and '
+                  'everyone will be moved to AY $year, $_semester. Rehire '
+                  'decisions made for this term will take effect. This '
+                  'can\'t be undone from here.'
+            : 'Everyone will see $_semester, AY $year as the current term, '
+                  'and rehire decisions made for it will take effect.',
+        confirmLabel: yearChanged ? 'Start new year' : 'Switch term',
+        confirmColor: AppTheme.maroon,
+      );
+      if (!confirmed || !mounted) return;
+    }
+
     setState(() => _saving = true);
     try {
       await context.read<AppState>().updateAcademicYearSettings(
@@ -726,7 +754,16 @@ class _AcademicYearSettingsScreenState
       ],
     ),
   );
-  void _reset() {
+  Future<void> _reset() async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Discard changes?',
+      message:
+          'Any changes you haven\'t saved will be lost and the form will go '
+          'back to the current settings.',
+      confirmLabel: 'Discard',
+    );
+    if (!confirmed || !mounted) return;
     final state = context.read<AppState>();
     setState(() {
       _yearController.text = state.academicYear;

@@ -1479,6 +1479,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   ),
                                   tooltip: 'Delete',
                                   onPressed: () async {
+                                    final confirmed = await showConfirmDialog(
+                                      dialogContext,
+                                      title: 'Delete this schedule?',
+                                      message:
+                                          'This removes "${rule.label}" '
+                                          '(every ${rule.weekdayName}) and all '
+                                          'of its days on the calendar for the '
+                                          'whole academic year. It also drops '
+                                          'out of the DTR report\'s class '
+                                          'schedule.',
+                                      confirmLabel: 'Delete',
+                                    );
+                                    if (!confirmed) return;
                                     await _deleteRule(
                                       scheduleService,
                                       ownerName,

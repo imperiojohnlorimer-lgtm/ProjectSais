@@ -318,6 +318,19 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                                   const SizedBox(width: 6),
                                   GestureDetector(
                                     onTap: () async {
+                                      final confirmed = await showConfirmDialog(
+                                        context,
+                                        title: 'Delete department?',
+                                        message:
+                                            '"$dept" will be removed from the '
+                                            'department list. Accounts and '
+                                            'students already in it keep it '
+                                            'on their profile.',
+                                        confirmLabel: 'Delete',
+                                      );
+                                      if (!confirmed || !context.mounted) {
+                                        return;
+                                      }
                                       final removed = await state
                                           .removeDepartment(dept);
                                       if (!context.mounted) return;
