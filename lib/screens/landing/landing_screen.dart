@@ -469,10 +469,10 @@ class _LandingScreenState extends State<LandingScreen> {
         ),
         const SizedBox(height: 18),
         Text(
-          'SAIS brings applications, screening, duty schedules, attendance, '
-          'tasks, evaluations, and payroll into a single record — so offices, '
-          'supervisors, and student assistants all work from the same source '
-          'of truth.',
+          'SAIS brings applications, screening, office placement, QR '
+          'attendance, DTRs, evaluations, rehiring, and payroll into a single '
+          'record — so the program head, supervisors, and student assistants '
+          'all work from the same source of truth.',
           style: TextStyle(
             fontSize: isMobile ? 15 : 16.5,
             height: 1.6,
@@ -602,23 +602,23 @@ class _LandingScreenState extends State<LandingScreen> {
                 SizedBox(height: 10),
                 _MiniRow(
                   icon: Icons.how_to_reg_outlined,
-                  title: 'Applicant endorsed',
-                  subtitle: 'Registrar’s Office · 2 min ago',
+                  title: 'Applicant approved',
+                  subtitle: 'Contract & endorsement generated · 2 min ago',
                   tint: AppTheme.maroon,
                 ),
                 SizedBox(height: 8),
                 _MiniRow(
-                  icon: Icons.task_alt,
-                  title: 'Task completed',
-                  subtitle: 'Library · Shelving · today',
+                  icon: Icons.qr_code_scanner_rounded,
+                  title: 'Clocked in via QR',
+                  subtitle: 'Library · morning session · 7:52 AM',
                   tint: AppTheme.blue500,
                 ),
                 SizedBox(height: 8),
                 _MiniRow(
-                  icon: Icons.description_outlined,
-                  title: 'DTR submitted for review',
-                  subtitle: 'September · awaiting supervisor',
-                  tint: AppTheme.violet500,
+                  icon: Icons.payments_outlined,
+                  title: 'Payroll released',
+                  subtitle: '1st Semester · 18 student assistants notified',
+                  tint: AppTheme.emerald500,
                 ),
               ],
             ),
@@ -631,9 +631,9 @@ class _LandingScreenState extends State<LandingScreen> {
   // ─── Capability strip ─────────────────────────────────────────────────
   Widget _buildCapabilityStrip(bool isMobile) {
     const items = [
-      ('4', 'user roles', 'Admin, Head, Supervisor, Student'),
-      ('6', 'official documents', 'Generated from approved templates'),
-      ('1', 'student record', 'From application through payroll'),
+      ('4', 'user roles', 'Admin, Head, Supervisor, Student Assistant'),
+      ('7', 'official documents', 'From the contract to the payroll sheet'),
+      ('1', 'student record', 'From application to rehiring and payroll'),
     ];
 
     return Container(
@@ -713,38 +713,56 @@ class _LandingScreenState extends State<LandingScreen> {
       (
         Icons.how_to_reg_outlined,
         'Applications & screening',
-        'Publish openings, collect student applications, record interview '
-            'assessments, and endorse applicants to the right office.',
+        'Post openings, collect applications and requirements online, and '
+            'score each interview on the official assessment form.',
       ),
       (
-        Icons.access_time_filled,
-        'Attendance & DTR',
-        'Time-in and time-out logging that rolls straight into the monthly DTR '
-            'and accomplishment report, ready for signature.',
+        Icons.account_balance_outlined,
+        'Office placement',
+        'Assign approved student assistants to offices, ranked by how well '
+            'their skills and screening results fit each office.',
       ),
       (
-        Icons.calendar_today_outlined,
-        'Duty scheduling',
-        'Build recurring duty schedules per office and academic year, and catch '
-            'conflicts before they reach the student.',
+        Icons.qr_code_scanner_rounded,
+        'QR attendance',
+        'Student assistants clock in and out by scanning the session\'s QR '
+            'code. A missed time-out is flagged instead of counted.',
+      ),
+      (
+        Icons.event_note_outlined,
+        'DTR & accomplishment reports',
+        'The monthly DTR/Accomplishment Report fills itself in from verified '
+            'hours, completed tasks, and the class schedule.',
       ),
       (
         Icons.task_alt,
-        'Tasks & evaluation',
-        'Assign work, track completion, and let supervisors run structured '
-            'performance evaluations each term.',
+        'Schedules & tasks',
+        'Weekly class and duty schedules that skip official holidays, plus '
+            'tasks assigned and tracked to completion.',
+      ),
+      (
+        Icons.fact_check_outlined,
+        'Performance evaluation',
+        'Supervisors rate each student assistant every term on the official '
+            'form, backed by their verified hours and approved reports.',
+      ),
+      (
+        Icons.autorenew_rounded,
+        'Rehiring',
+        'At the end of a term the Head decides who continues, guided by the '
+            'supervisor\'s rehire recommendation. Rehires get a new contract.',
       ),
       (
         Icons.payments_outlined,
-        'Payroll summaries',
-        'Turn verified duty hours into payroll summaries by department, office, '
-            'and academic year.',
+        'Payroll generation',
+        'Generate each semester\'s payroll from verified hours and approved '
+            'reports, then approve, release, and print the Hourly Wage Payroll.',
       ),
       (
         Icons.folder_copy_outlined,
-        'Document generation',
-        'Contracts of appointment, endorsement letters, and evaluation forms '
-            'produced from your official templates.',
+        'Official documents',
+        'Contracts, endorsement letters, assessments, evaluations, DTRs, and '
+            'payroll, filled into the university\'s own templates.',
       ),
     ];
 
@@ -807,21 +825,23 @@ class _LandingScreenState extends State<LandingScreen> {
       (
         Icons.admin_panel_settings_outlined,
         'Administrator',
-        'Owns the system',
+        'Runs accounts and payroll',
         [
           'Manage accounts and departments',
-          'Set the academic year and offices',
-          'Oversee payroll and reports',
+          'Set the academic year and semester',
+          'Generate, approve, and release payroll',
+          'Print the Hourly Wage Payroll',
         ],
       ),
       (
         Icons.business_outlined,
-        'Office Head',
-        'Requests and endorses',
+        'Head of Student Assistantship',
+        'Hires, places, and rehires',
         [
-          'Request student assistants',
-          'Screen and endorse applicants',
-          'Monitor the office’s roster',
+          'Post openings and approve office requests',
+          'Screen and approve applicants',
+          'Assign student assistants to offices',
+          'Decide rehiring each term',
         ],
       ),
       (
@@ -829,9 +849,10 @@ class _LandingScreenState extends State<LandingScreen> {
         'Supervisor',
         'Runs day-to-day duty',
         [
-          'Approve attendance and DTRs',
-          'Assign and review tasks',
-          'Complete performance evaluations',
+          'Request student assistants for the office',
+          'Run QR attendance and assign tasks',
+          'Approve reports and generate DTRs',
+          'Evaluate performance each term',
         ],
       ),
       (
@@ -839,9 +860,10 @@ class _LandingScreenState extends State<LandingScreen> {
         'Student Assistant',
         'Works and reports',
         [
-          'Apply and upload requirements',
-          'View schedule and log duty hours',
+          'Apply online and upload requirements',
+          'Clock in and out by QR scan',
           'Submit accomplishment reports',
+          'Get notified when payroll is released',
         ],
       ),
     ];
@@ -906,27 +928,27 @@ class _LandingScreenState extends State<LandingScreen> {
     const steps = [
       (
         '01',
-        'Apply',
-        'Students register, complete their profile, and submit requirements '
-            'online.',
+        'Apply & screen',
+        'Students apply online with their requirements, and the Head '
+            'interviews them on the official assessment form.',
       ),
       (
         '02',
-        'Screen & endorse',
-        'Offices interview applicants, record the assessment, and endorse the '
-            'qualified ones.',
+        'Appoint & place',
+        'Approved applicants get an SA ID, a contract, and an endorsement '
+            'letter, and are assigned to an office.',
       ),
       (
         '03',
-        'Deploy',
-        'Appoint the student to an office with a duty schedule and a '
-            'supervisor.',
+        'Work & track',
+        'They clock in by QR, complete tasks, and submit reports; supervisors '
+            'generate the monthly DTR.',
       ),
       (
         '04',
-        'Track & report',
-        'Log hours, complete tasks, then generate DTRs, evaluations, and '
-            'payroll.',
+        'Evaluate, rehire & pay',
+        'Supervisors evaluate each term, the Head decides who is rehired, and '
+            'the Admin releases payroll.',
       ),
     ];
 
@@ -949,7 +971,7 @@ class _LandingScreenState extends State<LandingScreen> {
                 title: 'From application to payroll in four steps',
                 subtitle:
                     'The record a student starts on day one is the same record '
-                    'that produces their contract, DTR, and pay summary.',
+                    'that produces their contract, DTR, evaluation, and pay.',
               ),
               const SizedBox(height: 40),
               LayoutBuilder(
