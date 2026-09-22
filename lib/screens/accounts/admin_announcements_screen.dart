@@ -6,8 +6,10 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/announcement_widgets.dart';
+import '../../widgets/shared_widgets.dart';
 
 class AdminAnnouncementsScreen extends StatefulWidget {
   const AdminAnnouncementsScreen({super.key});
@@ -78,32 +80,42 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        const Text(
-                          'Announcements',
-                          style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.slate900,
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 4,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AppTheme.emerald50,
-                            borderRadius: BorderRadius.circular(999),
-                          ),
-                          child: const Text(
-                            'Mention Support Active',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.emerald500,
-                            ),
+                        // Wraps so the badge drops under the title on the
+                        // narrowest phones instead of running off the edge.
+                        Expanded(
+                          child: Wrap(
+                            spacing: 8,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
+                            children: [
+                              const Text(
+                                'Announcements',
+                                style: TextStyle(
+                                  fontSize: 20,
+                                  fontWeight: FontWeight.w800,
+                                  color: AppTheme.slate900,
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: AppTheme.emerald50,
+                                  borderRadius: BorderRadius.circular(999),
+                                ),
+                                child: const Text(
+                                  'Mention Support Active',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppTheme.emerald500,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                       ],
@@ -1556,6 +1568,49 @@ class _AdminAnnouncementCard extends StatelessWidget {
         .length;
     final isMobile = MediaQuery.of(ctx).size.width < 700;
 
+    final (statusLabel, statusColor, statusBackground) = ann.isPending
+        ? (
+            'Pending Approval',
+            AppTheme.amber500,
+            AppTheme.amber500.withValues(alpha: 0.12),
+          )
+        : ann.isRejected
+        ? ('Rejected', AppTheme.red500, AppTheme.red500.withValues(alpha: 0.1))
+        : ann.isOpen
+        ? ('Open', AppTheme.emerald500, AppTheme.emerald50)
+        : ('Closed', AppTheme.slate600, AppTheme.slate100);
+    final statusPill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: statusBackground,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(
+              color: ann.isApproved && !ann.isOpen
+                  ? AppTheme.slate400
+                  : statusColor,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            statusLabel,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: statusColor,
+            ),
+          ),
+        ],
+      ),
+    );
+
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
@@ -1639,66 +1694,16 @@ class _AdminAnnouncementCard extends StatelessWidget {
                           ),
                         ],
                       ),
+                      if (isMobile) ...[
+                        const SizedBox(height: 8),
+                        statusPill,
+                      ],
                     ],
                   ),
                 ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 9,
-                    vertical: 5,
-                  ),
-                  decoration: BoxDecoration(
-                    color: ann.isPending
-                        ? AppTheme.amber500.withValues(alpha: 0.12)
-                        : ann.isRejected
-                        ? AppTheme.red500.withValues(alpha: 0.1)
-                        : ann.isOpen
-                        ? AppTheme.emerald50
-                        : AppTheme.slate100,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 6,
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: ann.isPending
-                              ? AppTheme.amber500
-                              : ann.isRejected
-                              ? AppTheme.red500
-                              : ann.isOpen
-                              ? AppTheme.emerald500
-                              : AppTheme.slate400,
-                          shape: BoxShape.circle,
-                        ),
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        ann.isPending
-                            ? 'Pending Approval'
-                            : ann.isRejected
-                            ? 'Rejected'
-                            : ann.isOpen
-                            ? 'Open'
-                            : 'Closed',
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: ann.isPending
-                              ? AppTheme.amber500
-                              : ann.isRejected
-                              ? AppTheme.red500
-                              : ann.isOpen
-                              ? AppTheme.emerald500
-                              : AppTheme.slate600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                // On a phone the pill sits under the title instead, so the
+                // title keeps the card's full width.
+                if (!isMobile) ...[const SizedBox(width: 8), statusPill],
               ],
             ),
           ),
@@ -1799,7 +1804,53 @@ class _AdminAnnouncementCard extends StatelessWidget {
           // ── Actions ───────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-            child: isMobile
+            child: isMobile && ann.isPending
+                // Four buttons don't fit across a phone, so a pending
+                // request's decision gets a row of its own above View and
+                // Delete — otherwise Approve was squeezed to "App…" or pushed
+                // off the edge of the card.
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(child: _ApproveAction(ann: ann)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: _ActionButton(
+                              icon: Icons.close_rounded,
+                              label: 'Reject',
+                              color: AppTheme.red500,
+                              onTap: () => _showRejectDialog(ctx, ann.id),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _ActionButton(
+                              icon: Icons.visibility_outlined,
+                              label: 'View details',
+                              color: AppTheme.slate600,
+                              onTap: () => _showAnnouncementDetails(ctx, ann),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          _ActionButton(
+                            icon: Icons.delete_outline_rounded,
+                            label: '',
+                            color: AppTheme.red500,
+                            iconOnly: true,
+                            onTap: () =>
+                                _confirmDelete(ctx),
+                          ),
+                        ],
+                      ),
+                    ],
+                  )
+                : isMobile
                 ? Row(
                     children: [
                       Expanded(
@@ -1811,43 +1862,20 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         ),
                       ),
                       const SizedBox(width: 6),
-                      if (ann.isPending) ...[
-                        Expanded(
-                          child: _ActionButton(
-                            icon: Icons.check_rounded,
-                            label: 'Approve',
-                            color: AppTheme.emerald500,
-                            onTap: () =>
-                                ctx.read<AppState>().approveAnnouncement(ann.id),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: _ActionButton(
-                            icon: Icons.close_rounded,
-                            label: 'Reject',
-                            color: AppTheme.red500,
-                            onTap: () =>
-                                _showRejectDialog(ctx, ann.id),
-                          ),
-                        ),
-                      ] else
-                        Expanded(
+                      Expanded(
                           child: ann.isOpen
                               ? _ActionButton(
                                   icon: Icons.lock_outline_rounded,
                                   label: 'Close',
                                   color: AppTheme.slate600,
                                   onTap: () =>
-                                      ctx.read<AppState>().closeAnnouncement(ann.id),
+                                      _confirmClose(ctx),
                                 )
                               : _ActionButton(
                                   icon: Icons.check_rounded,
                                   label: 'Re-open',
                                   color: AppTheme.emerald500,
-                                  onTap: () => ctx
-                                      .read<AppState>()
-                                      .approveAnnouncement(ann.id),
+                                  onTap: () => _confirmReopen(ctx),
                                 ),
                         ),
                       const SizedBox(width: 6),
@@ -1857,7 +1885,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         color: AppTheme.red500,
                         iconOnly: true,
                         onTap: () =>
-                            ctx.read<AppState>().deleteAnnouncement(ann.id),
+                            _confirmDelete(ctx),
                       ),
                     ],
                   )
@@ -1883,13 +1911,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                       if (ann.isPending) ...[
-                        _ActionButton(
-                          icon: Icons.check_rounded,
-                          label: 'Approve',
-                          color: AppTheme.emerald500,
-                          onTap: () =>
-                              ctx.read<AppState>().approveAnnouncement(ann.id),
-                        ),
+                        _ApproveAction(ann: ann),
                         const SizedBox(width: 8),
                         _ActionButton(
                           icon: Icons.close_rounded,
@@ -1904,14 +1926,14 @@ class _AdminAnnouncementCard extends StatelessWidget {
                                 label: 'Close',
                                 color: AppTheme.slate600,
                                 onTap: () =>
-                                    ctx.read<AppState>().closeAnnouncement(ann.id),
+                                    _confirmClose(ctx),
                               )
                             : _ActionButton(
                                 icon: Icons.check_rounded,
                                 label: 'Re-open',
                                 color: AppTheme.emerald500,
                                 onTap: () =>
-                                    ctx.read<AppState>().approveAnnouncement(ann.id),
+                                    _confirmReopen(ctx),
                               ),
                       const SizedBox(width: 8),
                       _ActionButton(
@@ -1919,7 +1941,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         label: 'Delete',
                         color: AppTheme.red500,
                         onTap: () =>
-                            ctx.read<AppState>().deleteAnnouncement(ann.id),
+                            _confirmDelete(ctx),
                       ),
                     ],
                   ),
@@ -1927,6 +1949,60 @@ class _AdminAnnouncementCard extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDelete(BuildContext ctx) async {
+    final appCount = state.applications
+        .where((a) => a.announcementId == ann.id)
+        .length;
+    final ok = await showConfirmDialog(
+      ctx,
+      title: 'Delete announcement?',
+      message:
+          '"${ann.title}" will be permanently removed'
+          '${ann.isVisibleToStudents ? ' and students will no longer see it' : ''}.'
+          '${appCount > 0 ? ' The $appCount application${appCount == 1 ? '' : 's'} already submitted will be kept.' : ''}',
+      confirmLabel: 'Delete',
+    );
+    if (!ok || !ctx.mounted) return;
+    ctx.read<AppState>().deleteAnnouncement(ann.id);
+  }
+
+  Future<void> _confirmClose(BuildContext ctx) async {
+    final ok = await showConfirmDialog(
+      ctx,
+      title: 'Close announcement?',
+      message:
+          '"${ann.title}" will stop accepting applications and be hidden '
+          'from students. You can re-open it later.',
+      confirmLabel: 'Close',
+      confirmColor: AppTheme.slate600,
+    );
+    if (!ok || !ctx.mounted) return;
+    ctx.read<AppState>().closeAnnouncement(ann.id);
+  }
+
+  Future<void> _confirmReopen(BuildContext ctx) async {
+    final ok = await showConfirmDialog(
+      ctx,
+      title: 'Re-open announcement?',
+      message:
+          '"${ann.title}" will be visible to students and accept '
+          'applications again. Students will be notified.',
+      confirmLabel: 'Re-open',
+      confirmColor: AppTheme.emerald500,
+    );
+    if (!ok || !ctx.mounted) return;
+    final messenger = ScaffoldMessenger.of(ctx);
+    final reopened = await ctx.read<AppState>().approveAnnouncement(ann.id);
+    if (!reopened) {
+      AppSnackBar.showWithMessenger(
+        messenger,
+        'Could not re-open "${ann.title}". Check your connection and try '
+        'again.',
+        type: SnackType.error,
+      );
+    }
   }
 
   void _showRejectDialog(BuildContext context, String announcementId) {
@@ -2205,18 +2281,167 @@ class _AdminAnnouncementCard extends StatelessWidget {
   }
 }
 
+/// Approve button for a pending request: asks for confirmation first, then
+/// shows a spinner until the approval has been saved.
+class _ApproveAction extends StatefulWidget {
+  final Announcement ann;
+  const _ApproveAction({required this.ann});
+
+  @override
+  State<_ApproveAction> createState() => _ApproveActionState();
+}
+
+class _ApproveActionState extends State<_ApproveAction> {
+  bool _approving = false;
+
+  Future<void> _approve() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => _ApproveConfirmDialog(ann: widget.ann),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    final state = context.read<AppState>();
+    setState(() => _approving = true);
+    final ok = await state.approveAnnouncement(widget.ann.id);
+    // Once approved the card swaps this button out, so it may be gone.
+    if (mounted) setState(() => _approving = false);
+    AppSnackBar.showWithMessenger(
+      messenger,
+      ok
+          ? '"${widget.ann.title}" approved and posted to students'
+          : 'Could not approve "${widget.ann.title}". Check your connection '
+                'and try again.',
+      type: ok ? SnackType.success : SnackType.error,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => _ActionButton(
+    icon: Icons.check_rounded,
+    label: _approving ? 'Approving...' : 'Approve',
+    color: AppTheme.emerald500,
+    loading: _approving,
+    onTap: _approving ? null : _approve,
+  );
+}
+
+class _ApproveConfirmDialog extends StatelessWidget {
+  final Announcement ann;
+  const _ApproveConfirmDialog({required this.ann});
+
+  @override
+  Widget build(BuildContext context) {
+    final details = [
+      if (ann.officeName != null) (Icons.apartment_rounded, ann.officeName!),
+      (Icons.person_rounded, 'Requested by ${ann.postedBy}'),
+      if (ann.slots != null) (Icons.people_rounded, '${ann.slots} slots'),
+      if (ann.deadline != null) (Icons.event_rounded, 'Due ${ann.deadline}'),
+    ];
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text(
+        'Approve this request?',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.slate50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.slate200),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  ann.title,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                  ),
+                ),
+                for (final (icon, text) in details) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      Icon(icon, size: 13, color: AppTheme.slate400),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          text,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppTheme.slate600,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Once approved, it is posted to students and they can start '
+            'applying. ${ann.postedBy} will be notified.',
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: AppTheme.slate600,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context, false),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton.icon(
+          onPressed: () => Navigator.pop(context, true),
+          icon: const Icon(Icons.check_rounded, size: 18),
+          label: const Text('Approve'),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppTheme.emerald500,
+            foregroundColor: Colors.white,
+            elevation: 0,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _ActionButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final Color color;
-  final VoidCallback onTap;
+
+  /// Null disables the button.
+  final VoidCallback? onTap;
   final bool iconOnly;
+
+  /// Swaps the icon for a small spinner while an action is in progress.
+  final bool loading;
   const _ActionButton({
     required this.icon,
     required this.label,
     required this.color,
     required this.onTap,
     this.iconOnly = false,
+    this.loading = false,
   });
 
   @override
@@ -2236,7 +2461,17 @@ class _ActionButton extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 15, color: color),
+              if (loading)
+                SizedBox(
+                  width: 15,
+                  height: 15,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: color,
+                  ),
+                )
+              else
+                Icon(icon, size: 15, color: color),
               if (!iconOnly) ...[
                 const SizedBox(width: 6),
                 Flexible(

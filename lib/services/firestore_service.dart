@@ -7,10 +7,13 @@ import 'supabase_storage_service.dart';
 ///
 /// Methods return simple types to make UI wiring straightforward.
 class FirestoreService {
-  final FirebaseFirestore _db;
+  FirestoreService({FirebaseFirestore? instance}) : _instance = instance;
 
-  FirestoreService({FirebaseFirestore? instance})
-    : _db = instance ?? FirebaseFirestore.instance;
+  final FirebaseFirestore? _instance;
+
+  // Resolved on first use rather than in the constructor, so a test can
+  // subclass this with fakes without a Firebase app being set up.
+  late final FirebaseFirestore _db = _instance ?? FirebaseFirestore.instance;
 
   CollectionReference get _announcements => _db.collection('announcements');
 
@@ -106,6 +109,52 @@ class FirestoreService {
     });
     return list;
   }
+
+  static List<Map<String, dynamic>> _withIds(QuerySnapshot snap) => snap.docs
+      .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+      .toList();
+
+  /// Every document in [collection], kept up to date — the live
+  /// counterpart of the one-off `getAll…` reads, so a change made in
+  /// another browser shows up without a refresh.
+  Stream<List<Map<String, dynamic>>> collectionStream(
+    String collection, {
+    bool newestFirst = false,
+  }) => _db
+      .collection(collection)
+      .snapshots()
+      .map(newestFirst ? _newestFirst : _withIds);
+
+  /// Live documents in [collection] whose [field] equals [value]. Filtered
+  /// on one field with no `orderBy`, so it never needs a composite index.
+  Stream<List<Map<String, dynamic>>> whereStream(
+    String collection,
+    String field,
+    Object value, {
+    bool newestFirst = false,
+  }) => _db
+      .collection(collection)
+      .where(field, isEqualTo: value)
+      .snapshots()
+      .map(newestFirst ? _newestFirst : _withIds);
+
+  /// Live documents in [collection] whose [field] is one of [values].
+  Stream<List<Map<String, dynamic>>> whereInStream(
+    String collection,
+    String field,
+    List<Object> values,
+  ) => _db
+      .collection(collection)
+      .where(field, whereIn: values)
+      .snapshots()
+      .map(_withIds);
+
+  /// A single live document, or null while it doesn't exist.
+  Stream<Map<String, dynamic>?> docStream(String collection, String id) => _db
+      .collection(collection)
+      .doc(id)
+      .snapshots()
+      .map((d) => d.exists ? {...?d.data(), 'id': d.id} : null);
 
   /// Streams every attendance document, newest first.
   Stream<List<Map<String, dynamic>>> attendanceStream() {
@@ -1055,6 +1104,25 @@ class FirestoreService {
 
   Future<void> deleteEvaluation(String id) async {
     await _evaluations.doc(id).delete();
+  }
+
+  // Rehire decisions (Head's Rehiring screen), one per student per term.
+  CollectionReference get _rehireRecords => _db.collection('rehireRecords');
+
+  Future<List<RehireRecord>> getAllRehireRecords() async {
+    final snap = await _rehireRecords.get();
+    return snap.docs
+        .map(
+          (d) => RehireRecord.fromJson({
+            ...(d.data() as Map<String, dynamic>),
+            'id': d.id,
+          }),
+        )
+        .toList();
+  }
+
+  Future<void> setRehireRecord(RehireRecord record) async {
+    await _rehireRecords.doc(record.id).set(record.toJson());
   }
 
   // Applications

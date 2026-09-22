@@ -58,11 +58,12 @@ service cloud.firestore {
         && request.auth.uid == uid
         && request.resource.data.role == 'Student';
 
-      // Role/status changes (Accounts screen) stay Admin-only, with one
-      // exception: approving an application (Applications screen, Head) must
-      // promote the applicant from Student to Student Assistant and record
-      // their SA ID and skills. A Head may only write a profile that keeps
-      // the role as-is or moves Student -> Student Assistant, and may not
+      // Role/status changes (Accounts screen) stay Admin-only, with two
+      // Head exceptions: approving an application (Applications screen)
+      // promotes the applicant from Student to Student Assistant and records
+      // their SA ID and skills, and a rehire decision (Rehiring screen)
+      // either keeps a Student Assistant on or returns them to Student. A
+      // Head may only move a profile between those two roles, and may not
       // change status or email.
       allow update: if isAdmin()
         || (
@@ -74,13 +75,7 @@ service cloud.firestore {
         || (
           isHead()
           && resource.data.role in ['Student', 'Student Assistant']
-          && (
-            request.resource.data.role == resource.data.role
-            || (
-              resource.data.role == 'Student'
-              && request.resource.data.role == 'Student Assistant'
-            )
-          )
+          && request.resource.data.role in ['Student', 'Student Assistant']
           && request.resource.data.status == resource.data.status
           && request.resource.data.email == resource.data.email
         );
@@ -241,10 +236,17 @@ service cloud.firestore {
       allow write: if isHead();
     }
 
-    // Performance Evaluation screen is Supervisor-exclusive; Head has no
-    // evaluations UI.
+    // Performance Evaluation screen is Supervisor-exclusive. The Head reads
+    // evaluations for the Rehiring screen, which follows up on each one's
+    // "Eligible for Rehire" mark, but never edits them.
     match /evaluations/{id} {
-      allow read, write: if isSupervisor();
+      allow read: if isSupervisor() || isHead();
+      allow write: if isSupervisor();
+    }
+
+    // The Head's rehire decisions, one per student per term.
+    match /rehireRecords/{id} {
+      allow read, write: if isHead();
     }
 
     // Items a Supervisor forwards to the Head (reports, evaluations, DTR

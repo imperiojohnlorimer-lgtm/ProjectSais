@@ -18,6 +18,11 @@ class InMemoryScheduleRepository implements ScheduleRepository {
     return _events.where((e) => e.ownerName == ownerName).toList();
   }
 
+  /// Nothing else writes to memory, so the one snapshot never changes.
+  @override
+  Stream<List<ScheduleEvent>> watchEventsFor(String ownerName) =>
+      Stream.fromFuture(getEventsFor(ownerName));
+
   @override
   Future<ScheduleEvent> addEvent(ScheduleEvent event) async {
     final withId = event.id.isEmpty

@@ -1580,6 +1580,248 @@ class Evaluation {
   );
 }
 
+/// The Head's decision on whether a Student Assistant is kept on for an
+/// upcoming term — the follow-through on the supervisor's "Eligible for
+/// Rehire" mark on their performance evaluation. There is one record per
+/// student per target term (see [idFor]), so changing a decision overwrites
+/// it instead of piling up duplicates.
+///
+/// The decision is recorded (and the student notified) straight away, but
+/// its effect on the roster — office placement, role, and the students
+/// record — is only [applied] once the target term has started, so a
+/// student who won't be rehired can still finish the current term.
+class RehireRecord {
+  /// Academic terms in calendar order within one academic year — the same
+  /// options as the Settings screen's "Semester / Academic Term".
+  static const List<String> terms = ['1st Semester', '2nd Semester', 'Summer'];
+
+  static const String rehired = 'Rehired';
+  static const String notRehired = 'Not Rehired';
+
+  final String id;
+  final String studentId; // the student's user id
+  final String studentName;
+  final String? saId;
+  final String academicYear; // the term being hired for
+  final String semester;
+  final String decision; // [rehired] | [notRehired]
+  final List<String> officeIds;
+  final List<String> officeNames;
+
+  /// Snapshot of the performance evaluation the decision was based on.
+  /// [eligibleForRehire] is null when there was no evaluation on file.
+  final String? evaluationId;
+  final String? evaluationTerm;
+  final String? evaluationAcademicYear;
+  final int? evaluationOverallRating;
+  final bool? eligibleForRehire;
+
+  final String remarks;
+  final String decidedById;
+  final String decidedByName;
+  final String decidedAt;
+  final bool applied;
+  final String? appliedAt;
+
+  /// The new term's Contract of Appointment, generated on a rehire and filed
+  /// under the student in Student Documents.
+  final String? contractDocumentId;
+  final String? contractFileName;
+  final String? contractStoragePath;
+  final String? contractDownloadUrl;
+
+  const RehireRecord({
+    required this.id,
+    required this.studentId,
+    required this.studentName,
+    this.saId,
+    required this.academicYear,
+    required this.semester,
+    required this.decision,
+    this.officeIds = const [],
+    this.officeNames = const [],
+    this.evaluationId,
+    this.evaluationTerm,
+    this.evaluationAcademicYear,
+    this.evaluationOverallRating,
+    this.eligibleForRehire,
+    this.remarks = '',
+    required this.decidedById,
+    required this.decidedByName,
+    required this.decidedAt,
+    this.applied = false,
+    this.appliedAt,
+    this.contractDocumentId,
+    this.contractFileName,
+    this.contractStoragePath,
+    this.contractDownloadUrl,
+  });
+
+  bool get isRehired => decision == rehired;
+  bool get hasContract =>
+      (contractStoragePath ?? '').isNotEmpty ||
+      (contractDownloadUrl ?? '').isNotEmpty;
+  String get termLabel => termLabelFor(academicYear, semester);
+
+  static String termLabelFor(String academicYear, String semester) =>
+      '$semester, AY $academicYear';
+
+  static String idFor(String studentId, String academicYear, String semester) =>
+      'rehire_${studentId}_${academicYear}_'
+      '${semester.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '-')}';
+
+  /// "2026-2027" shifted by [years], e.g. +1 -> "2027-2028". Returned
+  /// unchanged if it isn't in that shape.
+  static String shiftAcademicYear(String academicYear, int years) {
+    final match = RegExp(r'^(\d{4})-(\d{4})$').firstMatch(academicYear.trim());
+    if (match == null) return academicYear;
+    final start = int.parse(match.group(1)!) + years;
+    final end = int.parse(match.group(2)!) + years;
+    return '$start-$end';
+  }
+
+  /// The term right after [semester] of [academicYear]; Summer rolls over
+  /// into the next academic year's 1st Semester.
+  static ({String academicYear, String semester}) nextTerm(
+    String academicYear,
+    String semester,
+  ) {
+    final index = terms.indexOf(semester);
+    if (index >= 0 && index < terms.length - 1) {
+      return (academicYear: academicYear, semester: terms[index + 1]);
+    }
+    return (
+      academicYear: shiftAcademicYear(academicYear, 1),
+      semester: terms.first,
+    );
+  }
+
+  /// Sortable position of a term on the calendar, or null if either part
+  /// can't be read.
+  static int? termOrder(String academicYear, String semester) {
+    final startYear = int.tryParse(academicYear.trim().split('-').first);
+    final index = terms.indexOf(semester);
+    if (startYear == null || index < 0) return null;
+    return startYear * 10 + index;
+  }
+
+  /// First day of a term, using the same months as the evaluation form's
+  /// default "Period Covered": 1st Semester from August, 2nd Semester from
+  /// January, Summer from June.
+  static DateTime? termStart(String academicYear, String semester) {
+    final match = RegExp(r'^(\d{4})-(\d{4})$').firstMatch(academicYear.trim());
+    if (match == null) return null;
+    final startYear = int.parse(match.group(1)!);
+    final endYear = int.parse(match.group(2)!);
+    switch (semester) {
+      case '1st Semester':
+        return DateTime(startYear, 8, 1);
+      case '2nd Semester':
+        return DateTime(endYear, 1, 1);
+      case 'Summer':
+        return DateTime(endYear, 6, 1);
+      default:
+        return null;
+    }
+  }
+
+  factory RehireRecord.fromJson(Map<String, dynamic> json) => RehireRecord(
+    id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
+    studentId: json['studentId']?.toString() ?? '',
+    studentName: json['studentName']?.toString() ?? '',
+    saId: json['saId']?.toString(),
+    academicYear: json['academicYear']?.toString() ?? '',
+    semester: json['semester']?.toString() ?? '',
+    decision: json['decision']?.toString() ?? notRehired,
+    officeIds:
+        (json['officeIds'] as List<dynamic>?)
+            ?.map((value) => value.toString())
+            .toList() ??
+        const [],
+    officeNames:
+        (json['officeNames'] as List<dynamic>?)
+            ?.map((value) => value.toString())
+            .toList() ??
+        const [],
+    evaluationId: json['evaluationId']?.toString(),
+    evaluationTerm: json['evaluationTerm']?.toString(),
+    evaluationAcademicYear: json['evaluationAcademicYear']?.toString(),
+    evaluationOverallRating: (json['evaluationOverallRating'] as num?)
+        ?.toInt(),
+    eligibleForRehire: json['eligibleForRehire'] as bool?,
+    remarks: json['remarks']?.toString() ?? '',
+    decidedById: json['decidedById']?.toString() ?? '',
+    decidedByName: json['decidedByName']?.toString() ?? '',
+    decidedAt: json['decidedAt']?.toString() ?? '',
+    applied: json['applied'] == true,
+    appliedAt: json['appliedAt']?.toString(),
+    contractDocumentId: json['contractDocumentId']?.toString(),
+    contractFileName: json['contractFileName']?.toString(),
+    contractStoragePath: json['contractStoragePath']?.toString(),
+    contractDownloadUrl: json['contractDownloadUrl']?.toString(),
+  );
+
+  Map<String, dynamic> toJson() => {
+    'studentId': studentId,
+    'studentName': studentName,
+    'saId': saId,
+    'academicYear': academicYear,
+    'semester': semester,
+    'decision': decision,
+    'officeIds': officeIds,
+    'officeNames': officeNames,
+    'evaluationId': evaluationId,
+    'evaluationTerm': evaluationTerm,
+    'evaluationAcademicYear': evaluationAcademicYear,
+    'evaluationOverallRating': evaluationOverallRating,
+    'eligibleForRehire': eligibleForRehire,
+    'remarks': remarks,
+    'decidedById': decidedById,
+    'decidedByName': decidedByName,
+    'decidedAt': decidedAt,
+    'applied': applied,
+    'appliedAt': appliedAt,
+    'contractDocumentId': contractDocumentId,
+    'contractFileName': contractFileName,
+    'contractStoragePath': contractStoragePath,
+    'contractDownloadUrl': contractDownloadUrl,
+  }..removeWhere((_, v) => v == null);
+
+  RehireRecord copyWith({
+    bool? applied,
+    String? appliedAt,
+    String? contractDocumentId,
+    String? contractFileName,
+    String? contractStoragePath,
+    String? contractDownloadUrl,
+  }) => RehireRecord(
+    id: id,
+    studentId: studentId,
+    studentName: studentName,
+    saId: saId,
+    academicYear: academicYear,
+    semester: semester,
+    decision: decision,
+    officeIds: officeIds,
+    officeNames: officeNames,
+    evaluationId: evaluationId,
+    evaluationTerm: evaluationTerm,
+    evaluationAcademicYear: evaluationAcademicYear,
+    evaluationOverallRating: evaluationOverallRating,
+    eligibleForRehire: eligibleForRehire,
+    remarks: remarks,
+    decidedById: decidedById,
+    decidedByName: decidedByName,
+    decidedAt: decidedAt,
+    applied: applied ?? this.applied,
+    appliedAt: appliedAt ?? this.appliedAt,
+    contractDocumentId: contractDocumentId ?? this.contractDocumentId,
+    contractFileName: contractFileName ?? this.contractFileName,
+    contractStoragePath: contractStoragePath ?? this.contractStoragePath,
+    contractDownloadUrl: contractDownloadUrl ?? this.contractDownloadUrl,
+  );
+}
+
 /// A Head-managed folder for organizing freely-uploaded documents that
 /// don't belong to an application, report, or evaluation — e.g. office
 /// memos, MOAs, or misc. files the Head wants stored in the system.

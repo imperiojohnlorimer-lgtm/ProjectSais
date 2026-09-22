@@ -1118,6 +1118,14 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                               color: AppTheme.slate800,
                             ),
                           ),
+                          subtitle: const Text(
+                            'The Head sees this when deciding whether to '
+                            'rehire them for the next term.',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              color: AppTheme.slate500,
+                            ),
+                          ),
                           activeColor: AppTheme.maroon,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),

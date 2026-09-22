@@ -220,6 +220,7 @@ class _NotifTile extends StatelessWidget {
     switch (notif.type) {
       case 'announcement': return Icons.campaign_outlined;
       case 'application':  return Icons.assignment_outlined;
+      case 'rehire':       return Icons.autorenew_rounded;
       default:             return Icons.info_outline;
     }
   }
@@ -228,6 +229,7 @@ class _NotifTile extends StatelessWidget {
     switch (notif.type) {
       case 'announcement': return AppTheme.maroon;
       case 'application':  return AppTheme.blue500;
+      case 'rehire':       return AppTheme.maroon;
       default:             return AppTheme.slate500;
     }
   }

@@ -22,6 +22,16 @@ class FirestoreScheduleRepository implements ScheduleRepository {
   }
 
   @override
+  Stream<List<ScheduleEvent>> watchEventsFor(String ownerName) => _events
+      .where('ownerName', isEqualTo: ownerName)
+      .snapshots()
+      .map(
+        (snapshot) => snapshot.docs
+            .map((doc) => ScheduleEvent.fromJson({...doc.data(), 'id': doc.id}))
+            .toList(),
+      );
+
+  @override
   Future<ScheduleEvent> addEvent(ScheduleEvent event) async {
     final reference = event.id.isEmpty ? _events.doc() : _events.doc(event.id);
     await reference.set(event.toJson());

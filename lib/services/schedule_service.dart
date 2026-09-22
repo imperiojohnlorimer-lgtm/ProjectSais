@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import '../models/schedule_event.dart';
 import 'schedule_repository.dart';
@@ -17,6 +19,7 @@ class ScheduleService extends ChangeNotifier {
 
   final Map<String, List<ScheduleEvent>> _cache = {};
   final Set<String> _loading = {};
+  final Map<String, StreamSubscription<List<ScheduleEvent>>> _watches = {};
 
   bool isLoading(String ownerName) => _loading.contains(ownerName);
 
@@ -43,6 +46,36 @@ class ScheduleService extends ChangeNotifier {
   Future<void> ensureLoaded(String ownerName) async {
     if (_cache.containsKey(ownerName) || _loading.contains(ownerName)) return;
     await refresh(ownerName);
+    _watch(ownerName);
+  }
+
+  /// Keeps [ownerName]'s events live after the first load, so a subject a
+  /// student adds shows on their supervisor's calendar without a refresh.
+  void _watch(String ownerName) {
+    if (_watches.containsKey(ownerName)) return;
+    _watches[ownerName] = _repository
+        .watchEventsFor(ownerName)
+        .listen(
+          (events) {
+            _cache[ownerName] = events;
+            notifyListeners();
+          },
+          onError: (Object error) {
+            // Typically signing out. Drop the stale copy so the next
+            // ensureLoaded fetches afresh and starts watching again.
+            debugPrint('Schedule stream error for "$ownerName": $error');
+            _watches.remove(ownerName)?.cancel();
+            _cache.remove(ownerName);
+          },
+        );
+  }
+
+  @override
+  void dispose() {
+    for (final watch in _watches.values) {
+      watch.cancel();
+    }
+    super.dispose();
   }
 
   Future<void> refresh(String ownerName) async {

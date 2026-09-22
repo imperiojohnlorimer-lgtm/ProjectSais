@@ -201,6 +201,9 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
       final key = doc.studentId!;
       final name = doc.studentName ?? '';
       final meta = _studentMeta(state, key, name);
+      // Rehire decisions file the new term's contract here too; it stays
+      // tied to its decision, so it isn't deletable like a manual upload.
+      final isContract = doc.fileName.toLowerCase().contains('contract-of-appointment');
       entries.add(
         _DocEntry(
           studentKey: key,
@@ -208,13 +211,15 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
           campus: meta.campus,
           department: meta.department,
           office: meta.office,
-          kind: _DocKind.uploaded,
+          kind: isContract ? _DocKind.contract : _DocKind.uploaded,
           title: doc.fileName,
-          subtitle: 'Uploaded by ${doc.uploadedBy.isEmpty ? 'Head' : doc.uploadedBy}',
+          subtitle: isContract
+              ? (doc.description ?? doc.name)
+              : 'Uploaded by ${doc.uploadedBy.isEmpty ? 'Head' : doc.uploadedBy}',
           sortDate: DateTime.tryParse(doc.uploadedAt) ?? DateTime(2000),
           downloadUrl: doc.downloadUrl,
           storagePath: doc.filePath,
-          documentId: doc.id,
+          documentId: isContract ? null : doc.id,
         ),
       );
     }

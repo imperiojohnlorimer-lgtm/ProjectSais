@@ -11,6 +11,7 @@ import './reports/reports_screen.dart';
 import './accounts/accounts_screen.dart';
 import './accounts/applications_screen.dart';
 import './accounts/applicant_screening_screen.dart';
+import './accounts/rehiring_screen.dart';
 import './accounts/admin_announcements_screen.dart';
 import './accounts/create_department_screen.dart';
 import './accounts/payroll_screen.dart';
@@ -113,6 +114,13 @@ class _AppShellState extends State<AppShell> {
       label: 'Applicant Screening',
       icon: Icons.how_to_reg_outlined,
       activeIcon: Icons.how_to_reg,
+      roles: ['Head'],
+    ),
+    (
+      id: 'rehiring',
+      label: 'Rehiring',
+      icon: Icons.autorenew_outlined,
+      activeIcon: Icons.autorenew,
       roles: ['Head'],
     ),
     (
@@ -268,6 +276,8 @@ class _AppShellState extends State<AppShell> {
         return const ApplicationsScreen();
       case 'applicant_screening':
         return const ApplicantScreeningScreen();
+      case 'rehiring':
+        return const RehiringScreen();
       case 'students':
         return const StudentsScreen();
       case 'calendar':
@@ -313,6 +323,8 @@ class _AppShellState extends State<AppShell> {
         return 'Applications';
       case 'applicant_screening':
         return 'Applicant Screening';
+      case 'rehiring':
+        return 'Rehiring';
       case 'departments':
         return 'Departments';
       case 'payroll':

@@ -250,7 +250,7 @@ void main() {
 
     test(
       'approveAnnouncement notifies the submitter by postedById even without a matching user record',
-      () {
+      () async {
         final state = AppState();
         state.users = [
           User(
@@ -274,7 +274,7 @@ void main() {
           ),
         ];
 
-        state.approveAnnouncement('a1');
+        await state.approveAnnouncement('a1');
 
         expect(
           state.notifications.any(

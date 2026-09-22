@@ -9,6 +9,9 @@ abstract class ScheduleRepository {
   /// All events belonging to [ownerName], most recent first.
   Future<List<ScheduleEvent>> getEventsFor(String ownerName);
 
+  /// [ownerName]'s events, emitted again whenever they change.
+  Stream<List<ScheduleEvent>> watchEventsFor(String ownerName);
+
   Future<ScheduleEvent> addEvent(ScheduleEvent event);
 
   Future<void> deleteEvent(String id);

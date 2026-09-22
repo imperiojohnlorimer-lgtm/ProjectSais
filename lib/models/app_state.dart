@@ -30,6 +30,10 @@ class QrClockResult {
 }
 
 class AppState extends ChangeNotifier {
+  /// [firestoreService] is for tests; the app lets it default.
+  AppState({FirestoreService? firestoreService})
+    : _firestoreService = firestoreService;
+
   User? currentUser;
   String activeTab = 'dashboard';
   bool _isDataSeeded = false;
@@ -42,6 +46,13 @@ class AppState extends ChangeNotifier {
   StreamSubscription<List<Map<String, dynamic>>>? _headForwardsSub;
   StreamSubscription<List<Map<String, dynamic>>>? _payrollSub;
   StreamSubscription<List<Map<String, dynamic>>>? _payrollSheetsSub;
+
+  /// Every other live listener (see [_startLiveData]).
+  final List<StreamSubscription<dynamic>> _liveSubs = [];
+
+  /// Bumped each time the live listeners restart, so a listener set up
+  /// after an async gap can tell it belongs to an older session.
+  int _liveGeneration = 0;
   Timer? _missedTimeOutTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
@@ -190,6 +201,7 @@ class AppState extends ChangeNotifier {
   List<Task> tasks = [];
   List<Report> reports = [];
   List<Evaluation> evaluations = [];
+  List<RehireRecord> rehireRecords = [];
   List<HeadForward> headForwards = [];
   List<PayrollRecord> payrollRecords = [];
   List<PayrollSheet> payrollSheets = [];
@@ -430,6 +442,262 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       // Firestore not available or not initialized; ignore and keep in-memory behavior.
     }
+    try {
+      _startLiveData();
+    } catch (error) {
+      debugPrint('Live data unavailable: $error');
+    }
+  }
+
+  void _stopRealtimeListeners() {
+    for (final sub in [
+      _annSub,
+      _attSub,
+      _taskSub,
+      _appSub,
+      _headForwardsSub,
+      _payrollSub,
+      _payrollSheetsSub,
+    ]) {
+      sub?.cancel();
+    }
+    _missedTimeOutTimer?.cancel();
+    for (final sub in _liveSubs) {
+      sub.cancel();
+    }
+    _liveSubs.clear();
+    _liveGeneration++;
+  }
+
+  /// Keeps the rest of the shared data live, so a change made in another
+  /// browser — a new registration, an office assignment, an approved
+  /// report, a notification, a new term — shows up without a refresh. Each
+  /// listener only covers what the Firestore rules let this role read.
+  void _startLiveData() {
+    for (final sub in _liveSubs) {
+      sub.cancel();
+    }
+    _liveSubs.clear();
+    final generation = ++_liveGeneration;
+    final user = currentUser;
+    final fs = _firestoreService;
+    if (user == null || fs == null) return;
+
+    final isAdmin = role == 'Admin';
+    final isHead = role == 'Head';
+    final isStaff = isHead || role == 'Supervisor';
+
+    void listen<T>(
+      String label,
+      Stream<T> stream,
+      void Function(T data) onData,
+    ) {
+      _liveSubs.add(
+        stream.listen(
+          (data) {
+            try {
+              onData(data);
+            } catch (error) {
+              debugPrint('$label update failed: $error');
+            }
+            notifyListeners();
+          },
+          // Without this a rejected query dies silently and the list just
+          // stops updating.
+          onError: (Object error) => debugPrint('$label stream error: $error'),
+        ),
+      );
+    }
+
+    // ── Everyone ──
+    listen('Profile', fs.docStream('users', user.id), _onOwnProfileChanged);
+    listen(
+      'Notifications',
+      fs.whereStream('notifications', 'userId', user.id, newestFirst: true),
+      (list) => notifications = list.map(AppNotification.fromJson).toList(),
+    );
+    listen(
+      'Academic settings',
+      fs.docStream('meta', 'academic_year_settings'),
+      (data) {
+        if (data == null) return;
+        final previousTerm = '$academicYear|$academicSemester';
+        _applyAcademicSettings(data);
+        // A new term is what puts pending rehire decisions into effect.
+        if (isHead && previousTerm != '$academicYear|$academicSemester') {
+          _applyDueRehireDecisions().then((_) => notifyListeners());
+        }
+      },
+    );
+    listen(
+      'Offices',
+      fs.collectionStream('offices'),
+      (list) => offices = list.map(Office.fromJson).toList(),
+    );
+    listen('Departments', fs.collectionStream('departments'), (list) {
+      final named =
+          list
+              .where((d) => (d['name']?.toString() ?? '').isNotEmpty)
+              .toList()
+            ..sort(
+              (a, b) => a['name'].toString().compareTo(b['name'].toString()),
+            );
+      departments = [for (final d in named) d['name'].toString()];
+      departmentCodes = {
+        for (final d in named) d['name'].toString(): d['code']?.toString() ?? '',
+      };
+    });
+    listen('Skills', fs.collectionStream('skills'), (list) {
+      skills = [
+        for (final s in list)
+          if ((s['name']?.toString() ?? '').isNotEmpty) s['name'].toString(),
+      ]..sort();
+    });
+
+    // ── Staff and Admin: the full roster ──
+    if (isStaff || isAdmin) {
+      listen('Users', fs.collectionStream('users'), (list) {
+        _setUsers(list.map(User.fromJson).toList());
+      });
+      listen('Students', fs.collectionStream('students'), (list) {
+        students = list.map(Student.fromJson).toList();
+        // Refill any department/campus the profiles take from students.
+        _setUsers(users);
+      });
+      listen(
+        'Reports',
+        fs.collectionStream('reports'),
+        (list) => reports = list.map(Report.fromJson).toList(),
+      );
+    }
+
+    if (isStaff) {
+      listen(
+        'Evaluations',
+        fs.collectionStream('evaluations'),
+        (list) => evaluations = list.map(Evaluation.fromJson).toList(),
+      );
+      listen(
+        'Documents',
+        fs.collectionStream('documents'),
+        (list) => documents = list.map(Document.fromJson).toList(),
+      );
+      listen(
+        'Class schedules',
+        fs.collectionStream('classSchedules'),
+        (list) =>
+            classSchedules = list.map(ClassScheduleEntry.fromJson).toList(),
+      );
+    }
+
+    if (isHead) {
+      listen(
+        'Rehire records',
+        fs.collectionStream('rehireRecords'),
+        (list) => rehireRecords = list.map(RehireRecord.fromJson).toList(),
+      );
+      listen('Screening records', fs.collectionStream('screeningRecords'), (
+        list,
+      ) {
+        screeningRecords = _dedupeScreeningRecords(
+          list.map(ScreeningRecord.fromJson).toList(),
+        );
+      });
+      listen(
+        'Document folders',
+        fs.collectionStream('documentFolders'),
+        (list) => documentFolders = list.map(DocumentFolder.fromJson).toList(),
+      );
+    }
+
+    // ── Student Assistants and Students: only their own records ──
+    if (!isStaff && !isAdmin) {
+      // Reports match by account id, and older ones by name, as on load.
+      final reportsByQuery = <String, Map<String, Report>>{};
+      void listenReports(String label, Stream<List<Map<String, dynamic>>> s) {
+        listen(label, s, (list) {
+          reportsByQuery[label] = {
+            for (final m in list) m['id'].toString(): Report.fromJson(m),
+          };
+          reports = {
+            for (final group in reportsByQuery.values) ...group,
+          }.values.toList();
+        });
+      }
+
+      listenReports(
+        'Own reports',
+        fs.whereStream('reports', 'applicantId', user.id),
+      );
+      listenReports(
+        'Named reports',
+        fs.whereStream('reports', 'studentName', user.name),
+      );
+
+      // Tasks match by account id, by name, or by their students record.
+      final tasksByQuery = <String, Map<String, Task>>{};
+      void listenTasks(String label, Stream<List<Map<String, dynamic>>> s) {
+        listen(label, s, (list) {
+          tasksByQuery[label] = {
+            for (final m in list) m['id'].toString(): Task.fromJson(m),
+          };
+          tasks = {
+            for (final group in tasksByQuery.values) ...group,
+          }.values.toList();
+        });
+      }
+
+      listenTasks('Own tasks', fs.whereStream('tasks', 'assignedTo', user.id));
+      listenTasks(
+        'Named tasks',
+        fs.whereStream('tasks', 'assignedToName', user.name),
+      );
+      fs
+          .getStudentIdsForUser(user.id)
+          .then((ids) {
+            if (ids.isEmpty || generation != _liveGeneration) return;
+            listenTasks(
+              'Student-record tasks',
+              fs.whereInStream('tasks', 'assignedTo', ids.take(10).toList()),
+            );
+          })
+          .catchError((Object error) {
+            debugPrint('Student-record tasks lookup failed: $error');
+          });
+
+      listen(
+        'Own class schedule',
+        fs.whereStream('classSchedules', 'studentId', user.id),
+        (list) =>
+            classSchedules = list.map(ClassScheduleEntry.fromJson).toList(),
+      );
+    }
+  }
+
+  /// Keeps the signed-in user's own profile in step with Firestore, so a
+  /// change someone else makes to it — an approved application, a rehire
+  /// decision, the Admin changing their role or archiving them — takes
+  /// effect without signing out and back in.
+  void _onOwnProfileChanged(Map<String, dynamic>? data) {
+    final current = currentUser;
+    if (data == null || current == null) return;
+    final fresh = User.fromJson(data).copyWith(id: current.id);
+    if (fresh.status == 'Archived') {
+      signOut();
+      return;
+    }
+    final roleChanged = fresh.role != current.role;
+    currentUser = fresh;
+    users = users.map((u) => u.id == fresh.id ? fresh : u).toList();
+    if (roleChanged) {
+      // Each role sees different screens and reads different data, so
+      // start them over for the new one.
+      activeTab = 'dashboard';
+      _loadAllFromFirestore().then((_) {
+        _startRealtimeListeners();
+        notifyListeners();
+      });
+    }
   }
 
   Future<void> _initializeFirebaseAuthUser() async {
@@ -491,6 +759,9 @@ class AppState extends ChangeNotifier {
     _payrollSub?.cancel();
     _payrollSheetsSub?.cancel();
     _missedTimeOutTimer?.cancel();
+    for (final sub in _liveSubs) {
+      sub.cancel();
+    }
     super.dispose();
   }
 
@@ -978,6 +1249,9 @@ class AppState extends ChangeNotifier {
   }
 
   void logout() {
+    // The listeners belong to the signed-out account; left running they
+    // only fail with permission errors.
+    _stopRealtimeListeners();
     currentUser = null;
     activeTab = 'dashboard';
     notifyListeners();
@@ -1006,35 +1280,7 @@ class AppState extends ChangeNotifier {
       } catch (error) {
         debugPrint('Failed to load academic settings: $error');
       }
-      if (academicSettings != null) {
-        academicYear =
-            academicSettings['academicYear']?.toString() ?? academicYear;
-        academicSemester =
-            academicSettings['semester']?.toString() ?? academicSemester;
-        academicYearStart =
-            DateTime.tryParse(
-              academicSettings['startDate']?.toString() ?? '',
-            ) ??
-            academicYearStart;
-        academicYearEnd =
-            DateTime.tryParse(academicSettings['endDate']?.toString() ?? '') ??
-            academicYearEnd;
-        allowAcademicApplications =
-            academicSettings['allowApplications'] as bool? ??
-            allowAcademicApplications;
-        enforceAssistantHourCap =
-            academicSettings['enforceHourCap'] as bool? ??
-            enforceAssistantHourCap;
-        autoArchiveAttendanceLogs =
-            academicSettings['autoArchiveLogs'] as bool? ??
-            autoArchiveAttendanceLogs;
-        academicMilestones =
-            (academicSettings['milestones'] as List<dynamic>?)
-                ?.whereType<Map>()
-                .map((milestone) => Map<String, dynamic>.from(milestone))
-                .toList() ??
-            [];
-      }
+      if (academicSettings != null) _applyAcademicSettings(academicSettings);
       try {
         academicYearArchives = await _firestoreService!
             .getAcademicYearArchives();
@@ -1055,86 +1301,10 @@ class AppState extends ChangeNotifier {
         skills = await _firestoreService!.getAllSkills();
       } catch (_) {}
       try {
-        final loadedScreeningRecords = await _firestoreService!
-            .getAllScreeningRecords();
-        // Dedupe only within the same applicant + academic year, so a
-        // re-screening in a later academic year is kept as its own
-        // historical record instead of being collapsed into one row.
-        final byApplicantYear = <String, ScreeningRecord>{};
-        for (final record in loadedScreeningRecords) {
-          final normalizedName = record.fullName.trim().toLowerCase();
-          final normalizedStudentNumber = record.studentNumber
-              .trim()
-              .toLowerCase();
-          final identity =
-              normalizedName.isNotEmpty && normalizedStudentNumber.isNotEmpty
-              ? '$normalizedName|$normalizedStudentNumber'
-              : (record.applicantId.trim().isNotEmpty
-                    ? record.applicantId
-                    : (record.applicationId.trim().isNotEmpty
-                          ? record.applicationId
-                          : record.id));
-          final key = '$identity|${record.academicYear ?? ''}';
-          final existing = byApplicantYear[key];
-          if (existing == null ||
-              (record.id.startsWith('screen-') &&
-                  !existing.id.startsWith('screen-')) ||
-              record.interviewerDate.compareTo(existing.interviewerDate) > 0) {
-            byApplicantYear[key] = record;
-          }
-        }
-        screeningRecords = byApplicantYear.values.toList()
-          ..sort((a, b) => b.interviewerDate.compareTo(a.interviewerDate));
+        screeningRecords = _dedupeScreeningRecords(
+          await _firestoreService!.getAllScreeningRecords(),
+        );
       } catch (_) {}
-      final Map<String, User> byEmail = {};
-      for (final u in firestoreUsers) {
-        final key = u.email.toLowerCase();
-        if (!byEmail.containsKey(key)) {
-          byEmail[key] = u;
-        } else {
-          final existing = byEmail[key]!;
-          final merged = existing.copyWith(
-            department:
-                (existing.department != null && existing.department!.isNotEmpty)
-                ? existing.department
-                : u.department,
-            campus: (existing.campus != null && existing.campus!.isNotEmpty)
-                ? existing.campus
-                : u.campus,
-            courseProgram:
-                (existing.courseProgram != null &&
-                    existing.courseProgram!.isNotEmpty)
-                ? existing.courseProgram
-                : u.courseProgram,
-            yearLevel:
-                (existing.yearLevel != null && existing.yearLevel!.isNotEmpty)
-                ? existing.yearLevel
-                : u.yearLevel,
-            studentId:
-                (existing.studentId != null && existing.studentId!.isNotEmpty)
-                ? existing.studentId
-                : u.studentId,
-            phone: (existing.phone != null && existing.phone!.isNotEmpty)
-                ? existing.phone
-                : u.phone,
-            address: (existing.address != null && existing.address!.isNotEmpty)
-                ? existing.address
-                : u.address,
-            avatar: (existing.avatar != null && existing.avatar!.isNotEmpty)
-                ? existing.avatar
-                : u.avatar,
-            skills: existing.skills.isNotEmpty ? existing.skills : u.skills,
-            status: existing.status != 'Archived' ? existing.status : u.status,
-            role: existing.role != 'Student' ? existing.role : u.role,
-          );
-          byEmail[key] = merged;
-        }
-      }
-      if (currentUser != null && currentUser!.email.isNotEmpty) {
-        final key = currentUser!.email.toLowerCase();
-        byEmail.putIfAbsent(key, () => currentUser!);
-      }
-      users = byEmail.values.toList();
 
       // Students
       try {
@@ -1144,31 +1314,7 @@ class AppState extends ChangeNotifier {
         students = [];
       }
 
-      // If users are missing department/campus, try to populate from students
-      try {
-        final Map<String, Student> studentByUserId = {
-          for (final s in students)
-            if (s.userId != null && s.userId!.isNotEmpty) s.userId!: s,
-        };
-        final Map<String, Student> studentByEmail = {
-          for (final s in students) s.email.toLowerCase(): s,
-        };
-
-        users = users.map((u) {
-          if ((u.department == null ||
-              u.department!.isEmpty ||
-              u.campus == null ||
-              u.campus!.isEmpty)) {
-            final key = u.email.toLowerCase();
-            Student? s = studentByUserId[u.id];
-            s ??= studentByEmail[key];
-            if (s != null) {
-              return u.copyWith(department: s.department, campus: s.campus);
-            }
-          }
-          return u;
-        }).toList();
-      } catch (_) {}
+      _setUsers(firestoreUsers);
 
       // Attendance
       try {
@@ -1255,6 +1401,18 @@ class AppState extends ChangeNotifier {
         evaluations = [];
       }
 
+      // Rehire decisions. Any whose term has started since they were made
+      // are put into effect now — only a Head may change the roster records
+      // involved, so this runs in the Head's session.
+      if (role == 'Head') {
+        try {
+          rehireRecords = await _firestoreService!.getAllRehireRecords();
+          await _applyDueRehireDecisions();
+        } catch (_) {
+          rehireRecords = [];
+        }
+      }
+
       // Items supervisors have forwarded to the Head.
       if (role == 'Head' || role == 'Supervisor') {
         try {
@@ -1301,6 +1459,108 @@ class AppState extends ChangeNotifier {
       // If Firestore isn't available, keep lists empty to avoid showing mock data
       debugPrint('Failed to load data from Firestore: $error');
     }
+  }
+
+  void _applyAcademicSettings(Map<String, dynamic> settings) {
+    academicYear = settings['academicYear']?.toString() ?? academicYear;
+    academicSemester = settings['semester']?.toString() ?? academicSemester;
+    academicYearStart =
+        DateTime.tryParse(settings['startDate']?.toString() ?? '') ??
+        academicYearStart;
+    academicYearEnd =
+        DateTime.tryParse(settings['endDate']?.toString() ?? '') ??
+        academicYearEnd;
+    allowAcademicApplications =
+        settings['allowApplications'] as bool? ?? allowAcademicApplications;
+    enforceAssistantHourCap =
+        settings['enforceHourCap'] as bool? ?? enforceAssistantHourCap;
+    autoArchiveAttendanceLogs =
+        settings['autoArchiveLogs'] as bool? ?? autoArchiveAttendanceLogs;
+    academicMilestones =
+        (settings['milestones'] as List<dynamic>?)
+            ?.whereType<Map>()
+            .map((milestone) => Map<String, dynamic>.from(milestone))
+            .toList() ??
+        [];
+  }
+
+  /// Dedupes only within the same applicant + academic year, so a
+  /// re-screening in a later academic year is kept as its own historical
+  /// record instead of being collapsed into one row.
+  List<ScreeningRecord> _dedupeScreeningRecords(List<ScreeningRecord> loaded) {
+    final byApplicantYear = <String, ScreeningRecord>{};
+    for (final record in loaded) {
+      final normalizedName = record.fullName.trim().toLowerCase();
+      final normalizedStudentNumber = record.studentNumber.trim().toLowerCase();
+      final identity =
+          normalizedName.isNotEmpty && normalizedStudentNumber.isNotEmpty
+          ? '$normalizedName|$normalizedStudentNumber'
+          : (record.applicantId.trim().isNotEmpty
+                ? record.applicantId
+                : (record.applicationId.trim().isNotEmpty
+                      ? record.applicationId
+                      : record.id));
+      final key = '$identity|${record.academicYear ?? ''}';
+      final existing = byApplicantYear[key];
+      if (existing == null ||
+          (record.id.startsWith('screen-') &&
+              !existing.id.startsWith('screen-')) ||
+          record.interviewerDate.compareTo(existing.interviewerDate) > 0) {
+        byApplicantYear[key] = record;
+      }
+    }
+    return byApplicantYear.values.toList()
+      ..sort((a, b) => b.interviewerDate.compareTo(a.interviewerDate));
+  }
+
+  /// Replaces [users] with the Firestore profiles: duplicates sharing an
+  /// email are merged into one, the signed-in user is always kept, and a
+  /// missing department/campus is filled in from the matching students
+  /// record. Call after [students] is loaded.
+  void _setUsers(List<User> firestoreUsers) {
+    String? pick(String? existing, String? other) =>
+        existing != null && existing.isNotEmpty ? existing : other;
+
+    final byEmail = <String, User>{};
+    for (final u in firestoreUsers) {
+      final key = u.email.toLowerCase();
+      final existing = byEmail[key];
+      byEmail[key] = existing == null
+          ? u
+          : existing.copyWith(
+              department: pick(existing.department, u.department),
+              campus: pick(existing.campus, u.campus),
+              courseProgram: pick(existing.courseProgram, u.courseProgram),
+              yearLevel: pick(existing.yearLevel, u.yearLevel),
+              studentId: pick(existing.studentId, u.studentId),
+              phone: pick(existing.phone, u.phone),
+              address: pick(existing.address, u.address),
+              avatar: pick(existing.avatar, u.avatar),
+              skills: existing.skills.isNotEmpty ? existing.skills : u.skills,
+              status: existing.status != 'Archived'
+                  ? existing.status
+                  : u.status,
+              role: existing.role != 'Student' ? existing.role : u.role,
+            );
+    }
+    if (currentUser != null && currentUser!.email.isNotEmpty) {
+      byEmail.putIfAbsent(currentUser!.email.toLowerCase(), () => currentUser!);
+    }
+
+    final studentByUserId = {
+      for (final s in students)
+        if (s.userId != null && s.userId!.isNotEmpty) s.userId!: s,
+    };
+    final studentByEmail = {for (final s in students) s.email.toLowerCase(): s};
+    users = byEmail.values.map((u) {
+      if ((u.department ?? '').isNotEmpty && (u.campus ?? '').isNotEmpty) {
+        return u;
+      }
+      final s = studentByUserId[u.id] ?? studentByEmail[u.email.toLowerCase()];
+      return s == null
+          ? u
+          : u.copyWith(department: s.department, campus: s.campus);
+    }).toList();
   }
 
   Future<void> _archiveExpiredAcademicYearIfNeeded(
@@ -1523,15 +1783,35 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void approveAnnouncement(String id) {
-    Announcement? approved;
-    announcements = announcements.map((a) {
-      if (a.id != id) return a;
-      approved = a.copyWith(approvalStatus: 'Approved', isOpen: true);
-      return approved!;
-    }).toList();
+  /// Approves a supervisor's pending request, or re-opens a closed
+  /// announcement. The change is saved to Firestore before anything else
+  /// happens, so the caller can show progress while it saves and report a
+  /// failure instead of the approval silently not sticking. Returns whether
+  /// it succeeded.
+  Future<bool> approveAnnouncement(String id) async {
+    final original = announcements.where((a) => a.id == id).firstOrNull;
+    if (original == null) return false;
 
-    if (approved == null) return;
+    if (id.isNotEmpty) {
+      try {
+        _firestoreService ??= FirestoreService();
+        await _firestoreService!.updateAnnouncement(id, {
+          'approvalStatus': 'Approved',
+          'isOpen': true,
+        });
+      } catch (error) {
+        debugPrint('Failed to approve announcement: $error');
+        return false;
+      }
+    }
+
+    final approved = original.copyWith(
+      approvalStatus: 'Approved',
+      isOpen: true,
+    );
+    announcements = announcements
+        .map((a) => a.id == id ? approved : a)
+        .toList();
 
     final studentUsers = users.where((u) => u.role == 'Student');
     for (final u in studentUsers) {
@@ -1540,38 +1820,29 @@ class AppState extends ChangeNotifier {
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_${u.id}',
           userId: u.id,
           title: 'New Hiring Announcement',
-          message: approved!.title,
+          message: approved.title,
           type: 'announcement',
           createdAt: _formattedToday(),
         ),
       );
     }
 
-    if (approved!.postedById != null && approved!.postedById!.isNotEmpty) {
+    final postedById = approved.postedById;
+    if (postedById != null && postedById.isNotEmpty) {
       _addNotification(
         AppNotification(
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_approved',
-          userId: approved!.postedById!,
+          userId: postedById,
           title: 'Announcement Approved',
           message:
-              'Your announcement "${approved!.title}" was approved and is now live.',
+              'Your announcement "${approved.title}" was approved and is now live.',
           type: 'announcement',
           createdAt: _formattedToday(),
         ),
       );
     }
     notifyListeners();
-
-    // Persist approval to Firestore.
-    try {
-      if (id.isNotEmpty) {
-        _firestoreService ??= FirestoreService();
-        _firestoreService!.updateAnnouncement(id, {
-          'approvalStatus': 'Approved',
-          'isOpen': true,
-        });
-      }
-    } catch (_) {}
+    return true;
   }
 
   void rejectAnnouncement(String id, {String? reason}) {
@@ -3696,7 +3967,13 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> changeUserRole(String id, String newRole) async {
+  /// [notify] is off when the change comes from a flow that sends its own,
+  /// more specific notification (such as a rehire decision).
+  Future<void> changeUserRole(
+    String id,
+    String newRole, {
+    bool notify = true,
+  }) async {
     final user = users.firstWhere(
       (u) => u.id == id,
       orElse: () => User(id: '', name: '', email: '', role: ''),
@@ -3728,12 +4005,13 @@ class AppState extends ChangeNotifier {
     if (newRole == 'Student Assistant') {
       try {
         _firestoreService ??= FirestoreService();
-        final hasStudent = students.any(
-          (s) =>
-              s.userId == id ||
-              s.email.toLowerCase() == updatedUser.email.toLowerCase(),
-        );
-        if (!hasStudent) {
+        final hasStudent = _studentRecordsForUser(updatedUser).isNotEmpty;
+        if (hasStudent) {
+          // A returning Student Assistant (not rehired in an earlier term)
+          // still has their old, archived record — bring it back rather
+          // than leave them off every roster.
+          await _setStudentRecordsStatus(updatedUser, 'Active');
+        } else {
           final dept =
               updatedUser.department ??
               (departments.isNotEmpty ? departments.first : '');
@@ -3755,18 +4033,43 @@ class AppState extends ChangeNotifier {
       }
     }
     // Notify the user that their role was changed
-    _addNotification(
-      AppNotification(
-        id: 'n_${DateTime.now().millisecondsSinceEpoch}_role_change_$id',
-        userId: id,
-        title: 'Role Updated',
-        message: 'Your role has been changed from "$oldRole" to "$newRole".',
-        type: 'system',
-        createdAt: _formattedToday(),
-      ),
-    );
+    if (notify) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_role_change_$id',
+          userId: id,
+          title: 'Role Updated',
+          message: 'Your role has been changed from "$oldRole" to "$newRole".',
+          type: 'system',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
 
     notifyListeners();
+  }
+
+  /// The students-collection records that belong to [user].
+  List<Student> _studentRecordsForUser(User user) {
+    final email = user.email.trim().toLowerCase();
+    return students
+        .where(
+          (s) =>
+              s.id == user.id ||
+              s.userId == user.id ||
+              (email.isNotEmpty && s.email.trim().toLowerCase() == email),
+        )
+        .toList();
+  }
+
+  Future<void> _setStudentRecordsStatus(User user, String status) async {
+    _firestoreService ??= FirestoreService();
+    for (final record in _studentRecordsForUser(user)) {
+      if (record.status == status) continue;
+      final updated = record.copyWith(status: status);
+      await _firestoreService!.setStudent(updated);
+      students = students.map((s) => s.id == record.id ? updated : s).toList();
+    }
   }
 
   // ─── Document Management ───────────────────────────
@@ -4693,6 +4996,449 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('Failed to save evaluation in Firestore: $e');
       return false;
+    }
+  }
+
+  // ─── Rehiring ──────────────────────────────────────
+  /// Terms the Head can make rehire decisions for: the current term (per the
+  /// academic year settings) and the three after it.
+  List<({String academicYear, String semester})> get rehireTermOptions {
+    final options = [(academicYear: academicYear, semester: academicSemester)];
+    while (options.length < 4) {
+      options.add(
+        RehireRecord.nextTerm(options.last.academicYear, options.last.semester),
+      );
+    }
+    return options;
+  }
+
+  /// The term the Rehiring screen opens on: the one after the current term,
+  /// skipping the optional Summer term.
+  ({String academicYear, String semester}) get defaultRehireTerm {
+    var term = RehireRecord.nextTerm(academicYear, academicSemester);
+    if (term.semester == 'Summer') {
+      term = RehireRecord.nextTerm(term.academicYear, term.semester);
+    }
+    return term;
+  }
+
+  /// Whether decisions for a term should already be in effect, i.e. the
+  /// academic year settings have reached that term.
+  bool rehireTermHasStarted(String termYear, String termSemester) {
+    final target = RehireRecord.termOrder(termYear, termSemester);
+    final current = RehireRecord.termOrder(academicYear, academicSemester);
+    // A term that can't be placed on the calendar shouldn't hold the
+    // decision back forever.
+    if (target == null || current == null) return true;
+    return target <= current;
+  }
+
+  static const _evaluationTermOrder = {
+    'First Semester': 0,
+    'Second Semester': 1,
+    'Midyear Term': 2,
+  };
+
+  /// [user]'s most recent submitted performance evaluation — the one whose
+  /// "Eligible for Rehire" mark the rehire decision follows up on.
+  Evaluation? latestEvaluationForUser(User user) {
+    final ids = {user.id, for (final s in _studentRecordsForUser(user)) s.id};
+    final name = user.name.trim().toLowerCase();
+    final matches = evaluations
+        .where(
+          (e) =>
+              e.status == 'Submitted' &&
+              (ids.contains(e.studentId) ||
+                  e.studentName.trim().toLowerCase() == name),
+        )
+        .toList();
+    matches.sort((a, b) {
+      final byYear = (b.academicYear ?? '').compareTo(a.academicYear ?? '');
+      if (byYear != 0) return byYear;
+      final byTerm = (_evaluationTermOrder[b.term] ?? -1).compareTo(
+        _evaluationTermOrder[a.term] ?? -1,
+      );
+      if (byTerm != 0) return byTerm;
+      return (b.createdAt ?? '').compareTo(a.createdAt ?? '');
+    });
+    return matches.firstOrNull;
+  }
+
+  RehireRecord? rehireRecordFor(
+    String userId,
+    String termYear,
+    String termSemester,
+  ) => rehireRecords
+      .where(
+        (r) =>
+            r.studentId == userId &&
+            r.academicYear == termYear &&
+            r.semester == termSemester,
+      )
+      .firstOrNull;
+
+  /// Everyone the Head decides on for a term: all current Student
+  /// Assistants, plus anyone already decided on for that term — a student
+  /// who wasn't rehired is a Student again, but their decision should stay
+  /// visible and reversible.
+  List<User> rehireCandidates(String termYear, String termSemester) {
+    final decided = rehireRecords
+        .where((r) => r.academicYear == termYear && r.semester == termSemester)
+        .map((r) => r.studentId)
+        .toSet();
+    return users
+        .where(
+          (u) =>
+              u.status != 'Archived' &&
+              (u.role == 'Student Assistant' || decided.contains(u.id)),
+        )
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  }
+
+  /// Records the Head's rehire decision for [user] for the given term and
+  /// notifies the student and their office supervisors. A rehire also gets
+  /// the new term's Contract of Appointment, filed in Student Documents.
+  ///
+  /// The roster change itself (office, role, students record) waits until
+  /// the term starts — see [_applyRehireRecord] — unless it already has.
+  /// Returns an error message, or null on success.
+  Future<String?> decideRehire({
+    required User user,
+    required String termYear,
+    required String termSemester,
+    required bool rehire,
+    String? officeId,
+    String remarks = '',
+  }) async {
+    Office? office;
+    if (rehire) {
+      office = offices.where((o) => o.id == officeId).firstOrNull;
+      if (office == null) return 'Choose the office they will be rehired to.';
+      if (!office.assistantIds.contains(user.id) &&
+          office.capacity > 0 &&
+          office.assistantIds.length >= office.capacity) {
+        return '${office.name} is already at its capacity of '
+            '${office.capacity}.';
+      }
+    }
+
+    final currentOffices = officesForUser(user);
+    final previous = rehireRecordFor(user.id, termYear, termSemester);
+    final List<String> officeIds;
+    final List<String> officeNames;
+    if (office != null) {
+      officeIds = [office.id];
+      officeNames = [office.name];
+    } else if (currentOffices.isNotEmpty) {
+      officeIds = currentOffices.map((o) => o.id).toList();
+      officeNames = currentOffices.map((o) => o.name).toList();
+    } else {
+      // Already taken off their office by an earlier decision for this
+      // term; keep recording where they were.
+      officeIds = previous?.officeIds ?? const [];
+      officeNames = previous?.officeNames ?? const [];
+    }
+
+    final evaluation = latestEvaluationForUser(user);
+    var record = RehireRecord(
+      id: RehireRecord.idFor(user.id, termYear, termSemester),
+      studentId: user.id,
+      studentName: user.name,
+      saId: user.saId,
+      academicYear: termYear,
+      semester: termSemester,
+      decision: rehire ? RehireRecord.rehired : RehireRecord.notRehired,
+      officeIds: officeIds,
+      officeNames: officeNames,
+      evaluationId: evaluation?.id,
+      evaluationTerm: evaluation?.term,
+      evaluationAcademicYear: evaluation?.academicYear,
+      evaluationOverallRating: evaluation?.overallRating,
+      eligibleForRehire: evaluation?.eligibleForRehire,
+      remarks: remarks.trim(),
+      decidedById: currentUser?.id ?? '',
+      decidedByName: currentUser?.name ?? '',
+      decidedAt: DateTime.now().toIso8601String(),
+    );
+
+    try {
+      _firestoreService ??= FirestoreService();
+      // A changed decision shouldn't leave the old contract behind in
+      // Student Documents.
+      final oldContractId = previous?.contractDocumentId;
+      if (oldContractId != null && oldContractId.isNotEmpty) {
+        await _firestoreService!.deleteDocument(oldContractId);
+        documents = documents.where((d) => d.id != oldContractId).toList();
+      }
+      if (office != null) {
+        try {
+          record = await _attachRehireContract(record, user, office);
+        } catch (error) {
+          // The decision still stands; the Rehiring screen offers to
+          // generate the contract again.
+          debugPrint('Failed to generate rehire contract: $error');
+        }
+      }
+      await _firestoreService!.setRehireRecord(record);
+      rehireRecords = [record, ...rehireRecords.where((r) => r.id != record.id)];
+      if (rehireTermHasStarted(termYear, termSemester)) {
+        await _applyRehireRecord(record);
+      }
+    } catch (error) {
+      debugPrint('Failed to save rehire decision: $error');
+      notifyListeners();
+      return 'Could not save the decision: $error';
+    }
+
+    final officeLabel = officeNames.isEmpty
+        ? ''
+        : ' in ${officeNames.join(', ')}';
+    _addNotification(
+      AppNotification(
+        id: 'n_${DateTime.now().microsecondsSinceEpoch}_rehire_${user.id}',
+        userId: user.id,
+        title: rehire
+            ? 'Rehired as Student Assistant'
+            : 'Student Assistantship Not Renewed',
+        message: rehire
+            ? 'You have been rehired as a Student Assistant for '
+                  '${record.termLabel}$officeLabel.'
+                  '${record.hasContract ? ' Your new Contract of Appointment has been prepared.' : ''}'
+            : 'Your Student Assistant appointment will not be renewed for '
+                  '${record.termLabel}.'
+                  '${record.remarks.isNotEmpty ? ' Remarks: ${record.remarks}' : ''}',
+        type: 'rehire',
+        createdAt: _formattedToday(),
+      ),
+    );
+    _notifyOfficeUsers(
+      {
+        ...currentOffices.expand((o) => o.headIds),
+        ...?office?.headIds,
+      },
+      title: rehire ? 'Student Assistant Rehired' : 'Student Assistant Not Rehired',
+      message: rehire
+          ? '${user.name} was rehired for ${record.termLabel}$officeLabel.'
+          : '${user.name} will not be rehired for ${record.termLabel}.',
+    );
+    notifyListeners();
+    return null;
+  }
+
+  /// Puts a pending decision into effect now, without waiting for its term
+  /// to start. Returns an error message, or null on success.
+  Future<String?> applyRehireDecisionNow(RehireRecord record) async {
+    try {
+      await _applyRehireRecord(record);
+      notifyListeners();
+      return null;
+    } catch (error) {
+      debugPrint('Failed to apply rehire decision: $error');
+      return 'Could not apply the decision: $error';
+    }
+  }
+
+  /// Retries the Contract of Appointment for a rehire whose contract
+  /// couldn't be generated when the decision was made.
+  Future<String?> generateRehireContract(RehireRecord record) async {
+    final user = users.where((u) => u.id == record.studentId).firstOrNull;
+    final office = offices
+        .where((o) => o.id == record.officeIds.firstOrNull)
+        .firstOrNull;
+    if (user == null || office == null) {
+      return 'The student or their office could not be found.';
+    }
+    try {
+      final updated = await _attachRehireContract(record, user, office);
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setRehireRecord(updated);
+      rehireRecords = rehireRecords
+          .map((r) => r.id == updated.id ? updated : r)
+          .toList();
+      notifyListeners();
+      return null;
+    } catch (error) {
+      debugPrint('Failed to generate rehire contract: $error');
+      return 'Could not generate the contract: $error';
+    }
+  }
+
+  /// Generates the Contract of Appointment for a rehired student's new
+  /// term, uploads it, and files it under the student so it shows up in
+  /// Student Documents.
+  Future<RehireRecord> _attachRehireContract(
+    RehireRecord record,
+    User user,
+    Office office,
+  ) async {
+    final today = DateTime.now();
+    final termStart = RehireRecord.termStart(
+      record.academicYear,
+      record.semester,
+    );
+    final startDate = termStart == null || termStart.isBefore(today)
+        ? today
+        : termStart;
+    final raw = await const AppointmentDocumentService()
+        .generateContractOfAppointment(
+          application: Application(
+            id: record.id,
+            announcementId: '',
+            announcementTitle: 'Rehire - ${record.termLabel}',
+            applicantId: user.id,
+            applicantName: user.name,
+            appliedAt: record.decidedAt,
+            status: 'Approved',
+          ),
+          applicant: user,
+          officeName: office.name,
+          supervisorName: office.headNames.isNotEmpty
+              ? office.headNames.join(', ')
+              : 'Office Supervisor',
+          supervisorRole: 'Supervisor',
+          startDate: AppointmentDocumentService.formatDate(startDate),
+          endDate: 'End of ${record.termLabel}',
+        );
+    final bytes = raw.bytes;
+    if (bytes == null || bytes.isEmpty) {
+      throw Exception('The contract document came out empty.');
+    }
+
+    // Same 'reports/<uploaderUid>/<timestamp>/<file>' shape the Head's other
+    // uploads use, which the upload-document function accepts.
+    final uploaderUid =
+        fb_auth.FirebaseAuth.instance.currentUser?.uid ??
+        currentUser?.id ??
+        'user';
+    final storagePath =
+        'reports/$uploaderUid/${today.millisecondsSinceEpoch}/${raw.fileName}';
+    final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
+      bytes: bytes,
+      path: storagePath,
+      contentType: SupabaseStorageService.contentTypeForExtension('docx'),
+    );
+
+    final document = Document(
+      id: '${record.id}_contract',
+      name: 'Contract of Appointment (${record.termLabel})',
+      fileName: raw.fileName,
+      uploadedBy: currentUser?.name ?? '',
+      uploadedAt: today.toIso8601String(),
+      documentType: 'Contract',
+      description: 'Contract of Appointment for ${record.termLabel} (rehire)',
+      filePath: storagePath,
+      fileSize: raw.fileSize,
+      downloadUrl: downloadUrl,
+      studentId: user.id,
+      studentName: user.name,
+    );
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setDocument(document);
+    documents = [document, ...documents.where((d) => d.id != document.id)];
+
+    return record.copyWith(
+      contractDocumentId: document.id,
+      contractFileName: raw.fileName,
+      contractStoragePath: storagePath,
+      contractDownloadUrl: downloadUrl,
+    );
+  }
+
+  /// Puts a rehire decision into effect on the roster. Safe to run more
+  /// than once: it only moves the student into the state the decision asks
+  /// for.
+  /// - Rehired: a Student Assistant (again, if they'd been let go) in the
+  ///   decision's office, with their students record active and an SA ID.
+  /// - Not Rehired: off every office, students record archived, and back to
+  ///   the Student role — so they can apply again later. Their SA ID and
+  ///   history are kept.
+  Future<void> _applyRehireRecord(RehireRecord record) async {
+    final user = users.where((u) => u.id == record.studentId).firstOrNull;
+    if (user != null) {
+      if (record.isRehired) {
+        if (user.role == 'Student') {
+          await changeUserRole(user.id, 'Student Assistant', notify: false);
+        } else {
+          await _setStudentRecordsStatus(user, 'Active');
+        }
+        final officeId = record.officeIds.firstOrNull;
+        if (officeId != null) await _setAssistantOffice(user, officeId);
+        await ensureStudentAssistantId(user.id);
+      } else {
+        await _setAssistantOffice(user, null);
+        await _setStudentRecordsStatus(user, 'Archived');
+        if (user.role == 'Student Assistant') {
+          await changeUserRole(user.id, 'Student', notify: false);
+        }
+      }
+    }
+
+    final applied = record.copyWith(
+      applied: true,
+      appliedAt: DateTime.now().toIso8601String(),
+    );
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setRehireRecord(applied);
+    rehireRecords = rehireRecords
+        .map((r) => r.id == applied.id ? applied : r)
+        .toList();
+  }
+
+  /// Applies every recorded rehire decision whose term has now started.
+  Future<void> _applyDueRehireDecisions() async {
+    final due = rehireRecords
+        .where(
+          (r) => !r.applied && rehireTermHasStarted(r.academicYear, r.semester),
+        )
+        .toList();
+    for (final record in due) {
+      try {
+        await _applyRehireRecord(record);
+      } catch (error) {
+        debugPrint('Failed to apply rehire decision ${record.id}: $error');
+      }
+    }
+  }
+
+  /// Makes [officeId] the only office [user] is a student assistant in (the
+  /// same one-office rule as [assignStudentAssistantsToOffice]); a null
+  /// [officeId] takes them off every office.
+  Future<void> _setAssistantOffice(User user, String? officeId) async {
+    final name = user.name.trim().toLowerCase();
+    bool isUser(String? id, String? assistantName) =>
+        id == user.id ||
+        (assistantName != null && assistantName.trim().toLowerCase() == name);
+
+    for (final office in offices.toList()) {
+      final ids = office.assistantIds;
+      final names = office.assistantNames;
+      final isMember = ids.contains(user.id) || names.any((n) => isUser(null, n));
+      if (office.id == officeId) {
+        if (isMember) continue;
+        await saveOffice(
+          office.copyWith(
+            assistantIds: [...ids, user.id],
+            assistantNames: [...names, user.name],
+          ),
+        );
+      } else if (isMember) {
+        // The id and name lists run in parallel, so drop the same position
+        // from both.
+        final keptIds = <String>[];
+        final keptNames = <String>[];
+        final length = ids.length > names.length ? ids.length : names.length;
+        for (var i = 0; i < length; i++) {
+          final id = i < ids.length ? ids[i] : null;
+          final assistantName = i < names.length ? names[i] : null;
+          if (isUser(id, assistantName)) continue;
+          if (id != null) keptIds.add(id);
+          if (assistantName != null) keptNames.add(assistantName);
+        }
+        await saveOffice(
+          office.copyWith(assistantIds: keptIds, assistantNames: keptNames),
+        );
+      }
     }
   }
 
