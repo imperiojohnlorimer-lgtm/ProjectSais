@@ -39,7 +39,13 @@ class _PayrollScreenState extends State<PayrollScreen> {
   late String _academicYear;
   late DateTime _start;
   late DateTime _end;
-  bool _busy = false;
+
+  /// 'approve' or 'release' while that step is saving — the button shows a
+  /// spinner and the rest of the actions wait.
+  String? _busyAction;
+
+  /// Whether the filters are unfolded on a phone.
+  bool _filtersOpen = false;
 
   /// The payroll sheet open in the editor, if any.
   PayrollSheet? _sheet;
@@ -54,7 +60,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
   void initState() {
     super.initState();
     final state = context.read<AppState>();
-    _semester = state.academicSemester;
+    // Payroll only runs for the two regular semesters; a Summer term in the
+    // settings would otherwise match no dropdown option and crash it.
+    _semester = _semesters.contains(state.academicSemester)
+        ? state.academicSemester
+        : _semesters.first;
     _academicYear = state.academicYear;
     _applyDefaultRange();
   }
@@ -111,8 +121,8 @@ class _PayrollScreenState extends State<PayrollScreen> {
       message:
           'This will approve and record pay for ${ready.length} Student '
           'Assistant(s) for $_periodLabel, totaling '
-          '₱${total.toStringAsFixed(2)}. Payout is not released to students '
-          'until you separately click "Release Payout".\n\n'
+          '${_peso(total)}. Payout is not released to students '
+          'until you separately click "Release".\n\n'
           '${preview.length - ready.length} student(s) with incomplete '
           'requirements will be skipped.',
       confirmLabel: 'Approve',
@@ -120,7 +130,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
     );
     if (!confirmed || !context.mounted) return;
 
-    setState(() => _busy = true);
+    setState(() => _busyAction = 'approve');
     final messenger = ScaffoldMessenger.of(context);
     try {
       final (count, approvedTotal) = await state.approvePayroll(preview);
@@ -129,7 +139,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         SnackBar(
           content: Text(
             'Approved payroll for $count Student Assistant(s) — '
-            '₱${approvedTotal.toStringAsFixed(2)} total. Release it when ready.',
+            '${_peso(approvedTotal)} total. Release it when ready.',
           ),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
@@ -148,7 +158,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 
@@ -166,14 +176,14 @@ class _PayrollScreenState extends State<PayrollScreen> {
       message:
           'This will release payout to ${approved.length} Student '
           'Assistant(s) for $_periodLabel, totaling '
-          '₱${total.toStringAsFixed(2)}, and notify each of them. This '
+          '${_peso(total)}, and notify each of them. This '
           'cannot be undone.',
       confirmLabel: 'Release',
       confirmColor: AppTheme.emerald500,
     );
     if (!confirmed || !context.mounted) return;
 
-    setState(() => _busy = true);
+    setState(() => _busyAction = 'release');
     final messenger = ScaffoldMessenger.of(context);
     try {
       final (count, releasedTotal) = await state.releasePayroll(
@@ -185,7 +195,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         SnackBar(
           content: Text(
             'Released payout for $count Student Assistant(s) — '
-            '₱${releasedTotal.toStringAsFixed(2)} total. They\'ve been notified.',
+            '${_peso(releasedTotal)} total. They\'ve been notified.',
           ),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
@@ -204,7 +214,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         ),
       );
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) setState(() => _busyAction = null);
     }
   }
 
@@ -326,248 +336,39 @@ class _PayrollScreenState extends State<PayrollScreen> {
       children: [
         Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-          child: Row(
-            children: [
-              Container(
-                width: 4,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: AppTheme.maroon,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Payroll',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                  letterSpacing: -0.3,
-                ),
-              ),
-            ],
-          ),
+          child: _header(),
         ),
-        Padding(
-          padding: EdgeInsets.fromLTRB(hPad + 14, 4, hPad, 0),
-          child: const Text(
-            'Approve and release payroll for a semester. ₱25.00/hr, '
-            '25–40 hrs/month.',
-            style: TextStyle(fontSize: 13, color: AppTheme.slate400),
-          ),
-        ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
         Expanded(
           child: SingleChildScrollView(
             padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── Period picker ──────────────────────────
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppTheme.slate200),
-                  ),
-                  child: Wrap(
-                    spacing: 16,
-                    runSpacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 170,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _semester,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Semester',
-                            isDense: true,
-                          ),
-                          items: _semesters
-                              .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                              .toList(),
-                          onChanged: (v) => setState(() {
-                            _semester = v ?? _semester;
-                            _applyDefaultRange();
-                          }),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 150,
-                        child: TextFormField(
-                          initialValue: _academicYear,
-                          decoration: const InputDecoration(
-                            labelText: 'Academic Year',
-                            hintText: 'e.g. 2026-2027',
-                            isDense: true,
-                          ),
-                          onChanged: (v) => setState(() {
-                            _academicYear = v;
-                            _applyDefaultRange();
-                          }),
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => _pickDate(isStart: true),
-                        child: _dateChip('Start', _start),
-                      ),
-                      GestureDetector(
-                        onTap: () => _pickDate(isStart: false),
-                        child: _dateChip('End', _end),
-                      ),
-                    ],
-                  ),
+                _periodCard(
+                  isMobile: isMobile,
+                  campusOptions: campusOptions,
+                  departmentOptions: departmentOptions,
+                  officeOptions: officeOptions,
                 ),
                 const SizedBox(height: 12),
-                // ── Filters ─────────────────────────────────
-                Container(
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: AppTheme.slate200),
-                  ),
-                  child: Wrap(
-                    spacing: 16,
-                    runSpacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      SizedBox(
-                        width: 190,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _campusFilter,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Campus',
-                            isDense: true,
-                          ),
-                          items: campusOptions
-                              .map((c) => DropdownMenuItem(value: c, child: Text(c, overflow: TextOverflow.ellipsis)))
-                              .toList(),
-                          onChanged: (v) => setState(() => _campusFilter = v ?? 'All'),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 190,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _departmentFilter,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Department',
-                            isDense: true,
-                          ),
-                          items: departmentOptions
-                              .map((d) => DropdownMenuItem(value: d, child: Text(d, overflow: TextOverflow.ellipsis)))
-                              .toList(),
-                          onChanged: (v) => setState(() => _departmentFilter = v ?? 'All'),
-                        ),
-                      ),
-                      SizedBox(
-                        width: 190,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: _officeFilter,
-                          isExpanded: true,
-                          decoration: const InputDecoration(
-                            labelText: 'Office',
-                            isDense: true,
-                          ),
-                          items: officeOptions
-                              .map((o) => DropdownMenuItem(value: o, child: Text(o, overflow: TextOverflow.ellipsis)))
-                              .toList(),
-                          onChanged: (v) => setState(() => _officeFilter = v ?? 'All'),
-                        ),
-                      ),
-                    ],
-                  ),
+                _summaryCard(
+                  state: state,
+                  preview: preview,
+                  ready: ready,
+                  incomplete: incomplete,
+                  approved: approved,
+                  released: released,
+                  readyTotal: readyTotal,
+                  approvedTotal: approvedTotal,
+                  hasSavedSheet: hasSavedSheet,
                 ),
-                const SizedBox(height: 12),
-                // ── Actions ─────────────────────────────────
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    ElevatedButton.icon(
-                      onPressed: (_busy || ready.isEmpty)
-                          ? null
-                          : () => _confirmApprove(context, state, preview),
-                      icon: _busy
-                          ? const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                            )
-                          : const Icon(Icons.check_circle_outline, size: 16),
-                      label: Text('Approve Payroll (${ready.length})'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.maroon,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 0,
-                      ),
-                    ),
-                    ElevatedButton.icon(
-                      onPressed: (_busy || approved.isEmpty)
-                          ? null
-                          : () => _confirmRelease(context, state, approved),
-                      icon: const Icon(Icons.payments_outlined, size: 16),
-                      label: Text('Release Payout (${approved.length})'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.emerald500,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        elevation: 0,
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: _busy ? null : () => _openSheet(state),
-                      icon: const Icon(Icons.edit_document, size: 16),
-                      label: Text(
-                        hasSavedSheet
-                            ? 'Edit Payroll Sheet'
-                            : 'Prepare Payroll Sheet',
-                      ),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.maroon,
-                        side: const BorderSide(color: AppTheme.maroon),
-                        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                // ── Summary ─────────────────────────────────
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    _summaryTile('Ready to Approve', '${ready.length}', AppTheme.slate600, Icons.hourglass_empty_rounded),
-                    _summaryTile('Incomplete', '${incomplete.length}', AppTheme.amber500, Icons.error_outline),
-                    _summaryTile('Awaiting Release', '${approved.length}', AppTheme.blue500, Icons.lock_clock_outlined),
-                    _summaryTile('Released', '${released.length}', AppTheme.emerald500, Icons.done_all),
-                    _summaryTile('Pending Approval Total', '₱${readyTotal.toStringAsFixed(2)}', AppTheme.slate600, Icons.pending_actions_outlined),
-                    _summaryTile('Pending Release Total', '₱${approvedTotal.toStringAsFixed(2)}', AppTheme.maroon, Icons.payments_outlined),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                Text(
-                  '$_periodLabel — Student Assistants (${preview.length})',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slate500,
-                    letterSpacing: 0.5,
-                  ),
-                ),
+                const SizedBox(height: 22),
+                _listHeader(preview.length),
                 const SizedBox(height: 10),
                 if (preview.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 40),
                     child: Center(
                       child: Text(
                         'No active Student Assistants found.',
@@ -576,7 +377,28 @@ class _PayrollScreenState extends State<PayrollScreen> {
                     ),
                   )
                 else
-                  ...preview.map((p) => _PayrollRow(record: p)),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      // Two cards per row once there's room, so a desktop
+                      // screen isn't one long narrow column.
+                      const gap = 12.0;
+                      final columns = constraints.maxWidth >= 1000 ? 2 : 1;
+                      final cardWidth =
+                          (constraints.maxWidth - gap * (columns - 1)) /
+                          columns;
+                      return Wrap(
+                        spacing: gap,
+                        runSpacing: gap,
+                        children: [
+                          for (final p in preview)
+                            SizedBox(
+                              width: cardWidth,
+                              child: _PayrollRow(record: p),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
               ],
             ),
           ),
@@ -585,81 +407,606 @@ class _PayrollScreenState extends State<PayrollScreen> {
     );
   }
 
-  Widget _dateChip(String label, DateTime date) {
+  Widget _header() => Row(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Container(
+        width: 3,
+        height: 32,
+        margin: const EdgeInsets.only(top: 3),
+        decoration: BoxDecoration(
+          color: AppTheme.maroon,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      const SizedBox(width: 11),
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.payments_rounded, size: 17, color: AppTheme.maroon),
+                SizedBox(width: 7),
+                Text(
+                  'Payroll',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                    letterSpacing: -0.3,
+                    height: 1.1,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              'Approve and release each semester\'s pay · '
+              '${_peso(PayrollRecord.ratePerHour)}/hr · '
+              '${PayrollRecord.minimumMonthlyHours.toStringAsFixed(0)}–'
+              '${PayrollRecord.maximumMonthlyHours.toStringAsFixed(0)} hrs a month',
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppTheme.slate400,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+
+  Widget _card({required Widget child}) => Container(
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.slate200),
+    ),
+    child: child,
+  );
+
+  Widget _cardLabel(String text) => Text(
+    text.toUpperCase(),
+    style: const TextStyle(
+      fontSize: 10.5,
+      fontWeight: FontWeight.w800,
+      color: AppTheme.slate400,
+      letterSpacing: 0.6,
+    ),
+  );
+
+  Widget _periodCard({
+    required bool isMobile,
+    required List<String> campusOptions,
+    required List<String> departmentOptions,
+    required List<String> officeOptions,
+  }) {
+    const gap = 12.0;
+    final semesterField = DropdownButtonFormField<String>(
+      key: ValueKey('semester-$_semester'),
+      initialValue: _semester,
+      isExpanded: true,
+      style: _fieldText,
+      decoration: _field('Semester'),
+      items: _semesters
+          .map(
+            (s) => DropdownMenuItem(
+              value: s,
+              child: Text(s, overflow: TextOverflow.ellipsis),
+            ),
+          )
+          .toList(),
+      onChanged: (v) => setState(() {
+        _semester = v ?? _semester;
+        _applyDefaultRange();
+      }),
+    );
+    final yearField = TextFormField(
+      initialValue: _academicYear,
+      style: _fieldText,
+      decoration: _field('Academic Year', hint: 'e.g. 2026-2027'),
+      onChanged: (v) => setState(() {
+        _academicYear = v;
+        _applyDefaultRange();
+      }),
+    );
+    final startField = _dateField('Start', _start, isStart: true);
+    final endField = _dateField('End', _end, isStart: false);
+
+    Widget filter(
+      String label,
+      String plural,
+      String value,
+      List<String> options,
+      ValueChanged<String> onChanged,
+    ) => DropdownButtonFormField<String>(
+      // Keyed on the value so a filter reset to "All" (its option went
+      // away) shows as reset.
+      key: ValueKey('$label-$value'),
+      initialValue: value,
+      isExpanded: true,
+      style: _fieldText,
+      decoration: _field(label),
+      items: options
+          .map(
+            (o) => DropdownMenuItem(
+              value: o,
+              child: Text(
+                o == 'All' ? 'All $plural' : o,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          )
+          .toList(),
+      onChanged: (v) => setState(() => onChanged(v ?? 'All')),
+    );
+
+    final filters = [
+      filter(
+        'Campus',
+        'campuses',
+        _campusFilter,
+        campusOptions,
+        (v) => _campusFilter = v,
+      ),
+      filter(
+        'Department',
+        'departments',
+        _departmentFilter,
+        departmentOptions,
+        (v) => _departmentFilter = v,
+      ),
+      filter(
+        'Office',
+        'offices',
+        _officeFilter,
+        officeOptions,
+        (v) => _officeFilter = v,
+      ),
+    ];
+    final activeFilters = [
+      _campusFilter,
+      _departmentFilter,
+      _officeFilter,
+    ].where((f) => f != 'All').length;
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _cardLabel('Pay period'),
+          const SizedBox(height: 12),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              // One row when there's room, a 2×2 grid on a phone, and a
+              // single column on the narrowest ones — where two across
+              // would cut off "1st Semester" and the dates.
+              if (constraints.maxWidth < 280) {
+                return Column(
+                  children: [
+                    for (final (i, f) in [
+                      semesterField,
+                      yearField,
+                      startField,
+                      endField,
+                    ].indexed) ...[
+                      if (i > 0) const SizedBox(height: gap),
+                      f,
+                    ],
+                  ],
+                );
+              }
+              if (constraints.maxWidth >= 640) {
+                return Row(
+                  children: [
+                    Expanded(child: semesterField),
+                    const SizedBox(width: gap),
+                    Expanded(child: yearField),
+                    const SizedBox(width: gap),
+                    Expanded(child: startField),
+                    const SizedBox(width: gap),
+                    Expanded(child: endField),
+                  ],
+                );
+              }
+              return Column(
+                children: [
+                  Row(
+                    children: [
+                      Expanded(child: semesterField),
+                      const SizedBox(width: gap),
+                      Expanded(child: yearField),
+                    ],
+                  ),
+                  const SizedBox(height: gap),
+                  Row(
+                    children: [
+                      Expanded(child: startField),
+                      const SizedBox(width: gap),
+                      Expanded(child: endField),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(height: 14),
+          const Divider(height: 1, color: AppTheme.slate100),
+          if (isMobile) ...[
+            // On a phone the three filters fold away behind one row, since
+            // most of the time they stay on "All".
+            InkWell(
+              onTap: () => setState(() => _filtersOpen = !_filtersOpen),
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.filter_list_rounded,
+                      size: 18,
+                      color: activeFilters > 0
+                          ? AppTheme.maroon
+                          : AppTheme.slate500,
+                    ),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Filters',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.slate700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      activeFilters == 0 ? 'All' : '$activeFilters applied',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: activeFilters > 0
+                            ? AppTheme.maroon
+                            : AppTheme.slate400,
+                      ),
+                    ),
+                    const SizedBox(width: 4),
+                    Icon(
+                      _filtersOpen
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      color: AppTheme.slate400,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_filtersOpen)
+              for (final (i, f) in filters.indexed) ...[
+                if (i > 0) const SizedBox(height: gap),
+                f,
+              ],
+          ] else ...[
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                for (final (i, f) in filters.indexed) ...[
+                  if (i > 0) const SizedBox(width: gap),
+                  Expanded(child: f),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _dateField(String label, DateTime date, {required bool isStart}) {
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.slate50,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.slate200),
+    return InkWell(
+      onTap: () => _pickDate(isStart: isStart),
+      borderRadius: BorderRadius.circular(12),
+      child: InputDecorator(
+        decoration: _field(
+          label,
+          prefixIcon: const Icon(Icons.event_outlined, size: 16),
+        ),
+        child: Text(
+          '${months[date.month - 1]} ${date.day}, ${date.year}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: _fieldText,
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.event_outlined, size: 15, color: AppTheme.slate500),
-          const SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
+    );
+  }
+
+  static const _fieldText = TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+    color: AppTheme.slate800,
+  );
+
+  /// Tighter than the theme's default input padding, so two fields fit side
+  /// by side on a phone without cutting off "1st Semester" or a date.
+  InputDecoration _field(String label, {String? hint, Widget? prefixIcon}) =>
+      InputDecoration(
+        labelText: label,
+        hintText: hint,
+        isDense: true,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 12,
+        ),
+        prefixIcon: prefixIcon,
+        prefixIconConstraints: prefixIcon == null
+            ? null
+            : const BoxConstraints(minWidth: 32, minHeight: 20),
+      );
+
+  Widget _summaryCard({
+    required AppState state,
+    required List<PayrollRecord> preview,
+    required List<PayrollRecord> ready,
+    required List<PayrollRecord> incomplete,
+    required List<PayrollRecord> approved,
+    required List<PayrollRecord> released,
+    required double readyTotal,
+    required double approvedTotal,
+    required bool hasSavedSheet,
+  }) {
+    Widget spinner() => const SizedBox(
+      width: 15,
+      height: 15,
+      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+    );
+    ButtonStyle filled(Color color) => ElevatedButton.styleFrom(
+      backgroundColor: color,
+      foregroundColor: Colors.white,
+      disabledBackgroundColor: _busyAction != null
+          ? color.withValues(alpha: 0.55)
+          : AppTheme.slate100,
+      disabledForegroundColor: _busyAction != null
+          ? Colors.white
+          : AppTheme.slate400,
+      elevation: 0,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      textStyle: const TextStyle(
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w700,
+        fontSize: 13.5,
+      ),
+    );
+
+    final approving = _busyAction == 'approve';
+    final releasing = _busyAction == 'release';
+    final approveButton = ElevatedButton.icon(
+      onPressed: (_busyAction != null || ready.isEmpty)
+          ? null
+          : () => _confirmApprove(context, state, preview),
+      icon: approving
+          ? spinner()
+          : const Icon(Icons.check_circle_outline, size: 17),
+      label: Text(approving ? 'Approving...' : 'Approve'),
+      style: filled(AppTheme.maroon),
+    );
+    final releaseButton = ElevatedButton.icon(
+      onPressed: (_busyAction != null || approved.isEmpty)
+          ? null
+          : () => _confirmRelease(context, state, approved),
+      icon: releasing
+          ? spinner()
+          : const Icon(Icons.payments_outlined, size: 17),
+      label: Text(releasing ? 'Releasing...' : 'Release'),
+      style: filled(AppTheme.emerald500),
+    );
+
+    Widget stage(
+      String label,
+      double amount,
+      String note,
+      Widget button,
+    ) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _cardLabel(label),
+        const SizedBox(height: 6),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            _peso(amount),
+            style: const TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.slate900,
+              letterSpacing: -0.4,
+            ),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          note,
+          style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(width: double.infinity, child: button),
+      ],
+    );
+
+    Widget count(String label, int value, Color color) => Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 4),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.07),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Column(
+          children: [
+            Text(
+              '$value',
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w800,
+                color: color,
+                height: 1.1,
+              ),
+            ),
+            const SizedBox(height: 2),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
                 label,
-                style: const TextStyle(fontSize: 9.5, color: AppTheme.slate400, fontWeight: FontWeight.w700),
+                maxLines: 1,
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.slate500,
+                ),
               ),
-              Text(
-                '${months[date.month - 1]} ${date.day}, ${date.year}',
-                style: const TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: AppTheme.slate800),
-              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    return _card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: stage(
+                    'To approve',
+                    readyTotal,
+                    '${ready.length} ready',
+                    approveButton,
+                  ),
+                ),
+                const VerticalDivider(
+                  width: 28,
+                  thickness: 1,
+                  color: AppTheme.slate100,
+                ),
+                Expanded(
+                  child: stage(
+                    'To release',
+                    approvedTotal,
+                    '${approved.length} approved',
+                    releaseButton,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              count('Ready', ready.length, AppTheme.slate600),
+              const SizedBox(width: 6),
+              count('Incomplete', incomplete.length, AppTheme.amber500),
+              const SizedBox(width: 6),
+              count('To release', approved.length, AppTheme.blue500),
+              const SizedBox(width: 6),
+              count('Released', released.length, AppTheme.emerald500),
             ],
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _busyAction != null ? null : () => _openSheet(state),
+            icon: const Icon(Icons.edit_document, size: 16),
+            label: Text(
+              hasSavedSheet ? 'Edit Payroll Sheet' : 'Prepare Payroll Sheet',
+            ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.maroon,
+              side: const BorderSide(color: AppTheme.maroon200),
+              padding: const EdgeInsets.symmetric(vertical: 13),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              textStyle: const TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+              ),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _summaryTile(String label, String value, Color color, IconData icon) {
-    return Container(
-      width: 200,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.slate200),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, color: color, size: 18),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _listHeader(int count) => Row(
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+      Expanded(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Text(
-                  value,
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: color),
+                const Text(
+                  'Student Assistants',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                  ),
                 ),
-                Text(
-                  label,
-                  style: const TextStyle(fontSize: 11, color: AppTheme.slate500),
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 2,
+                  ),
+                  decoration: BoxDecoration(
+                    color: AppTheme.slate100,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.slate600,
+                    ),
+                  ),
                 ),
               ],
             ),
-          ),
-        ],
+            const SizedBox(height: 2),
+            Text(
+              _periodLabel,
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate400),
+            ),
+          ],
+        ),
       ),
-    );
-  }
+    ],
+  );
+}
+
+/// "₱3,937.50" — pesos with thousands separators.
+String _peso(double amount) {
+  final parts = amount.toStringAsFixed(2).split('.');
+  final whole = parts[0].replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (_) => ',',
+  );
+  return '₱$whole.${parts[1]}';
 }
 
 class _PayrollRow extends StatelessWidget {
@@ -679,39 +1026,77 @@ class _PayrollRow extends StatelessWidget {
       'Ready' => AppTheme.slate600,
       _ => AppTheme.amber500,
     };
+    final capped = record.payableHours < record.hoursWorked;
+    final anyMonthOff = record.monthlyBreakdown.any(
+      (m) => !(m.meetsMinimumHours && m.withinMaximumHours),
+    );
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.slate200),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          // ── Who ──
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (record.saId != null && record.saId!.isNotEmpty)
-                Container(
-                  margin: const EdgeInsets.only(right: 8),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppTheme.maroon.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    record.saId!,
-                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w800, color: AppTheme.maroon),
-                  ),
-                ),
               Expanded(
-                child: Text(
-                  record.studentName,
-                  style: const TextStyle(fontSize: 13.5, fontWeight: FontWeight.w700, color: AppTheme.slate800),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        if (record.saId != null && record.saId!.isNotEmpty)
+                          Container(
+                            margin: const EdgeInsets.only(right: 8),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: AppTheme.maroon.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              record.saId!,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.maroon,
+                              ),
+                            ),
+                          ),
+                        Flexible(
+                          child: Text(
+                            record.studentName,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.slate900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      record.office.isEmpty ? 'Unassigned office' : record.office,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: AppTheme.slate500,
+                      ),
+                    ),
+                  ],
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
                 decoration: BoxDecoration(
@@ -720,65 +1105,125 @@ class _PayrollRow extends StatelessWidget {
                 ),
                 child: Text(
                   record.status,
-                  style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: statusColor),
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 6),
-          Text(
-            record.office.isEmpty ? 'Unassigned office' : record.office,
-            style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
-          ),
-          if (record.status == 'Approved' || record.status == 'Released') ...[
-            const SizedBox(height: 4),
-            Text(
-              record.status == 'Released'
-                  ? 'Released ${record.releasedAt ?? ''} by ${record.releasedBy ?? ''}'
-                  : 'Approved ${record.approvedAt ?? ''} by ${record.approvedBy ?? ''}',
-              style: const TextStyle(fontSize: 10.5, color: AppTheme.slate400, fontStyle: FontStyle.italic),
-            ),
-          ],
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
+          const SizedBox(height: 12),
+          // ── Hours and pay ──
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _chip(
-                Icons.access_time_rounded,
-                '${record.hoursWorked.toStringAsFixed(1)} hrs worked total',
-                AppTheme.slate600,
+              Expanded(
+                child: _figure(
+                  'Hours worked',
+                  '${record.hoursWorked.toStringAsFixed(1)} hrs',
+                  capped
+                      ? '${record.payableHours.toStringAsFixed(1)} payable'
+                      : null,
+                  AppTheme.slate900,
+                ),
               ),
-              _chip(
-                Icons.payments_outlined,
-                '₱${record.grossPay.toStringAsFixed(2)}',
-                AppTheme.maroon,
-              ),
-              _chip(
-                record.dtrVerified ? Icons.check_circle_outline : Icons.cancel_outlined,
-                record.dtrVerified ? 'DTR verified' : 'No DTR records',
-                record.dtrVerified ? AppTheme.emerald500 : AppTheme.red500,
-              ),
-              _chip(
-                record.reportVerified ? Icons.check_circle_outline : Icons.cancel_outlined,
-                record.reportVerified ? 'Report verified' : 'No approved report',
-                record.reportVerified ? AppTheme.emerald500 : AppTheme.red500,
+              Expanded(
+                child: _figure(
+                  'Gross pay',
+                  _peso(record.grossPay),
+                  null,
+                  AppTheme.maroon,
+                ),
               ),
             ],
           ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 14,
+            runSpacing: 4,
+            children: [
+              _check(
+                record.dtrVerified,
+                record.dtrVerified ? 'DTR verified' : 'No DTR records',
+              ),
+              _check(
+                record.reportVerified,
+                record.reportVerified ? 'Report verified' : 'No approved report',
+              ),
+            ],
+          ),
+          // ── Month by month ──
           if (record.monthlyBreakdown.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: record.monthlyBreakdown.map((m) {
-                final ok = m.meetsMinimumHours && m.withinMaximumHours;
-                return _chip(
-                  ok ? Icons.check_circle_outline : Icons.warning_amber_rounded,
-                  '${_months[m.month - 1]} ${m.year}: ${m.hoursWorked.toStringAsFixed(1)} hrs',
-                  ok ? AppTheme.slate500 : AppTheme.amber500,
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                const gap = 6.0;
+                final n = record.monthlyBreakdown.length;
+                // Share the row evenly, but never squeeze a month below a
+                // readable width — past that the months wrap instead.
+                final even = (constraints.maxWidth - gap * (n - 1)) / n;
+                final cellWidth = even < 52 ? 52.0 : even;
+                return Wrap(
+                  spacing: gap,
+                  runSpacing: gap,
+                  children: [
+                    for (final m in record.monthlyBreakdown)
+                      SizedBox(width: cellWidth, child: _monthCell(m)),
+                  ],
                 );
-              }).toList(),
+              },
+            ),
+            if (anyMonthOff) ...[
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 13,
+                    color: AppTheme.amber500,
+                  ),
+                  const SizedBox(width: 4),
+                  Expanded(
+                    child: Text(
+                      'Outside ${PayrollRecord.minimumMonthlyHours.toStringAsFixed(0)}–'
+                      '${PayrollRecord.maximumMonthlyHours.toStringAsFixed(0)} hrs that month',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.amber500,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+          if (record.status == 'Approved' || record.status == 'Released') ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Icon(
+                  record.status == 'Released'
+                      ? Icons.done_all_rounded
+                      : Icons.lock_clock_outlined,
+                  size: 13,
+                  color: AppTheme.slate400,
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    record.status == 'Released'
+                        ? 'Released ${record.releasedAt ?? ''} by ${record.releasedBy ?? ''}'
+                        : 'Approved ${record.approvedAt ?? ''} by ${record.approvedBy ?? ''}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AppTheme.slate400,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ],
@@ -786,23 +1231,93 @@ class _PayrollRow extends StatelessWidget {
     );
   }
 
-  Widget _chip(IconData icon, String label, Color color) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-    decoration: BoxDecoration(
-      color: color.withValues(alpha: 0.08),
-      borderRadius: BorderRadius.circular(20),
-      border: Border.all(color: color.withValues(alpha: 0.2)),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 12, color: color),
-        const SizedBox(width: 5),
-        Text(
-          label,
-          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w700, color: color),
+  Widget _figure(String label, String value, String? note, Color color) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slate400,
+            ),
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: color,
+              ),
+            ),
+          ),
+          if (note != null)
+            Text(
+              note,
+              style: const TextStyle(fontSize: 11, color: AppTheme.slate500),
+            ),
+        ],
+      );
+
+  Widget _check(bool ok, String label) => Row(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      Icon(
+        ok ? Icons.check_circle_rounded : Icons.cancel_rounded,
+        size: 14,
+        color: ok ? AppTheme.emerald500 : AppTheme.red500,
+      ),
+      const SizedBox(width: 4),
+      Text(
+        label,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: ok ? AppTheme.slate600 : AppTheme.red500,
         ),
-      ],
-    ),
+      ),
+    ],
   );
+
+  Widget _monthCell(PayrollMonthBreakdown m) {
+    final ok = m.meetsMinimumHours && m.withinMaximumHours;
+    final color = ok ? AppTheme.slate800 : AppTheme.amber500;
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      decoration: BoxDecoration(
+        color: ok ? AppTheme.slate50 : AppTheme.amber50,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: ok
+              ? AppTheme.slate200
+              : AppTheme.amber500.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Column(
+        children: [
+          Text(
+            _months[m.month - 1],
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: ok ? AppTheme.slate400 : AppTheme.amber500,
+            ),
+          ),
+          Text(
+            m.hoursWorked.toStringAsFixed(1),
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
