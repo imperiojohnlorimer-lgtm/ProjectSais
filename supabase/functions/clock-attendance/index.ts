@@ -120,15 +120,17 @@ function parseTimeMinutes(value: string): number | null {
 
 /**
  * Elapsed hours between time-in and time-out. Mirrors
- * AppState._hoursBetween, including its 4.0 fallback, so hours computed
- * here match hours computed anywhere else in the app.
+ * AppState._hoursBetween — including returning 0 when the times can't be
+ * trusted — so hours computed here match hours computed anywhere else in
+ * the app. Never guess a duration: these hours are paid, and a student who
+ * clocks out a few seconds after clocking in worked 0 hours, not 4.
  */
 function hoursBetween(timeIn: string, timeOut: string): number {
   const start = parseTimeMinutes(timeIn);
   const end = parseTimeMinutes(timeOut);
-  if (start === null || end === null) return 4.0;
+  if (start === null || end === null) return 0.0;
   const diff = end - start;
-  if (diff <= 0) return 4.0;
+  if (diff <= 0) return 0.0;
   return diff / 60.0;
 }
 

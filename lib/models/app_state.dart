@@ -3016,15 +3016,19 @@ class AppState extends ChangeNotifier {
   }
 
   /// Actual elapsed hours between a "H:MM AM/PM" time-in and time-out on
-  /// the same day. Falls back to 4.0 (the old placeholder) only if either
-  /// time string can't be parsed, so a malformed record still gets a
-  /// sensible value instead of 0 or a crash.
+  /// the same day.
+  ///
+  /// Returns 0 rather than a guess when the times can't be trusted — either
+  /// string unparseable, or a time-out at or before the time-in. These hours
+  /// feed payroll, so an unearned four hours is far worse than a zero the
+  /// Head can correct with a manual time-out. (Times are stored to the
+  /// minute, so a session shorter than a minute genuinely is 0 hours.)
   double _hoursBetween(String? timeIn, String timeOut) {
     final inMinutes = _parseTimeOfDayMinutes(timeIn ?? '');
     final outMinutes = _parseTimeOfDayMinutes(timeOut);
-    if (inMinutes == null || outMinutes == null) return 4.0;
+    if (inMinutes == null || outMinutes == null) return 0.0;
     final diff = outMinutes - inMinutes;
-    if (diff <= 0) return 4.0;
+    if (diff <= 0) return 0.0;
     return diff / 60.0;
   }
 
@@ -3069,14 +3073,21 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  /// One-time fix for attendance records saved while [clockOut] used to
-  /// hard-code every session at a flat 4.0 hours instead of computing real
-  /// elapsed time. Anything with both a time-in and a time-out already has
-  /// everything needed to recompute its true duration, so this recalculates
-  /// [AttendanceRecord.totalHours] for every completed record from its own
-  /// stored timestamps and re-saves only the ones that actually changed.
-  /// Returns how many records were corrected.
-  Future<int> recalculateAttendanceHours() async {
+  /// Repair for attendance records saved with a placeholder duration rather
+  /// than a real one — first when clocking out hard-coded every session at a
+  /// flat 4.0 hours, and later when [_hoursBetween] fell back to 4.0 for a
+  /// time-out at or before the time-in. Anything with both a time-in and a
+  /// time-out already has everything needed to recompute its true duration,
+  /// so this recalculates [AttendanceRecord.totalHours] for every completed
+  /// record from its own stored timestamps and re-saves only the ones that
+  /// actually changed.
+  ///
+  /// Returns how many records were written and how many could not be. A
+  /// failed write leaves the local value fixed but the stored one stale,
+  /// and the attendance stream then pushes the old value straight back —
+  /// which looks exactly like the button doing nothing. Callers must report
+  /// [failed] instead of claiming success.
+  Future<({int fixed, int failed})> recalculateAttendanceHours() async {
     _firestoreService ??= FirestoreService();
     final corrections = <String, double>{};
 
@@ -3088,7 +3099,7 @@ class AppState extends ChangeNotifier {
       }
     }
 
-    if (corrections.isEmpty) return 0;
+    if (corrections.isEmpty) return (fixed: 0, failed: 0);
 
     attendance = attendance.map((r) {
       final fixed = corrections[r.id];
@@ -3110,18 +3121,24 @@ class AppState extends ChangeNotifier {
 
     // Each correction targets a different document, so fire them
     // concurrently instead of paying one round trip at a time.
+    var failed = 0;
     await Future.wait(
-      corrections.entries.map(
-        (entry) => _firestoreService!
-            .updateAttendance(entry.key, {'totalHours': entry.value})
-            .catchError((_) {
-              // Firestore unavailable for this record — local state is still
-              // fixed; a later run will retry the Firestore write.
-            }),
-      ),
+      corrections.entries.map((entry) async {
+        try {
+          await _firestoreService!.updateAttendance(entry.key, {
+            'totalHours': entry.value,
+          });
+        } catch (e) {
+          // Most often a rules rejection (the signed-in account is not
+          // Head/Supervisor) — worth seeing, since the stream will quietly
+          // restore the stale hours a moment later.
+          debugPrint('Could not save recalculated hours for ${entry.key}: $e');
+          failed++;
+        }
+      }),
     );
 
-    return corrections.length;
+    return (fixed: corrections.length - failed, failed: failed);
   }
 
   /// Parses a "H:MM AM/PM" time-of-day string (the format [clockIn]/

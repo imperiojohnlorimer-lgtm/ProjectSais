@@ -123,15 +123,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                   state.role == 'Supervisor')
                                 OutlinedButton.icon(
                                   onPressed: () async {
-                                    final fixed = await state
+                                    final result = await state
                                         .recalculateAttendanceHours();
                                     if (!context.mounted) return;
+                                    final (:fixed, :failed) = result;
                                     _snack(
                                       context,
-                                      fixed == 0
+                                      failed > 0
+                                          ? 'Could not save $failed record(s) — '
+                                                'their hours will revert. Sign in '
+                                                'as Head or Supervisor and retry.'
+                                          : fixed == 0
                                           ? 'All completed records already have correct hours'
                                           : 'Recalculated hours for $fixed record(s)',
-                                      AppTheme.emerald500,
+                                      failed > 0
+                                          ? AppTheme.red500
+                                          : AppTheme.emerald500,
                                     );
                                   },
                                   icon: const Icon(
