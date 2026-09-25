@@ -221,6 +221,11 @@ Deno.serve(async (request) => {
     if (!userId || typeof userId !== "string") {
       return json({ error: "Invalid Firebase user ID." }, 401);
     }
+    // The app refuses unverified sign-ins, but a token can be minted without
+    // the app, so check here too — as the Firestore rules do.
+    if (verified.payload.email_verified !== true) {
+      return json({ error: "Please verify your email address first." }, 403);
+    }
 
     const body = await request.json().catch(() => ({}));
     const scanned = String(body?.token ?? "").trim();
@@ -236,6 +241,9 @@ Deno.serve(async (request) => {
     );
     if (!userDoc) {
       return json({ error: "This account has no profile." }, 403);
+    }
+    if (userDoc.fields?.status?.stringValue === "Archived") {
+      return json({ error: "This account has been deactivated." }, 403);
     }
     const role = userDoc.fields?.role?.stringValue;
     if (role !== "Student Assistant") {
