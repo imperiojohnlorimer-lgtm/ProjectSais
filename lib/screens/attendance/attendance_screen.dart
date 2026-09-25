@@ -537,11 +537,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     _snack(
       context,
       result.ok
-          ? (result.clockedIn
+          ? (result.message.isNotEmpty
+                ? result.message
+                : result.clockedIn
                 ? 'QR Scan — Clocked in!'
                 : 'QR Scan — Clocked out!')
           : result.message,
-      result.ok ? AppTheme.emerald500 : AppTheme.red500,
+      !result.ok
+          ? AppTheme.red500
+          : result.message.isNotEmpty
+          ? AppTheme.amber500
+          : AppTheme.emerald500,
     );
   }
 

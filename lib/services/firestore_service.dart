@@ -384,11 +384,13 @@ class FirestoreService {
         .collection('years')
         .doc(academicYear)
         .collection('attendance');
-    final records = attendanceSnapshot.docs
-        .where(
-          (doc) => (doc.data() as Map<String, dynamic>)['isArchived'] != true,
-        )
-        .toList();
+    // Only this year's logs, plus any old enough to carry no year at all —
+    // never a newer year's, which would stop counting toward its hours.
+    final records = attendanceSnapshot.docs.where((doc) {
+      final data = doc.data() as Map<String, dynamic>;
+      final year = data['academicYear'];
+      return data['isArchived'] != true && (year == null || year == academicYear);
+    }).toList();
     for (var offset = 0; offset < records.length; offset += 400) {
       final batch = _db.batch();
       final chunk = records.skip(offset).take(400);

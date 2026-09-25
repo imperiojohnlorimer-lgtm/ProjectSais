@@ -2412,7 +2412,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<bool> submitApplication(Application app) async {
-    if (currentUser?.role == 'Student Assistant') {
+    // Closed by the Admin's "Open Applications" setting; the Firestore
+    // rules refuse it too.
+    if (currentUser?.role == 'Student Assistant' ||
+        !allowAcademicApplications) {
       return false;
     }
     _firestoreService ??= FirestoreService();
@@ -3104,6 +3107,8 @@ class AppState extends ChangeNotifier {
       return QrClockResult(
         ok: true,
         clockedIn: body['action']?.toString() == 'in',
+        // Set when the weekly hours cap trimmed this session's hours.
+        message: body['message']?.toString() ?? '',
       );
     } catch (error) {
       debugPrint('Clock via QR failed: $error');
@@ -3963,6 +3968,9 @@ class AppState extends ChangeNotifier {
         await _firestoreService!.archiveAcademicYearSettings(
           currentSettings['academicYear'].toString(),
           currentSettings,
+          // The finished year's own "Auto-archive Logs" setting, which the
+          // app treats as on when it was never saved.
+          archiveAttendance: currentSettings['autoArchiveLogs'] as bool? ?? true,
         );
         academicYearArchives = [
           ...academicYearArchives.where(

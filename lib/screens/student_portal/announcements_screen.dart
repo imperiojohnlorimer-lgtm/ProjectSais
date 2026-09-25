@@ -137,6 +137,8 @@ class _AnnouncementCard extends StatelessWidget {
     final isOpen = announcement.isOpen;
     final acceptsApplications = announcement.acceptsApplications;
     final isStudentAssistant = state.currentUser?.role == 'Student Assistant';
+    // The Admin's "Open Applications" setting for this academic year.
+    final applicationsClosed = !state.allowAcademicApplications;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -314,6 +316,39 @@ class _AnnouncementCard extends StatelessWidget {
 
                   if (hasApplied && myApp != null)
                     _StatusBanner(application: myApp)
+                  else if (isOpen &&
+                      acceptsApplications &&
+                      !isStudentAssistant &&
+                      applicationsClosed)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      decoration: BoxDecoration(
+                        color: AppTheme.slate50,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: AppTheme.slate200),
+                      ),
+                      child: const Center(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.lock_outline_rounded,
+                              size: 14,
+                              color: AppTheme.slate400,
+                            ),
+                            SizedBox(width: 8),
+                            Text(
+                              'Applications are closed for this academic year',
+                              style: TextStyle(
+                                fontSize: 13,
+                                color: AppTheme.slate400,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    )
                   else if (isOpen && acceptsApplications && !isStudentAssistant)
                     Container(
                       decoration: BoxDecoration(

@@ -254,7 +254,18 @@ service cloud.firestore {
         && request.resource.data.applicantId == request.auth.uid
         && request.resource.data.get('status', 'Pending') == 'Pending'
         && request.resource.data.get('remarks', null) == null
-        && request.resource.data.applicantName == currentName();
+        && request.resource.data.applicantName == currentName()
+        && applicationsOpen();
+
+      // The Admin's "Open Applications" setting for the academic year. Like
+      // the app, a setting that was never saved counts as open.
+      function applicationsOpen() {
+        let settings =
+          /databases/$(database)/documents/meta/academic_year_settings;
+        return exists(settings)
+          ? get(settings).data.get('allowApplications', true) == true
+          : true;
+      }
 
       allow update, delete: if isHead();
     }

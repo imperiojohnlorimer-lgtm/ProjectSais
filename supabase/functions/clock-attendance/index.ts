@@ -52,6 +52,10 @@ const MORNING_END = 12 * 60; // 12:00 PM
 const AFTERNOON_START = 12 * 60 + 30; // 12:30 PM
 const AFTERNOON_END = 17 * 60; // 5:00 PM
 
+// The Admin's "Weekly Hours Cap" setting: at most this many hours are
+// credited per Monday–Sunday week. The settings screen promises 20.
+const WEEKLY_HOUR_CAP = 20;
+
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -101,6 +105,21 @@ function sessionKeyFor(wc: WallClock): string | null {
 /** `Sep 21, 2026` — the shape the app and the DTR reader already use. */
 function formattedDate(wc: WallClock) {
   return `${MONTHS[wc.month]} ${wc.day}, ${wc.year}`;
+}
+
+/** The seven dates, Monday to Sunday, of the week [wc] falls in. */
+function weekDates(wc: WallClock): string[] {
+  const day = Date.UTC(wc.year, wc.month, wc.day);
+  const sinceMonday = (new Date(day).getUTCDay() + 6) % 7;
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(day + (i - sinceMonday) * 86400000);
+    return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}, ${d.getUTCFullYear()}`;
+  });
+}
+
+/** `3.5` rather than `3.5000000001`, for messages. */
+function hoursLabel(hours: number) {
+  return String(Math.round(hours * 100) / 100);
 }
 
 /** `2:36 PM` — the shape the app already writes. */
@@ -182,6 +201,52 @@ async function firestoreToken(): Promise<string> {
     expiresAt: now + (data.expires_in ?? 3600),
   };
   return cachedToken.value;
+}
+
+/**
+ * Hours already credited to [userId] on [dates]: completed records only,
+ * leaving out archived and invalidated ones, as payroll does.
+ */
+async function hoursOn(
+  userId: string,
+  dates: string[],
+  token: string,
+): Promise<number> {
+  const response = await fetch(`${documentsRoot}:runQuery`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: "attendance" }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: "studentId" },
+            op: "EQUAL",
+            value: { stringValue: userId },
+          },
+        },
+      },
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`Firestore query failed (${response.status}).`);
+  }
+  const wanted = new Set(dates);
+  let total = 0;
+  for (const row of await response.json()) {
+    const fields = row?.document?.fields;
+    if (!fields || !wanted.has(fields.date?.stringValue)) continue;
+    if (!fields.timeOut?.stringValue) continue;
+    if (fields.isArchived?.booleanValue === true) continue;
+    if (fields.isInvalid?.booleanValue === true) continue;
+    total += Number(
+      fields.totalHours?.doubleValue ?? fields.totalHours?.integerValue ?? 0,
+    );
+  }
+  return total;
 }
 
 async function getDocument(path: string, token: string) {
@@ -344,36 +409,67 @@ Deno.serve(async (request) => {
         return !timeOut?.stringValue && archived?.booleanValue !== true;
       }) as { name: string; fields: Record<string, never> } | undefined;
 
+    const settings = await getDocument("meta/academic_year_settings", token);
+    // Like the app, a cap setting that was never saved counts as on.
+    const capOn = settings?.fields?.enforceHourCap?.booleanValue !== false;
+    const weekHours = capOn ? await hoursOn(userId, weekDates(wc), token) : 0;
+
     if (open) {
       const timeIn =
         (open.fields.timeIn as { stringValue?: string } | undefined)
           ?.stringValue ?? "";
-      const totalHours = hoursBetween(timeIn, now);
+      const worked = hoursBetween(timeIn, now);
+      // Credit no more than what's left of the week's cap. The time-in and
+      // time-out stay as they happened; the full figure is kept alongside.
+      const totalHours = capOn
+        ? Math.min(worked, Math.max(0, WEEKLY_HOUR_CAP - weekHours))
+        : worked;
+      const capped = totalHours < worked;
+
+      const update: Record<string, unknown> = {
+        timeOut: { stringValue: now },
+        totalHours: { doubleValue: totalHours },
+      };
+      let mask =
+        "?updateMask.fieldPaths=timeOut&updateMask.fieldPaths=totalHours";
+      if (capped) {
+        update.hoursBeforeWeeklyCap = { doubleValue: worked };
+        mask += "&updateMask.fieldPaths=hoursBeforeWeeklyCap";
+      }
 
       const patch = await fetch(
-        `https://firestore.googleapis.com/v1/${open.name}` +
-          "?updateMask.fieldPaths=timeOut&updateMask.fieldPaths=totalHours",
+        `https://firestore.googleapis.com/v1/${open.name}${mask}`,
         {
           method: "PATCH",
           headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            fields: {
-              timeOut: { stringValue: now },
-              totalHours: { doubleValue: totalHours },
-            },
-          }),
+          body: JSON.stringify({ fields: update }),
         },
       );
       if (!patch.ok) {
         throw new Error(`Could not save the time-out (${patch.status}).`);
       }
-      return json({ action: "out", time: now, totalHours });
+      return json({
+        action: "out",
+        time: now,
+        totalHours,
+        ...(capped && {
+          message: `Clocked out. Only ${hoursLabel(totalHours)} of ` +
+            `${hoursLabel(worked)} hours counted: that reaches the ` +
+            `${WEEKLY_HOUR_CAP}-hour weekly limit.`,
+        }),
+      });
     }
 
-    const settings = await getDocument("meta/academic_year_settings", token);
+    if (capOn && weekHours >= WEEKLY_HOUR_CAP) {
+      return json({
+        error: `You've already worked ${WEEKLY_HOUR_CAP} hours this week, ` +
+          "the weekly limit. You can clock in again on Monday.",
+      }, 409);
+    }
+
     const academicYear = settings?.fields?.academicYear?.stringValue ?? null;
 
     const fields: Record<string, unknown> = {
