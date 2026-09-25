@@ -14,20 +14,21 @@ class InMemoryScheduleRepository implements ScheduleRepository {
   int _nextId = _seedEvents.length;
 
   @override
-  Future<List<ScheduleEvent>> getEventsFor(String ownerName) async {
-    return _events.where((e) => e.ownerName == ownerName).toList();
+  Future<List<ScheduleEvent>> getEventsFor(String ownerId) async {
+    return _events.where((e) => e.ownerId == ownerId).toList();
   }
 
   /// Nothing else writes to memory, so the one snapshot never changes.
   @override
-  Stream<List<ScheduleEvent>> watchEventsFor(String ownerName) =>
-      Stream.fromFuture(getEventsFor(ownerName));
+  Stream<List<ScheduleEvent>> watchEventsFor(String ownerId) =>
+      Stream.fromFuture(getEventsFor(ownerId));
 
   @override
   Future<ScheduleEvent> addEvent(ScheduleEvent event) async {
     final withId = event.id.isEmpty
         ? ScheduleEvent(
             id: 'evt_${_nextId++}',
+            ownerId: event.ownerId,
             ownerName: event.ownerName,
             title: event.title,
             details: event.details,
@@ -48,6 +49,7 @@ class InMemoryScheduleRepository implements ScheduleRepository {
   static final List<ScheduleEvent> _seedEvents = [
     ScheduleEvent(
       id: 'seed_1',
+      ownerId: 'u_carlos',
       ownerName: 'Carlos Dela Cruz',
       title: 'Faculty Meeting',
       details: 'Room 201 · 9:00 AM',
@@ -57,6 +59,7 @@ class InMemoryScheduleRepository implements ScheduleRepository {
     ),
     ScheduleEvent(
       id: 'seed_2',
+      ownerId: 'u_carlos',
       ownerName: 'Carlos Dela Cruz',
       title: 'Student Orientation',
       details: 'Main Hall · 2:00 PM',
@@ -66,6 +69,7 @@ class InMemoryScheduleRepository implements ScheduleRepository {
     ),
     ScheduleEvent(
       id: 'seed_3',
+      ownerId: 'u_carlos',
       ownerName: 'Carlos Dela Cruz',
       title: 'Attendance Submission',
       details: 'Online Portal · 5:00 PM',
@@ -75,6 +79,7 @@ class InMemoryScheduleRepository implements ScheduleRepository {
     ),
     ScheduleEvent(
       id: 'seed_4',
+      ownerId: 'u_carlos',
       ownerName: 'Carlos Dela Cruz',
       title: 'Report Deadline',
       details: 'Submit via portal',
@@ -84,6 +89,7 @@ class InMemoryScheduleRepository implements ScheduleRepository {
     ),
     ScheduleEvent(
       id: 'seed_5',
+      ownerId: 'u_carlos',
       ownerName: 'Carlos Dela Cruz',
       title: 'Department Meeting',
       details: 'Conference Room · 10:00 AM',

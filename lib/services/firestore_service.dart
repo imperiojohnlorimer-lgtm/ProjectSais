@@ -587,6 +587,118 @@ class FirestoreService {
     await _offices.doc(id).delete();
   }
 
+  // Office assignments: officeAssignments/{uid} = {officeId}, one per
+  // student assistant. The Firestore rules read these to limit each
+  // Supervisor to their own office's students; only the Head writes them.
+  CollectionReference get _officeAssignments =>
+      _db.collection('officeAssignments');
+
+  Future<Map<String, String>> getOfficeAssignments() async {
+    final snapshot = await _officeAssignments.get();
+    return {
+      for (final doc in snapshot.docs)
+        doc.id:
+            (doc.data() as Map<String, dynamic>)['officeId']?.toString() ?? '',
+    };
+  }
+
+  /// Applies [changes] (account id → office id, or null to remove) in
+  /// batches.
+  Future<void> writeOfficeAssignments(Map<String, String?> changes) async {
+    final entries = changes.entries.toList();
+    for (var offset = 0; offset < entries.length; offset += 400) {
+      final batch = _db.batch();
+      for (final entry in entries.skip(offset).take(400)) {
+        final ref = _officeAssignments.doc(entry.key);
+        if (entry.value == null) {
+          batch.delete(ref);
+        } else {
+          batch.set(ref, {'officeId': entry.value});
+        }
+      }
+      await batch.commit();
+    }
+  }
+
+  /// One-time move of schedules from name keys to account keys.
+  ///
+  /// Weekly schedules (recurringSchedules) were keyed by the owner's name,
+  /// lowercased, and calendar events (schedule_events) carried only
+  /// `ownerName`. The Firestore rules now decide access by account, so this
+  /// copies each weekly schedule to a document keyed by its owner's account
+  /// and stamps `ownerId` on each event. [accountIdByName] maps a lowercased,
+  /// trimmed name to its account; names shared by two accounts should be
+  /// left out, since there's no telling whose schedule it is. Anything left
+  /// unmatched stays visible to the Head only.
+  ///
+  /// Needs the Head's access, and records that it ran in
+  /// meta/schedule_owners_migrated so it only runs once. Safe to rerun if it
+  /// stops partway: it only touches schedules that have no account yet.
+  Future<void> moveSchedulesToAccounts(
+    Map<String, String> accountIdByName,
+  ) async {
+    final marker = _db.collection('meta').doc('schedule_owners_migrated');
+    if ((await marker.get()).exists) return;
+
+    String? accountFor(String? name) =>
+        name == null ? null : accountIdByName[name.trim().toLowerCase()];
+
+    final weekly = await _db.collection('recurringSchedules').get();
+    final keyedByAccount = weekly.docs.map((doc) => doc.id).toSet();
+    var schedulesMoved = 0;
+    var schedulesUnmatched = 0;
+    for (final doc in weekly.docs) {
+      final data = doc.data();
+      if (data['ownerId'] != null) continue;
+      final ownerId =
+          accountFor(data['ownerName']?.toString()) ?? accountFor(doc.id);
+      if (ownerId == null) {
+        schedulesUnmatched++;
+        continue;
+      }
+      // One already saved under the account is newer; keep it.
+      if (keyedByAccount.contains(ownerId)) continue;
+      await _db.collection('recurringSchedules').doc(ownerId).set({
+        ...data,
+        'ownerId': ownerId,
+      });
+      keyedByAccount.add(ownerId);
+      schedulesMoved++;
+    }
+
+    final events = await _db.collection('schedule_events').get();
+    final ownerByEvent = <String, String>{};
+    var eventsUnmatched = 0;
+    for (final doc in events.docs) {
+      final data = doc.data();
+      if (data['ownerId'] != null) continue;
+      final ownerId = accountFor(data['ownerName']?.toString());
+      if (ownerId == null) {
+        eventsUnmatched++;
+      } else {
+        ownerByEvent[doc.id] = ownerId;
+      }
+    }
+    final entries = ownerByEvent.entries.toList();
+    for (var offset = 0; offset < entries.length; offset += 400) {
+      final batch = _db.batch();
+      for (final entry in entries.skip(offset).take(400)) {
+        batch.update(_db.collection('schedule_events').doc(entry.key), {
+          'ownerId': entry.value,
+        });
+      }
+      await batch.commit();
+    }
+
+    await marker.set({
+      'schedulesMoved': schedulesMoved,
+      'schedulesUnmatched': schedulesUnmatched,
+      'eventsUpdated': entries.length,
+      'eventsUnmatched': eventsUnmatched,
+      'migratedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   Future<User?> getUserProfileById(String id) async {
     final doc = await _users.doc(id).get();
     if (!doc.exists) return null;
@@ -831,18 +943,6 @@ class FirestoreService {
         .toList();
   }
 
-  Future<List<Task>> getTasksForUserName(String name) async {
-    final snap = await _tasks.where('assignedToName', isEqualTo: name).get();
-    return snap.docs
-        .map(
-          (d) => Task.fromJson({
-            ...(d.data() as Map<String, dynamic>),
-            'id': d.id,
-          }),
-        )
-        .toList();
-  }
-
   Future<List<Task>> getTasksForAssigneeIds(List<String> ids) async {
     if (ids.isEmpty) return [];
     final snap = await _tasks.where('assignedTo', whereIn: ids).get();
@@ -933,18 +1033,6 @@ class FirestoreService {
 
   Future<List<Report>> getReportsForApplicant(String uid) async {
     final snap = await _reports.where('applicantId', isEqualTo: uid).get();
-    return snap.docs
-        .map(
-          (d) => Report.fromJson({
-            ...(d.data() as Map<String, dynamic>),
-            'id': d.id,
-          }),
-        )
-        .toList();
-  }
-
-  Future<List<Report>> getReportsForStudentName(String name) async {
-    final snap = await _reports.where('studentName', isEqualTo: name).get();
     return snap.docs
         .map(
           (d) => Report.fromJson({

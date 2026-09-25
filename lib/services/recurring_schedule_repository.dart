@@ -19,22 +19,28 @@ import '../models/recurring_schedule.dart';
 /// they were reading two completely separate local stores that happened to
 /// share a key name. This now reads/writes a shared Firestore document per
 /// owner so every device and account sees the same, current schedule.
+///
+/// Each document is keyed by the owner's account id, which is what the
+/// Firestore rules check: only the owner, the Head and the Supervisor of
+/// the owner's office may read or change it. Documents saved before that
+/// were keyed by the owner's name, lowercased; the Head's session copies
+/// them across (see [legacyDocIdFor]).
 class RecurringScheduleRepository {
   const RecurringScheduleRepository();
 
   CollectionReference<Map<String, dynamic>> get _collection =>
       FirebaseFirestore.instance.collection('recurringSchedules');
 
-  /// Normalized so "Juan Dela Cruz" saved from one screen and "juan dela
-  /// cruz " read back from another still hit the same document.
-  String _docIdFor(String ownerName) {
+  /// Where [ownerName]'s rules were kept before they were keyed by account.
+  static String legacyDocIdFor(String ownerName) {
     final trimmed = ownerName.trim().toLowerCase();
     return trimmed.isEmpty ? '_unknown' : trimmed;
   }
 
-  Future<List<RecurringScheduleRule>> loadRules(String ownerName) async {
+  Future<List<RecurringScheduleRule>> loadRules(String ownerId) async {
+    if (ownerId.isEmpty) return [];
     try {
-      final snap = await _collection.doc(_docIdFor(ownerName)).get();
+      final snap = await _collection.doc(ownerId).get();
       final raw = (snap.data()?['rules'] as List<dynamic>?) ?? const [];
       return raw
           .map(
@@ -48,16 +54,18 @@ class RecurringScheduleRepository {
       // schedule rather than crashing the calendar or the DTR report. Still
       // logged so a permission error doesn't just look like "no schedule
       // was ever saved" when debugging.
-      debugPrint('RecurringScheduleRepository.loadRules("$ownerName") failed: $e');
+      debugPrint('RecurringScheduleRepository.loadRules("$ownerId") failed: $e');
       return [];
     }
   }
 
   Future<void> saveRules(
+    String ownerId,
     String ownerName,
     List<RecurringScheduleRule> rules,
   ) async {
-    await _collection.doc(_docIdFor(ownerName)).set({
+    await _collection.doc(ownerId).set({
+      'ownerId': ownerId,
       'ownerName': ownerName,
       'rules': rules.map((r) => r.toJson()).toList(),
       'updatedAt': FieldValue.serverTimestamp(),

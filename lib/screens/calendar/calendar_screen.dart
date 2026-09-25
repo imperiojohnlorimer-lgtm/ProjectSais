@@ -16,6 +16,10 @@ import '../../widgets/shared_widgets.dart';
 /// touches storage directly, so plugging in a real database later only
 /// means swapping the repository passed into `ScheduleService` in
 /// `main.dart`.
+/// Whose schedule is on screen. Schedules are stored and protected per
+/// account ([id]); [name] is only for display and the saved records.
+typedef _Owner = ({String id, String name});
+
 class CalendarScreen extends StatefulWidget {
   const CalendarScreen({super.key});
   @override
@@ -90,23 +94,36 @@ class _CalendarScreenState extends State<CalendarScreen> {
             })
           >[];
 
+    // The picker works in names; schedules are kept per account.
+    final accountIdByName = <String, String>{
+      if (isSupervisor)
+        for (final s in state.filteredStudents) s.name: s.userId ?? s.id
+      else if (isAdmin)
+        for (final u in state.users) u.name: u.id,
+    };
+
     final isViewingOther = canViewOthers && _viewingName != null;
-    final ownerName = _viewingName ?? state.currentUser?.name ?? '';
+    final _Owner owner = _viewingName != null
+        ? (id: accountIdByName[_viewingName] ?? '', name: _viewingName!)
+        : (
+            id: state.currentUser?.id ?? '',
+            name: state.currentUser?.name ?? '',
+          );
 
     // Kick off a load for this owner if we haven't fetched their events yet.
     // ScheduleService caches per-owner, so this is a no-op once loaded.
-    if (ownerName.isNotEmpty) {
+    if (owner.id.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback(
-        (_) => scheduleService.ensureLoaded(ownerName),
+        (_) => scheduleService.ensureLoaded(owner.id),
       );
     }
 
     final selected = _selectedDay ?? _focusedDay;
-    final events = scheduleService.eventsForDay(ownerName, selected);
+    final events = scheduleService.eventsForDay(owner.id, selected);
 
     // Header figures for this owner's calendar.
     final now = DateTime.now();
-    final todayCount = scheduleService.eventsForDay(ownerName, now).length;
+    final todayCount = scheduleService.eventsForDay(owner.id, now).length;
     final upcomingCount =
         List.generate(
           7,
@@ -114,11 +131,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
         ).fold<int>(
           0,
           (running, day) =>
-              running + scheduleService.eventsForDay(ownerName, day).length,
+              running + scheduleService.eventsForDay(owner.id, day).length,
         );
-    final allEventCount = scheduleService.eventsFor(ownerName).length;
+    final allEventCount = scheduleService.eventsFor(owner.id).length;
     final isToday = isSameDay(selected, DateTime.now());
-    final isLoading = scheduleService.isLoading(ownerName);
+    final isLoading = scheduleService.isLoading(owner.id);
 
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 700;
@@ -167,7 +184,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               _actionBar(
                 context: context,
                 scheduleService: scheduleService,
-                ownerName: ownerName,
+                owner: owner,
                 isViewingOther: isViewingOther,
                 isMobile: isMobile,
               ),
@@ -232,7 +249,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     selectedDayPredicate: (day) => isSameDay(_selectedDay, day),
                     calendarFormat: _format,
                     eventLoader: (day) =>
-                        scheduleService.eventsForDay(ownerName, day),
+                        scheduleService.eventsForDay(owner.id, day),
                     startingDayOfWeek: StartingDayOfWeek.sunday,
                     onDaySelected: (sel, foc) => setState(() {
                       _selectedDay = sel;
@@ -498,7 +515,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       ),
                     );
                     if (confirmed == true) {
-                      await scheduleService.deleteEvent(ownerName, e.value.id);
+                      await scheduleService.deleteEvent(owner.id, e.value.id);
                       if (mounted) setState(() {});
                     }
                   },
@@ -525,24 +542,22 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   final _rulesRepository = const RecurringScheduleRepository();
 
-  Future<List<RecurringScheduleRule>> _loadRules(String ownerName) =>
-      _rulesRepository.loadRules(ownerName);
+  Future<List<RecurringScheduleRule>> _loadRules(_Owner owner) =>
+      _rulesRepository.loadRules(owner.id);
 
-  Future<void> _saveRules(
-    String ownerName,
-    List<RecurringScheduleRule> rules,
-  ) => _rulesRepository.saveRules(ownerName, rules);
+  Future<void> _saveRules(_Owner owner, List<RecurringScheduleRule> rules) =>
+      _rulesRepository.saveRules(owner.id, owner.name, rules);
 
   /// Same as [_saveRules], but surfaces a failure (e.g. a Firestore
   /// permission error on this collection) as a visible SnackBar instead of
   /// silently doing nothing — a schedule change that "didn't take" used to
   /// look identical to one that succeeded but wasn't found later.
   Future<bool> _saveRulesOrShowError(
-    String ownerName,
+    _Owner owner,
     List<RecurringScheduleRule> rules,
   ) async {
     try {
-      await _saveRules(ownerName, rules);
+      await _saveRules(owner, rules);
       return true;
     } catch (e) {
       if (mounted) {
@@ -574,17 +589,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
   /// including days that have already passed.
   Future<void> _regenerateOccurrences(
     ScheduleService scheduleService,
-    String ownerName,
+    _Owner owner,
     RecurringScheduleRule rule,
   ) async {
     final state = context.read<AppState>();
 
     final existing = scheduleService
-        .eventsFor(ownerName)
+        .eventsFor(owner.id)
         .where((e) => e.id.startsWith('rule_${rule.id}_'))
         .toList();
     for (final e in existing) {
-      await scheduleService.deleteEvent(ownerName, e.id);
+      await scheduleService.deleteEvent(owner.id, e.id);
     }
 
     var cursor = DateTime(
@@ -598,7 +613,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
         await scheduleService.addEvent(
           ScheduleEvent(
             id: _eventIdFor(rule.id, cursor),
-            ownerName: ownerName,
+            ownerId: owner.id,
+            ownerName: owner.name,
             title: rule.label,
             details: '${rule.timeRange} · ${rule.mode}',
             date: cursor,
@@ -614,19 +630,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
 
   Future<void> _deleteRule(
     ScheduleService scheduleService,
-    String ownerName,
+    _Owner owner,
     RecurringScheduleRule rule,
   ) async {
     final all = scheduleService
-        .eventsFor(ownerName)
+        .eventsFor(owner.id)
         .where((e) => e.id.startsWith('rule_${rule.id}_'))
         .toList();
     for (final e in all) {
-      await scheduleService.deleteEvent(ownerName, e.id);
+      await scheduleService.deleteEvent(owner.id, e.id);
     }
-    final rules = await _loadRules(ownerName);
+    final rules = await _loadRules(owner);
     rules.removeWhere((r) => r.id == rule.id);
-    await _saveRulesOrShowError(ownerName, rules);
+    await _saveRulesOrShowError(owner, rules);
   }
 
   static const _recurringWeekdayShort = [
@@ -663,13 +679,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
   /// visible while a supervisor is viewing a student's calendar via the
   /// selector below, so they can set up that student's recurring schedule
   /// directly — the DTR report's "Sync from Schedule" reads the exact same
-  /// rules, keyed by whichever name is being viewed here. "Add Event" (a
+  /// rules, keyed by whichever account is being viewed here. "Add Event" (a
   /// personal one-off entry, never pulled into the DTR report) stays
   /// limited to your own calendar.
   Widget _actionBar({
     required BuildContext context,
     required ScheduleService scheduleService,
-    required String ownerName,
+    required _Owner owner,
     required bool isViewingOther,
     required bool isMobile,
   }) {
@@ -679,14 +695,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
         label: 'Add Schedule',
         dense: isMobile,
         onTap: () =>
-            _showAddScheduleDialog(context, scheduleService, ownerName),
+            _showAddScheduleDialog(context, scheduleService, owner),
       ),
       SizedBox(width: isMobile ? 8 : 10),
       _actionChip(
         icon: Icons.menu_book_outlined,
         label: 'Add Subject',
         dense: isMobile,
-        onTap: () => _showAddSubjectDialog(context, scheduleService, ownerName),
+        onTap: () => _showAddSubjectDialog(context, scheduleService, owner),
       ),
       if (!isViewingOther) ...[
         SizedBox(width: isMobile ? 8 : 10),
@@ -695,7 +711,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
           label: 'Add Event',
           filled: true,
           dense: isMobile,
-          onTap: () => _showAddEventDialog(context, scheduleService, ownerName),
+          onTap: () => _showAddEventDialog(context, scheduleService, owner),
         ),
       ],
       SizedBox(width: isMobile ? 6 : 10),
@@ -703,7 +719,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         icon: Icons.tune_rounded,
         dense: isMobile,
         onTap: () =>
-            _showManageSchedulesDialog(context, scheduleService, ownerName),
+            _showManageSchedulesDialog(context, scheduleService, owner),
       ),
     ];
 
@@ -815,11 +831,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _showAddScheduleDialog(
     BuildContext context,
     ScheduleService scheduleService,
-    String ownerName, {
+    _Owner owner, {
     RecurringScheduleRule? existingRule,
   }) async {
     final isEditing = existingRule != null;
-    final existingRules = await _loadRules(ownerName);
+    final existingRules = await _loadRules(owner);
     if (!mounted) return;
     final academicYear = context.read<AppState>().academicYear;
     final academicYearEnd = context.read<AppState>().academicYearEnd;
@@ -1039,7 +1055,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           id:
                               existingRule?.id ??
                               'r${DateTime.now().microsecondsSinceEpoch}',
-                          ownerName: ownerName,
+                          ownerName: owner.name,
                           label: labelCtrl.text.trim(),
                           weekday: weekday,
                           startTime: start,
@@ -1056,13 +1072,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   .toList()
                             : [...existingRules, rule];
                         final ok = await _saveRulesOrShowError(
-                          ownerName,
+                          owner,
                           rules,
                         );
                         if (!ok) return;
                         await _regenerateOccurrences(
                           scheduleService,
-                          ownerName,
+                          owner,
                           rule,
                         );
                         if (mounted) setState(() {});
@@ -1088,11 +1104,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _showAddSubjectDialog(
     BuildContext context,
     ScheduleService scheduleService,
-    String ownerName, {
+    _Owner owner, {
     RecurringScheduleRule? existingRule,
   }) async {
     final isEditing = existingRule != null;
-    final existingRules = await _loadRules(ownerName);
+    final existingRules = await _loadRules(owner);
     if (!mounted) return;
     final academicYear = context.read<AppState>().academicYear;
     final academicYearEnd = context.read<AppState>().academicYearEnd;
@@ -1323,7 +1339,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           id:
                               existingRule?.id ??
                               'r${DateTime.now().microsecondsSinceEpoch}',
-                          ownerName: ownerName,
+                          ownerName: owner.name,
                           label: label,
                           weekday: weekday,
                           startTime: start,
@@ -1353,13 +1369,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             )
                             .toList();
                         final ok = await _saveRulesOrShowError(
-                          ownerName,
+                          owner,
                           rules,
                         );
                         if (!ok) return;
                         await _regenerateOccurrences(
                           scheduleService,
-                          ownerName,
+                          owner,
                           rule,
                         );
                         if (mounted) setState(() {});
@@ -1382,9 +1398,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _showManageSchedulesDialog(
     BuildContext context,
     ScheduleService scheduleService,
-    String ownerName,
+    _Owner owner,
   ) async {
-    var rules = await _loadRules(ownerName);
+    var rules = await _loadRules(owner);
     if (!mounted) return;
     showDialog(
       context: context,
@@ -1466,7 +1482,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     _showAddScheduleDialog(
                                       context,
                                       scheduleService,
-                                      ownerName,
+                                      owner,
                                       existingRule: rule,
                                     );
                                   },
@@ -1494,10 +1510,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                     if (!confirmed) return;
                                     await _deleteRule(
                                       scheduleService,
-                                      ownerName,
+                                      owner,
                                       rule,
                                     );
-                                    rules = await _loadRules(ownerName);
+                                    rules = await _loadRules(owner);
                                     setDialogState(() {});
                                     if (mounted) setState(() {});
                                   },
@@ -1515,7 +1531,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 final removed = await _cleanupOrphanedEvents(
                   dialogContext,
                   scheduleService,
-                  ownerName,
+                  owner,
                   rules,
                 );
                 if (removed > 0 && mounted) setState(() {});
@@ -1550,12 +1566,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<int> _cleanupOrphanedEvents(
     BuildContext dialogContext,
     ScheduleService scheduleService,
-    String ownerName,
+    _Owner owner,
     List<RecurringScheduleRule> currentRules,
   ) async {
-    await scheduleService.refresh(ownerName);
+    await scheduleService.refresh(owner.id);
     final currentRuleIds = currentRules.map((r) => r.id).toSet();
-    final orphans = scheduleService.eventsFor(ownerName).where((e) {
+    final orphans = scheduleService.eventsFor(owner.id).where((e) {
       if (!e.id.startsWith('rule_')) return false;
       final withoutPrefix = e.id.substring('rule_'.length);
       final lastUnderscore = withoutPrefix.lastIndexOf('_');
@@ -1607,7 +1623,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     if (confirmed != true) return 0;
 
     for (final e in orphans) {
-      await scheduleService.deleteEvent(ownerName, e.id);
+      await scheduleService.deleteEvent(owner.id, e.id);
     }
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1630,7 +1646,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   void _showAddEventDialog(
     BuildContext context,
     ScheduleService scheduleService,
-    String ownerName,
+    _Owner owner,
   ) {
     final titleCtrl = TextEditingController();
     final detailsCtrl = TextEditingController();
@@ -1807,7 +1823,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                         await scheduleService.addEvent(
                           ScheduleEvent(
                             id: '', // assigned by the repository
-                            ownerName: ownerName,
+                            ownerId: owner.id,
+                            ownerName: owner.name,
                             title: titleCtrl.text.trim(),
                             details: detailsCtrl.text.trim().isEmpty
                                 ? 'No details added'

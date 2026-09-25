@@ -12,18 +12,19 @@ class FirestoreScheduleRepository implements ScheduleRepository {
       _firestore.collection('schedule_events');
 
   @override
-  Future<List<ScheduleEvent>> getEventsFor(String ownerName) async {
-    final snapshot = await _events
-        .where('ownerName', isEqualTo: ownerName)
-        .get();
+  Future<List<ScheduleEvent>> getEventsFor(String ownerId) async {
+    // By account, not name: the Firestore rules only let the owner, the
+    // Head and the owner's office Supervisor read these, and they can only
+    // check that for a query on ownerId.
+    final snapshot = await _events.where('ownerId', isEqualTo: ownerId).get();
     return snapshot.docs.map((doc) {
       return ScheduleEvent.fromJson({...doc.data(), 'id': doc.id});
     }).toList();
   }
 
   @override
-  Stream<List<ScheduleEvent>> watchEventsFor(String ownerName) => _events
-      .where('ownerName', isEqualTo: ownerName)
+  Stream<List<ScheduleEvent>> watchEventsFor(String ownerId) => _events
+      .where('ownerId', isEqualTo: ownerId)
       .snapshots()
       .map(
         (snapshot) => snapshot.docs

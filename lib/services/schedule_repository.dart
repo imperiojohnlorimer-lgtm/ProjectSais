@@ -6,11 +6,11 @@ import '../models/schedule_event.dart';
 /// Firestore, SQLite, etc.) once a database is wired up — nothing in the
 /// UI layer needs to change as long as it implements this interface.
 abstract class ScheduleRepository {
-  /// All events belonging to [ownerName], most recent first.
-  Future<List<ScheduleEvent>> getEventsFor(String ownerName);
+  /// All events belonging to the account [ownerId], most recent first.
+  Future<List<ScheduleEvent>> getEventsFor(String ownerId);
 
-  /// [ownerName]'s events, emitted again whenever they change.
-  Stream<List<ScheduleEvent>> watchEventsFor(String ownerName);
+  /// [ownerId]'s events, emitted again whenever they change.
+  Stream<List<ScheduleEvent>> watchEventsFor(String ownerId);
 
   Future<ScheduleEvent> addEvent(ScheduleEvent event);
 

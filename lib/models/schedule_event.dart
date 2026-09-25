@@ -6,6 +6,12 @@ import 'package:flutter/material.dart';
 /// a real backend later without changing the shape the UI works with.
 class ScheduleEvent {
   final String id;
+
+  /// Account id of the user this event belongs to. The Firestore rules
+  /// decide who may see or change the event from this, so it must be set
+  /// on every new event; it is null only on events saved before it existed,
+  /// until the Head's session fills it in.
+  final String? ownerId;
   final String ownerName; // Name of the user this event belongs to
   final String title;
   final String details; // e.g. "Room 201 · 9:00 AM"
@@ -17,6 +23,7 @@ class ScheduleEvent {
 
   const ScheduleEvent({
     required this.id,
+    this.ownerId,
     required this.ownerName,
     required this.title,
     required this.details,
@@ -39,6 +46,7 @@ class ScheduleEvent {
   }) {
     return ScheduleEvent(
       id: id,
+      ownerId: ownerId,
       ownerName: ownerName,
       title: title ?? this.title,
       details: details ?? this.details,
@@ -51,6 +59,7 @@ class ScheduleEvent {
 
   factory ScheduleEvent.fromJson(Map<String, dynamic> json) => ScheduleEvent(
     id: json['id'] as String,
+    ownerId: json['ownerId'] as String?,
     ownerName: json['ownerName'] as String,
     title: json['title'] as String,
     details: json['details'] as String,
@@ -81,6 +90,7 @@ class ScheduleEvent {
 
   Map<String, dynamic> toJson() => {
     'id': id,
+    'ownerId': ownerId,
     'ownerName': ownerName,
     'title': title,
     'details': details,

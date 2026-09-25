@@ -120,8 +120,36 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ProfileFieldGrid), findsNothing);
-      expect(find.byType(ProfileTextField), findsNWidgets(3));
+      expect(find.byType(ProfileTextField), findsNWidgets(2));
       expect(find.text('Save changes'), findsOneWidget);
+    });
+
+    testWidgets('a non-Admin cannot edit their own name', (tester) async {
+      await pumpScreen(tester, const ProfileScreen(), const Size(1280, 1400));
+      await tester.tap(find.text('Edit profile'));
+      await tester.pumpAndSettle();
+      expect(find.text('FULL NAME'), findsNothing);
+      expect(
+        find.text('To change your name, ask an administrator.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('an Admin can edit their own name', (tester) async {
+      await pumpScreen(
+        tester,
+        const ProfileScreen(),
+        const Size(1280, 1400),
+        user: _user(role: 'Admin'),
+      );
+      await tester.tap(find.text('Edit profile'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileTextField), findsNWidgets(3));
+      expect(find.text('FULL NAME'), findsOneWidget);
+      expect(
+        find.text('To change your name, ask an administrator.'),
+        findsNothing,
+      );
     });
 
     testWidgets('the avatar carries a change-photo control', (tester) async {
@@ -268,7 +296,13 @@ void main() {
       );
       await tester.tap(find.text('Edit profile'));
       await tester.pumpAndSettle();
-      expect(find.byType(ProfileTextField), findsNWidgets(3));
+      // Phone and address only: students can't rename themselves.
+      expect(find.byType(ProfileTextField), findsNWidgets(2));
+      expect(find.text('FULL NAME'), findsNothing);
+      expect(
+        find.text('To change your name, ask an administrator.'),
+        findsOneWidget,
+      );
     });
   });
 }

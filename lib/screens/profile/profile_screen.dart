@@ -109,11 +109,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  /// Only an Admin may rename an account, their own included: payroll and
+  /// several screens match records to people by name, so the Firestore
+  /// rules refuse a self-chosen name from anyone else.
+  bool _canEditName(AppState state) => state.role == 'Admin';
+
   void _toggleEditing() {
     if (_isEditing) {
       final state = context.read<AppState>();
       state.updateProfile(
-        name: _nameCtrl.text.trim(),
+        name: _canEditName(state) ? _nameCtrl.text.trim() : null,
         phone: _phoneCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
         yearLevel: state.currentUser?.yearLevel,
@@ -237,7 +242,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         isEditing: _isEditing,
         onPressed: _toggleEditing,
       ),
-      child: _isEditing ? _editingFields() : _viewFields(user, state),
+      child: _isEditing
+          ? _editingFields(canEditName: _canEditName(state))
+          : _viewFields(user, state),
     );
   }
 
@@ -295,15 +302,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _editingFields() {
+  Widget _editingFields({required bool canEditName}) {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ProfileTextField(
-          label: 'Full name',
-          controller: _nameCtrl,
-          icon: Icons.person_outline,
-        ),
-        const SizedBox(height: 16),
+        if (canEditName) ...[
+          ProfileTextField(
+            label: 'Full name',
+            controller: _nameCtrl,
+            icon: Icons.person_outline,
+          ),
+          const SizedBox(height: 16),
+        ] else ...[
+          const Text(
+            'To change your name, ask an administrator.',
+            style: TextStyle(fontSize: 13, color: AppTheme.slate600),
+          ),
+          const SizedBox(height: 16),
+        ],
         ProfileTextField(
           label: 'Phone number',
           controller: _phoneCtrl,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' show Random;
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
@@ -161,7 +162,16 @@ class AppState extends ChangeNotifier {
       // Firestore unavailable — fall through and mint a local token.
     }
 
-    final token = 'SAIS-ATT-$sessionKey-${now.millisecondsSinceEpoch}';
+    // Random, not a timestamp: the session is public knowledge and the
+    // minute the code was made is easy to narrow down, so anything derived
+    // from them could be guessed and sent to clock-attendance without ever
+    // seeing the posted QR.
+    final random = Random.secure();
+    final secret = List.generate(
+      16,
+      (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    final token = 'SAIS-ATT-$sessionKey-$secret';
     currentQrToken = token;
     currentQrSessionKey = sessionKey;
     qrGeneratedAt = now;
@@ -1361,11 +1371,9 @@ class AppState extends ChangeNotifier {
               await _firestoreService!.getTasksForAssigneeIds(studentIds),
             );
           } catch (_) {}
-          try {
-            fsTasks.addAll(
-              await _firestoreService!.getTasksForUserName(currentUser!.name),
-            );
-          } catch (_) {}
+          // No lookup by name: the Firestore rules only share a task with
+          // the account it is assigned to, since anyone can register under
+          // a classmate's name.
         }
         final taskById = <String, Task>{
           for (final task in fsTasks) task.id: task,
@@ -1380,14 +1388,10 @@ class AppState extends ChangeNotifier {
         final fsReports =
             (role == 'Head' || role == 'Supervisor' || role == 'Admin')
             ? await _firestoreService!.getAllReports()
-            : [
-                ...await _firestoreService!.getReportsForApplicant(
-                  currentUser!.id,
-                ),
-                ...await _firestoreService!.getReportsForStudentName(
-                  currentUser!.name,
-                ),
-              ];
+            // By account only, never by name — see Tasks above.
+            : await _firestoreService!.getReportsForApplicant(
+                currentUser!.id,
+              );
         reports = fsReports;
       } catch (_) {
         reports = [];
@@ -1411,6 +1415,8 @@ class AppState extends ChangeNotifier {
         } catch (_) {
           rehireRecords = [];
         }
+        await _syncOfficeAssignments();
+        await _moveSchedulesToAccounts(firestoreUsers);
       }
 
       // Items supervisors have forwarded to the Head.
@@ -1958,6 +1964,7 @@ class AppState extends ChangeNotifier {
     offices = index < 0 ? [...offices, office] : [...offices]
       ..[index] = office;
     notifyListeners();
+    await _syncOfficeAssignments();
   }
 
   Future<void> removeOffice(String id) async {
@@ -1965,6 +1972,73 @@ class AppState extends ChangeNotifier {
     await _firestoreService!.deleteOffice(id);
     offices = offices.where((office) => office.id != id).toList();
     notifyListeners();
+    await _syncOfficeAssignments();
+  }
+
+  /// Mirrors which office each student assistant is in onto
+  /// `officeAssignments/{uid}`.
+  ///
+  /// The Firestore rules read it to find a record's office, so a Supervisor
+  /// can only change attendance, reports, tasks and evaluations for students
+  /// in an office they head. Only the Head may write it, so this runs in the
+  /// Head's session: at load and after every office change. Active offices
+  /// win if a student is somehow listed in more than one.
+  Future<void> _syncOfficeAssignments() async {
+    // No offices usually means they failed to load, and syncing then would
+    // wipe every assignment. Leaving stale ones is safe: the rules also
+    // check the office itself, so one pointing at a deleted office grants
+    // nothing.
+    if (role != 'Head' || offices.isEmpty) return;
+    final desired = <String, String>{};
+    for (final office in [
+      ...offices.where((office) => office.isActive),
+      ...offices.where((office) => !office.isActive),
+    ]) {
+      for (final id in office.assistantIds) {
+        if (id.isNotEmpty) desired.putIfAbsent(id, () => office.id);
+      }
+    }
+    try {
+      _firestoreService ??= FirestoreService();
+      final current = await _firestoreService!.getOfficeAssignments();
+      final changes = <String, String?>{
+        for (final entry in desired.entries)
+          if (current[entry.key] != entry.value) entry.key: entry.value,
+        for (final id in current.keys)
+          if (!desired.containsKey(id)) id: null,
+      };
+      if (changes.isNotEmpty) {
+        await _firestoreService!.writeOfficeAssignments(changes);
+      }
+    } catch (error) {
+      debugPrint('Failed to sync office assignments: $error');
+    }
+  }
+
+  /// Moves schedules saved under people's names onto their accounts, once —
+  /// see [FirestoreService.moveSchedulesToAccounts]. Head-only, like the
+  /// office sync. [accounts] must be the full list just read from
+  /// Firestore: matching against a partial list would leave schedules
+  /// behind and still mark the move done.
+  Future<void> _moveSchedulesToAccounts(List<User> accounts) async {
+    if (role != 'Head' || accounts.isEmpty) return;
+    final byName = <String, String>{};
+    final shared = <String>{};
+    for (final account in accounts) {
+      final key = account.name.trim().toLowerCase();
+      if (key.isEmpty || account.id.isEmpty) continue;
+      if (byName.containsKey(key) && byName[key] != account.id) {
+        shared.add(key);
+      }
+      byName[key] = account.id;
+    }
+    byName.removeWhere((key, _) => shared.contains(key));
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.moveSchedulesToAccounts(byName);
+    } catch (error) {
+      debugPrint('Failed to move schedules to accounts: $error');
+    }
   }
 
   Future<bool> assignStudentAssistantsToOffice(
@@ -3168,8 +3242,12 @@ class AppState extends ChangeNotifier {
     final nowMinutes = now.hour * 60 + now.minute;
     final todayStr = _formattedToday();
 
+    // A Supervisor may only change their own office's records (the Firestore
+    // rules refuse the rest), so their sweep covers just those; the Head's
+    // covers everyone.
+    final sweep = role == 'Supervisor' ? filteredAttendance : attendance;
     final toInvalidate = <String>[];
-    for (final record in attendance) {
+    for (final record in sweep) {
       if (!record.isActive || record.isInvalid || record.isArchived) {
         continue;
       }
@@ -3211,14 +3289,15 @@ class AppState extends ChangeNotifier {
     }).toList();
     notifyListeners();
 
-    try {
-      _firestoreService ??= FirestoreService();
-      for (final id in toInvalidate) {
+    _firestoreService ??= FirestoreService();
+    for (final id in toInvalidate) {
+      try {
         await _firestoreService!.updateAttendance(id, {'isInvalid': true});
+      } catch (_) {
+        // Firestore unavailable, or a record the rules keep from this
+        // user — local state is still updated; the next successful sweep
+        // will persist it. One failure mustn't stop the rest.
       }
-    } catch (_) {
-      // Firestore unavailable — local state is still updated; the next
-      // successful sweep will persist it.
     }
   }
 
@@ -4417,8 +4496,13 @@ class AppState extends ChangeNotifier {
   List<Report> get filteredReports {
     if (role == 'Admin') return reports;
     if (role == 'Student Assistant') {
+      final myId = currentUser?.id;
       return reports
-          .where((report) => report.studentName == currentUser?.name)
+          .where(
+            (report) =>
+                (myId != null && report.applicantId == myId) ||
+                report.studentName == currentUser?.name,
+          )
           .toList();
     }
     if (role == 'Supervisor') {

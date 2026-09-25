@@ -17,7 +17,6 @@ class SpProfileScreen extends StatefulWidget {
 class _SpProfileScreenState extends State<SpProfileScreen> {
   bool _isEditing = false;
   bool _isUploadingPhoto = false;
-  late TextEditingController _nameCtrl;
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
 
@@ -25,14 +24,12 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
   void initState() {
     super.initState();
     final user = context.read<AppState>().currentUser;
-    _nameCtrl = TextEditingController(text: user?.name ?? '');
     _phoneCtrl = TextEditingController(text: user?.phone ?? '');
     _addressCtrl = TextEditingController(text: user?.address ?? '');
   }
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
@@ -97,8 +94,9 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
 
   void _toggleEditing(AppState state) {
     if (_isEditing) {
+      // No name here: only an Admin may rename an account, since payroll
+      // and several screens match records to people by name.
       state.updateProfile(
-        name: _nameCtrl.text.trim(),
         phone: _phoneCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
       );
@@ -269,11 +267,11 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
 
   Widget _editingFields() {
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        ProfileTextField(
-          label: 'Full name',
-          controller: _nameCtrl,
-          icon: Icons.person_outline,
+        const Text(
+          'To change your name, ask an administrator.',
+          style: TextStyle(fontSize: 13, color: AppTheme.slate600),
         ),
         const SizedBox(height: 16),
         ProfileTextField(

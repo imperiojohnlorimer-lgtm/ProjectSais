@@ -2,21 +2,37 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    // Any Firebase sign-in, verified or not. Only registration and reading
+    // your own profile use this directly: registration writes the profile
+    // before the verification link is clicked, and the app reads its own
+    // profile to tell a deactivated user why they can't log in.
+    function authed() {
       return request.auth != null;
     }
 
-    function userExists() {
-      return signedIn()
-        && exists(
-          /databases/$(database)/documents/users/$(request.auth.uid)
+    // A verified account that hasn't been deactivated. The app already
+    // refuses both at login, but that alone doesn't stop anyone calling
+    // Firestore directly — this does. Every role check below builds on it.
+    function signedIn() {
+      return authed()
+        && request.auth.token.email_verified == true
+        && (
+          !exists(userPath(request.auth.uid))
+          || get(userPath(request.auth.uid)).data.get('status', 'Active')
+            != 'Archived'
         );
     }
 
+    function userExists() {
+      return signedIn() && exists(userPath(request.auth.uid));
+    }
+
     function currentUser() {
-      return get(
-        /databases/$(database)/documents/users/$(request.auth.uid)
-      ).data;
+      return get(userPath(request.auth.uid)).data;
     }
 
     function currentRole() {
@@ -39,6 +55,10 @@ service cloud.firestore {
       return userExists() && currentRole() == 'Supervisor';
     }
 
+    function isStudentAssistant() {
+      return userExists() && currentRole() == 'Student Assistant';
+    }
+
     // Head + Supervisor: the operational staff roles that manage students,
     // tasks, announcements, attendance, and schedules day-to-day. Admin no
     // longer touches this data — Admin is scoped to Accounts, Departments,
@@ -47,16 +67,108 @@ service cloud.firestore {
       return isHead() || isSupervisor();
     }
 
+    // ── Supervisor office scope ─────────────────────────────────────────
+    // A Supervisor may only change records for student assistants in an
+    // active office they head. The office document is the authority (only
+    // the Head can edit offices); officeAssignments/{uid}, kept in step by
+    // the Head's session, just says which office to look in.
+    //
+    // These use `cond ? a : b` rather than `cond && a` to skip work: when
+    // the condition reads a document, Firestore evaluates both sides of an
+    // && anyway, and that is enough to hit its 1,000-expression limit on a
+    // task edit.
+
+    function officeHeadsStudent(office, studentUid) {
+      return office.get('isActive', true) == true
+        && request.auth.uid in office.get('headIds', [])
+        && studentUid in office.get('assistantIds', []);
+    }
+
+    function assignedOfficeHeadsStudent(officeId, studentUid) {
+      let office = /databases/$(database)/documents/offices/$(officeId);
+      return officeId is string && officeId != '' && exists(office)
+        ? officeHeadsStudent(get(office).data, studentUid)
+        : false;
+    }
+
+    function officeOfStudentHeaded(studentUid) {
+      let assignment =
+        /databases/$(database)/documents/officeAssignments/$(studentUid);
+      return exists(assignment)
+        ? assignedOfficeHeadsStudent(
+          get(assignment).data.get('officeId', ''),
+          studentUid
+        )
+        : false;
+    }
+
+    // [studentUid] is the student's account id, as attendance and reports
+    // store it.
+    function isSupervisorOf(studentUid) {
+      return studentUid is string && studentUid != '' && isSupervisor()
+        ? officeOfStudentHeaded(studentUid)
+        : false;
+    }
+
+    function isSupervisorOfRosterEntry(rosterId) {
+      let entry = /databases/$(database)/documents/students/$(rosterId);
+      return exists(entry)
+        ? isSupervisorOf(get(entry).data.get('userId', ''))
+        : false;
+    }
+
+    // Tasks, evaluations and class schedules name their student by roster
+    // id. That is normally the account id itself; older roster entries keep
+    // the account id in `userId` instead.
+    function isSupervisorOfStudent(studentRef) {
+      return studentRef is string && studentRef != ''
+        ? (
+          isSupervisorOf(studentRef)
+            ? true
+            : isSupervisorOfRosterEntry(studentRef)
+        )
+        : false;
+    }
+
+    // ── Field helpers ───────────────────────────────────────────────────
+
+    // Whether [field] is the same before and after this write, treating a
+    // missing field as [fallback] on both sides.
+    function sameOr(field, fallback) {
+      return request.resource.data.get(field, fallback)
+        == resource.data.get(field, fallback);
+    }
+
+    function unchanged(field) {
+      return sameOr(field, null);
+    }
+
+    // "Sep 3, 2026" — the Philippine calendar date [days] days from now, in
+    // the shape the app stamps on completed tasks.
+    function phDate(days) {
+      let t = request.time + duration.value(8 + days * 24, 'h');
+      let months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+        'Sep', 'Oct', 'Nov', 'Dec'];
+      return months[t.month() - 1] + ' ' + string(t.day()) + ', '
+        + string(t.year());
+    }
+
     match /users/{uid} {
       // Head and Supervisor need to read user/student profiles for
       // Students, Reports, Attendance, Tasks, and office matching. Admin
       // needs read access here to manage Accounts.
       allow read: if isAdmin() || isStaff()
-        || (signedIn() && request.auth.uid == uid);
+        || (authed() && request.auth.uid == uid);
 
-      allow create: if signedIn()
+      // Registration. A new profile is always an active Student with no SA
+      // ID, under the email the account actually signed up with.
+      allow create: if authed()
         && request.auth.uid == uid
-        && request.resource.data.role == 'Student';
+        && request.resource.data.role == 'Student'
+        && request.resource.data.get('status', 'Active') == 'Active'
+        && request.resource.data.get('saId', null) == null
+        && request.resource.data.email.lower()
+          == request.auth.token.email.lower();
 
       // Role/status changes (Accounts screen) stay Admin-only, with two
       // Head exceptions: approving an application (Applications screen)
@@ -65,12 +177,25 @@ service cloud.firestore {
       // either keeps a Student Assistant on or returns them to Student. A
       // Head may only move a profile between those two roles, and may not
       // change status or email.
+      //
+      // Users editing their own profile may change their contact details,
+      // photo, skills and year level — never their name, email, IDs or
+      // department. Names matter: payroll and several screens match records
+      // to people by name, so a self-chosen name could claim someone
+      // else's records.
       allow update: if isAdmin()
         || (
           signedIn()
           && request.auth.uid == uid
-          && request.resource.data.role == resource.data.role
-          && request.resource.data.status == resource.data.status
+          && unchanged('role')
+          && unchanged('status')
+          && unchanged('name')
+          && unchanged('email')
+          && unchanged('studentId')
+          && unchanged('saId')
+          && unchanged('department')
+          && unchanged('campus')
+          && unchanged('courseProgram')
         )
         || (
           isHead()
@@ -92,7 +217,9 @@ service cloud.firestore {
           && resource.data.userId == request.auth.uid
         );
 
-      allow create, update, delete: if isStaff();
+      // Roster records change when the Head approves, rehires or releases
+      // a student assistant. Supervisors never edit the roster.
+      allow create, update, delete: if isHead();
     }
 
     match /announcements/{id} {
@@ -108,8 +235,13 @@ service cloud.firestore {
           && resource.data.applicantId == request.auth.uid
         );
 
+      // A new application is always Pending, under the applicant's own
+      // name. Only the Head decides it.
       allow create: if signedIn()
-        && request.resource.data.applicantId == request.auth.uid;
+        && request.resource.data.applicantId == request.auth.uid
+        && request.resource.data.get('status', 'Pending') == 'Pending'
+        && request.resource.data.get('remarks', null) == null
+        && request.resource.data.applicantName == currentName();
 
       allow update, delete: if isHead();
     }
@@ -123,16 +255,25 @@ service cloud.firestore {
       allow read: if isHead() || isSupervisor() || isAdmin()
         || (
           signedIn()
-          && (
-            resource.data.applicantId == request.auth.uid
-            || resource.data.studentName == currentName()
-          )
+          && resource.data.applicantId == request.auth.uid
         );
 
+      // A report arrives Pending, under its author's own name, with nothing
+      // a supervisor adds. Payroll treats an Approved report as sign-off, so
+      // only the student's supervisor may approve it.
       allow create: if signedIn()
-        && request.resource.data.applicantId == request.auth.uid;
+        && request.resource.data.applicantId == request.auth.uid
+        && request.resource.data.status == 'Pending'
+        && request.resource.data.studentName == currentName()
+        && request.resource.data.get('feedback', null) == null
+        && request.resource.data.get('sentToHead', false) == false
+        && request.resource.data.get('sentToHeadAt', null) == null
+        && request.resource.data.get('headAttachments', []).size() == 0;
 
-      allow update, delete: if isSupervisor();
+      allow update: if isSupervisorOf(resource.data.applicantId)
+        && unchanged('applicantId');
+
+      allow delete: if isSupervisorOf(resource.data.applicantId);
     }
 
     match /attendance/{id} {
@@ -149,8 +290,17 @@ service cloud.firestore {
       // QR against the current session on the server and writes with a
       // Firebase service account. Leaving this staff-only is what stops a
       // student from calling the API directly and forging their own hours.
-      allow create, update: if isStaff();
-      allow delete: if isStaff();
+      // A Supervisor is further limited to their own office's students.
+      allow create: if isHead()
+        || isSupervisorOf(request.resource.data.studentId);
+
+      allow update: if isHead()
+        || (
+          isSupervisorOf(resource.data.studentId)
+          && unchanged('studentId')
+        );
+
+      allow delete: if isHead() || isSupervisorOf(resource.data.studentId);
     }
 
     match /tasks/{id} {
@@ -159,7 +309,6 @@ service cloud.firestore {
           signedIn()
           && (
             resource.data.assignedTo == request.auth.uid
-            || resource.data.assignedToName == currentName()
             || (
               resource.data.assignedTo != null
               && exists(
@@ -172,13 +321,64 @@ service cloud.firestore {
           )
         );
 
-      allow update: if isStaff()
-        || (
-          signedIn()
-          && resource.data.assignedTo == request.auth.uid
+      // A Supervisor may create, change or remove tasks for their own
+      // office's students (or tasks not assigned to anyone yet).
+      function supervisorMayHandle(task) {
+        return task.get('assignedTo', null) == null
+          ? isSupervisor()
+          : isSupervisorOfStudent(task.assignedTo);
+      }
+
+      allow create: if isHead()
+        || supervisorMayHandle(request.resource.data);
+
+      // Ternaries, not ||, so only the requester's own case is evaluated —
+      // see "Supervisor office scope" above.
+      allow update: if isHead()
+        ? true
+        : (
+          isSupervisor()
+            ? supervisorMayHandle(resource.data)
+              && supervisorMayHandle(request.resource.data)
+            : (
+              signedIn() && resource.data.assignedTo == request.auth.uid
+                ? studentTaskUpdate()
+                : false
+            )
         );
 
-      allow create, delete: if isStaff();
+      allow delete: if isHead()
+        || supervisorMayHandle(resource.data);
+
+      // The student a task is assigned to may only move it through its
+      // statuses. The completion date feeds their DTR, so it can only be
+      // set to today (a day's slack either way for clocks and midnight).
+      // Defaults mirror Task.fromJson, so older documents missing a field
+      // still compare equal after the app rewrites them.
+      function studentTaskUpdate() {
+        return request.resource.data.get('status', '')
+            in ['Not Started', 'In Progress', 'Completed']
+          && sameOr('title', '')
+          && sameOr('description', '')
+          && sameOr('priority', 'Medium')
+          && sameOr('dueDate', '')
+          && unchanged('assignedTo')
+          && unchanged('assignedToName')
+          && unchanged('assignedBy')
+          && unchanged('category')
+          && sameOr('checklistItems', [])
+          && sameOr('isArchived', false)
+          && unchanged('academicYear')
+          && (
+            unchanged('completedAt')
+            || request.resource.data.get('completedAt', null) == null
+            || (
+              request.resource.data.status == 'Completed'
+              && request.resource.data.completedAt
+                in [phDate(-1), phDate(0), phDate(1)]
+            )
+          );
+      }
     }
 
     match /classSchedules/{id} {
@@ -188,7 +388,17 @@ service cloud.firestore {
           && resource.data.studentId == request.auth.uid
         );
 
-      allow write: if isStaff();
+      allow create: if isHead()
+        || isSupervisorOfStudent(request.resource.data.studentId);
+
+      allow update: if isHead()
+        || (
+          isSupervisorOfStudent(resource.data.studentId)
+          && unchanged('studentId')
+        );
+
+      allow delete: if isHead()
+        || isSupervisorOfStudent(resource.data.studentId);
     }
 
     // Notifications: Head owns the admin_notifications feed, Supervisor
@@ -219,9 +429,17 @@ service cloud.firestore {
         );
     }
 
+    // Offices decide which students each Supervisor may change, so only the
+    // Head (who runs the Offices screen) edits them.
     match /offices/{id} {
       allow read: if signedIn();
-      allow write: if isStaff();
+      allow write: if isHead();
+    }
+
+    // Which office each student assistant is in, mirrored from the offices
+    // by the Head's session so the rules above can find it.
+    match /officeAssignments/{uid} {
+      allow read, write: if isHead();
     }
 
     // Departments & Settings stay Admin-exclusive.
@@ -241,7 +459,13 @@ service cloud.firestore {
     // "Eligible for Rehire" mark, but never edits them.
     match /evaluations/{id} {
       allow read: if isSupervisor() || isHead();
-      allow write: if isSupervisor();
+
+      allow create: if isSupervisorOfStudent(request.resource.data.studentId);
+
+      allow update: if isSupervisorOfStudent(resource.data.studentId)
+        && unchanged('studentId');
+
+      allow delete: if isSupervisorOfStudent(resource.data.studentId);
     }
 
     // The Head's rehire decisions, one per student per term.
@@ -291,19 +515,55 @@ service cloud.firestore {
       allow read, write: if isHead();
     }
 
-    match /recurringSchedules/{id} {
-      allow read: if signedIn();
-      allow write: if isStaff();
+    // ── Schedules ───────────────────────────────────────────────────────
+    // Weekly schedules and calendar events say where someone is and when.
+    // Each belongs to one account (ownerId). The Head, the owner, and the
+    // Supervisor of the owner's office may see and change it — the owner
+    // only if they are a Student Assistant or Supervisor, the roles with a
+    // Schedule screen. Schedules saved before accounts were recorded have
+    // no ownerId and stay Head-only until the Head's session moves them
+    // across.
+
+    function maySeeSchedule(ownerId) {
+      return isHead()
+        || (signedIn() && ownerId != '' && ownerId == request.auth.uid)
+        || isSupervisorOf(ownerId);
+    }
+
+    function mayChangeSchedule(ownerId) {
+      return isHead()
+        || (
+          ownerId != ''
+          && ownerId == request.auth.uid
+          && (isStudentAssistant() || isSupervisor())
+        )
+        || isSupervisorOf(ownerId);
+    }
+
+    // One document per owner, keyed by their account id.
+    match /recurringSchedules/{ownerId} {
+      allow read: if maySeeSchedule(ownerId);
+      allow create, update: if mayChangeSchedule(ownerId)
+        && request.resource.data.get('ownerId', '') == ownerId;
+      allow delete: if mayChangeSchedule(ownerId);
     }
 
     match /schedule_events/{id} {
-      allow read: if signedIn();
-      allow write: if isStaff();
+      allow read: if maySeeSchedule(resource.data.get('ownerId', ''));
+      allow create: if mayChangeSchedule(
+        request.resource.data.get('ownerId', '')
+      );
+      allow update: if mayChangeSchedule(resource.data.get('ownerId', ''))
+        && mayChangeSchedule(request.resource.data.get('ownerId', ''));
+      allow delete: if mayChangeSchedule(resource.data.get('ownerId', ''));
     }
 
+    // The session's attendance code. Only the staff who post it may read
+    // it: anyone else who could read it could clock in without being there.
+    // Students' scans are checked against it on the server, by the
+    // clock-attendance function, which reads it with its own access.
     match /meta/current_qr {
-      allow read: if signedIn();
-      allow write: if isStaff();
+      allow read, write: if isStaff();
     }
 
     match /meta/academic_year_settings {
@@ -311,9 +571,14 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // Every other meta document. Firestore allows a request if any matching
+    // rule does, and this one matches the documents above too — so it must
+    // leave them out: its read would hand everyone the attendance code, and
+    // its staff write would let a Head or Supervisor change Admin-only
+    // settings.
     match /meta/{document} {
-      allow read: if signedIn();
-      allow write: if isStaff();
+      allow read: if signedIn() && document != 'current_qr';
+      allow write: if isStaff() && document != 'academic_year_settings';
     }
 
     match /meta/{document}/years/{year}/{subcollection}/{id} {

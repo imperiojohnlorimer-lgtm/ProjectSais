@@ -519,48 +519,34 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   int get _daysInMonth =>
       DateTime(widget.month.year, widget.month.month + 1, 0).day;
 
-  /// Every plausible name "Add Schedule"/"Add Subject" rules could have
-  /// been saved under for this student.
+  /// The accounts this student's schedule may be saved under.
   ///
-  /// Those are saved from the Schedule/Calendar screen keyed by whoever is
-  /// logged in at the time (their [User.name]) — which is not guaranteed to
-  /// be byte-for-byte identical to this [Student] roster entry's own `name`
-  /// field (different capitalization/spacing, a nickname vs. full name, the
-  /// roster entry not being linked to a [User] account via `userId`/email
-  /// at all, edits made in one profile but not the other, etc).
-  ///
-  /// Rather than betting on a single guess and silently coming up empty
-  /// when it's wrong (which is exactly what was happening), every rules
-  /// lookup below tries every candidate name and merges whatever it finds
-  /// — the matched [User.name] (by `userId`, then by email) if one exists,
-  /// and this roster entry's own `name`, in that order, skipping
-  /// duplicates.
-  List<String> _scheduleOwnerNameCandidates(AppState state) {
-    final candidates = <String>[];
+  /// Schedules are kept per account. A roster entry usually shares its id
+  /// with the student's account, but older ones link to it only through
+  /// `userId` or by email, so every linked account is tried and the
+  /// results merged. Only real account ids are returned: the Firestore
+  /// rules refuse a schedule query for anything else.
+  List<String> _scheduleOwnerIds(AppState state) {
     final email = widget.student.email.toLowerCase();
-    for (final u in state.users) {
-      if (widget.student.userId != null && u.id == widget.student.userId) {
-        candidates.add(u.name);
-      } else if (email.isNotEmpty && u.email.toLowerCase() == email) {
-        candidates.add(u.name);
-      }
-    }
-    candidates.add(widget.student.name);
-    final seen = <String>{};
-    return candidates.where((n) => n.trim().isNotEmpty && seen.add(n)).toList();
+    return {
+      for (final u in state.users)
+        if (u.id.isNotEmpty &&
+            (u.id == widget.student.userId ||
+                u.id == widget.student.id ||
+                (email.isNotEmpty && u.email.toLowerCase() == email)))
+          u.id,
+    }.toList();
   }
 
-  /// Loads this student's recurring schedule rules, trying every
-  /// [_scheduleOwnerNameCandidates] name and merging the results (deduped
-  /// by rule id) — see that method for why a single name isn't reliable
-  /// enough to bet the whole lookup on.
+  /// Loads this student's recurring schedule rules from every
+  /// [_scheduleOwnerIds] account, merged (deduped by rule id).
   Future<List<RecurringScheduleRule>> _loadAllRulesForStudent(
     AppState state,
   ) async {
     const repo = RecurringScheduleRepository();
     final merged = <String, RecurringScheduleRule>{};
-    for (final name in _scheduleOwnerNameCandidates(state)) {
-      for (final rule in await repo.loadRules(name)) {
+    for (final id in _scheduleOwnerIds(state)) {
+      for (final rule in await repo.loadRules(id)) {
         merged[rule.id] = rule;
       }
     }
@@ -594,7 +580,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // This waits for the first frame: ScheduleService.refresh notifies its
     // listeners straight away, and doing that while this screen is still
     // being built is a "markNeedsBuild() called during build" error.
-    final ownerNames = _scheduleOwnerNameCandidates(state);
+    final ownerIds = _scheduleOwnerIds(state);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       // Looked up once, up front: after the awaits below this screen may
@@ -604,12 +590,12 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       // Force a fresh Firestore read every time this screen opens, rather
       // than `ensureLoaded` (which is a no-op once anything — even an
       // empty result from before the student's schedule existed — is
-      // already cached for this name). Without this, a student's schedule
+      // already cached for this account). Without this, a student's schedule
       // could go stale here for the rest of the app session even though
       // the Class Schedule table below (which re-queries directly, with
       // no caching layer) correctly shows it.
-      for (final name in ownerNames) {
-        await schedules.refresh(name);
+      for (final id in ownerIds) {
+        await schedules.refresh(id);
       }
       final rules = await rulesFuture;
       if (!mounted) return;
@@ -760,7 +746,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   Future<void> _syncFromRecurringSchedule({bool manual = false}) async {
     if (manual) setState(() => _syncingSchedule = true);
     final state = context.read<AppState>();
-    final ownerNames = _scheduleOwnerNameCandidates(state);
+    final ownerIds = _scheduleOwnerIds(state);
     // Only rules added via "Add Subject" belong in this Class Schedule
     // table — plain "Add Schedule" entries (e.g. a general work shift) are
     // a different kind of thing and should never end up here, even though
@@ -810,10 +796,12 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'No "Add Subject" entries found under any of: '
-              '${ownerNames.map((n) => '"$n"').join(', ')}. '
-              'If the student added one from their own account, check that '
-              'account\'s exact name against this student\'s profile.',
+              ownerIds.isEmpty
+                  ? 'This student isn\'t linked to an account, so there is '
+                        'no schedule to sync. Link the roster entry to their '
+                        'account first.'
+                  : 'No "Add Subject" entries found on this student\'s '
+                        'schedule yet.',
             ),
             backgroundColor: AppTheme.blue500,
             duration: const Duration(seconds: 6),
@@ -900,8 +888,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       // events through a cache that doesn't invalidate on its own) so both
       // sections reflect the same up-to-date schedule together, instead of
       // only the Class Schedule table below updating.
-      for (final name in ownerNames) {
-        await context.read<ScheduleService>().refresh(name);
+      for (final id in ownerIds) {
+        await context.read<ScheduleService>().refresh(id);
       }
       if (!mounted) return;
       final refreshedDays = _buildDaysFromAttendance(state);
@@ -1186,9 +1174,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         .toSet();
 
     final scheduleService = context.read<ScheduleService>();
-    for (final ownerName in _scheduleOwnerNameCandidates(state)) {
+    for (final ownerId in _scheduleOwnerIds(state)) {
       final todaysEvents = scheduleService
-          .eventsForDay(ownerName, date)
+          .eventsForDay(ownerId, date)
           .where((e) => !subjectRuleIds.contains(_ruleIdFromEventId(e.id)))
           .toList();
       if (todaysEvents.isNotEmpty) {
@@ -1199,9 +1187,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // No recurring weekly (non-subject) schedule entered for this student
     // at all yet — fall back to the original convention so nothing
     // changes for them until they set one up.
-    final hasAnySchedule = _scheduleOwnerNameCandidates(state).any(
-      (name) => scheduleService
-          .eventsFor(name)
+    final hasAnySchedule = _scheduleOwnerIds(state).any(
+      (ownerId) => scheduleService
+          .eventsFor(ownerId)
           .any(
             (e) =>
                 e.id.startsWith('rule_') &&
