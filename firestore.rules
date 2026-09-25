@@ -59,6 +59,14 @@ service cloud.firestore {
       return userExists() && currentRole() == 'Student Assistant';
     }
 
+    // Whether the account [uid] (not the requester) is a Head or Supervisor.
+    function isStaffAccount(uid) {
+      let profile = /databases/$(database)/documents/users/$(uid);
+      return uid is string && uid != '' && exists(profile)
+        ? get(profile).data.get('role', '') in ['Head', 'Supervisor']
+        : false;
+    }
+
     // Head + Supervisor: the operational staff roles that manage students,
     // tasks, announcements, attendance, and schedules day-to-day. Admin no
     // longer touches this data — Admin is scoped to Accounts, Departments,
@@ -160,15 +168,20 @@ service cloud.firestore {
       allow read: if isAdmin() || isStaff()
         || (authed() && request.auth.uid == uid);
 
-      // Registration. A new profile is always an active Student with no SA
-      // ID, under the email the account actually signed up with.
-      allow create: if authed()
-        && request.auth.uid == uid
-        && request.resource.data.role == 'Student'
-        && request.resource.data.get('status', 'Active') == 'Active'
-        && request.resource.data.get('saId', null) == null
-        && request.resource.data.email.lower()
-          == request.auth.token.email.lower();
+      // The Admin creates accounts of any role (Accounts screen). Anyone
+      // else only registers themselves, and a self-made profile is always
+      // an active Student with no SA ID, under the email the account
+      // actually signed up with.
+      allow create: if isAdmin()
+        || (
+          authed()
+          && request.auth.uid == uid
+          && request.resource.data.role == 'Student'
+          && request.resource.data.get('status', 'Active') == 'Active'
+          && request.resource.data.get('saId', null) == null
+          && request.resource.data.email.lower()
+            == request.auth.token.email.lower()
+        );
 
       // Role/status changes (Accounts screen) stay Admin-only, with two
       // Head exceptions: approving an application (Applications screen)
@@ -410,10 +423,23 @@ service cloud.firestore {
           && resource.data.userId == request.auth.uid
         );
 
-      allow create: if isStaff()
+      // Staff and the Admin (payroll, role changes) may notify anyone.
+      // Anyone else may notify themselves, or send the Head or a Supervisor
+      // one of the alerts the app raises for them — a new application, a
+      // new report, a task's status changing — as plain text, with no
+      // attachment link to lure them to.
+      allow create: if isStaff() || isAdmin()
         || (
           signedIn()
           && request.resource.data.userId == request.auth.uid
+        )
+        || (
+          signedIn()
+          && request.resource.data.type in ['application', 'report', 'task']
+          && request.resource.data.get('attachmentUrl', null) == null
+          && request.resource.data.get('attachmentName', null) == null
+          && request.resource.data.get('isRead', false) == false
+          && isStaffAccount(request.resource.data.userId)
         );
 
       allow update: if isStaff()
@@ -581,8 +607,19 @@ service cloud.firestore {
       allow write: if isStaff() && document != 'academic_year_settings';
     }
 
-    match /meta/{document}/years/{year}/{subcollection}/{id} {
-      allow read, write: if isStaff();
+    // Finished academic years: one summary per year, which the Reports
+    // screen offers everyone as a filter. The Admin records a year when
+    // moving the settings on; the Head's session records one whose end date
+    // has passed and copies each year's records into it — only the Head can
+    // read them all.
+    match /meta/academic_year_archives/years/{year} {
+      allow read: if signedIn();
+      allow write: if isAdmin() || isHead();
+    }
+
+    match /meta/academic_year_archives/years/{year}/{collection}/{id} {
+      allow read: if isHead() || isAdmin();
+      allow write: if isHead();
     }
 
     match /{document=**} {

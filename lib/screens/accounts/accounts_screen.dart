@@ -1538,7 +1538,12 @@ class _AccountsScreenState extends State<AccountsScreen>
     if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isEditing ? 'Account updated.' : 'Account created.'),
+          content: Text(
+            isEditing
+                ? 'Account updated.'
+                : 'Account created. They need to open the verification link '
+                      'emailed to them before they can log in.',
+          ),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),

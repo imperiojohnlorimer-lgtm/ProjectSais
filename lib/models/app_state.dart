@@ -979,8 +979,21 @@ class AppState extends ChangeNotifier {
       }
 
       if (!authUser.emailVerified) {
+        // Send a fresh link: the first one may have expired or been lost,
+        // and accounts made by the Admin before links were sent never got
+        // one at all.
+        var sent = true;
+        try {
+          await authUser.sendEmailVerification();
+        } catch (error) {
+          // Usually Firebase's limit on how often links can be sent.
+          sent = false;
+          debugPrint('Failed to send verification email: $error');
+        }
         await fb_auth.FirebaseAuth.instance.signOut();
-        return 'Please verify your email address before logging in. A verification link was sent.';
+        return sent
+            ? 'Please verify your email address before logging in. A new verification link was sent.'
+            : 'Please verify your email address before logging in, using the link we sent earlier.';
       }
 
       User? existing = await _loadUserProfile(uid: authUser.uid);
@@ -1350,7 +1363,7 @@ class AppState extends ChangeNotifier {
       } catch (_) {
         classSchedules = [];
       }
-      await _archiveExpiredAcademicYearIfNeeded(academicSettings);
+      await _archiveFinishedAcademicYears(academicSettings);
 
       // Tasks
       try {
@@ -1569,31 +1582,45 @@ class AppState extends ChangeNotifier {
     }).toList();
   }
 
-  Future<void> _archiveExpiredAcademicYearIfNeeded(
+  /// Archives finished academic years.
+  ///
+  /// A year is recorded as finished either here, once its end date passes,
+  /// or by the Admin moving the settings on to the next year. Copying its
+  /// records into the archive needs every application, task and calendar,
+  /// which only the Head can read, so that part always happens in the
+  /// Head's session — once per year.
+  Future<void> _archiveFinishedAcademicYears(
     Map<String, dynamic>? settings,
   ) async {
-    if (settings == null || !academicYearEnd.isBefore(DateTime.now())) return;
+    if (role != 'Head') return;
     try {
       _firestoreService ??= FirestoreService();
-      await _firestoreService!.archiveAcademicYearSettings(
-        academicYear,
-        settings,
-      );
-      await _firestoreService!.archiveReportsForAcademicYear(academicYear);
-      await _firestoreService!.archiveApplicationsForAcademicYear(academicYear);
-      await _firestoreService!.archiveTasksForAcademicYear(academicYear);
-      await _firestoreService!.archiveAnnouncementsForAcademicYear(
-        academicYear,
-      );
-      await _firestoreService!.archiveCalendarEventsForAcademicYear(
-        academicYear,
-      );
-      if (autoArchiveAttendanceLogs) {
-        await _firestoreService!.archiveAttendanceForAcademicYear(academicYear);
+      if (settings != null && academicYearEnd.isBefore(DateTime.now())) {
+        await _firestoreService!.archiveAcademicYearSettings(
+          academicYear,
+          settings,
+          archiveAttendance: autoArchiveAttendanceLogs,
+        );
+      }
+      final archives = await _firestoreService!.getAcademicYearArchives();
+      for (final archive in archives) {
+        if (archive['dataArchived'] != false) continue;
+        final year = archive['id'].toString();
+        await _firestoreService!.archiveReportsForAcademicYear(year);
+        await _firestoreService!.archiveApplicationsForAcademicYear(year);
+        await _firestoreService!.archiveTasksForAcademicYear(year);
+        await _firestoreService!.archiveAnnouncementsForAcademicYear(year);
+        await _firestoreService!.archiveCalendarEventsForAcademicYear(year);
+        if (archive['archiveAttendance'] == true) {
+          await _firestoreService!.archiveAttendanceForAcademicYear(year);
+        }
+        await _firestoreService!.markAcademicYearDataArchived(year);
       }
       academicYearArchives = await _firestoreService!.getAcademicYearArchives();
-    } catch (_) {
-      // Firebase availability errors should not prevent the app from loading.
+    } catch (error) {
+      // Firebase availability errors should not prevent the app from
+      // loading; an unfinished year is picked up again next time.
+      debugPrint('Failed to archive academic years: $error');
     }
   }
 
@@ -3930,24 +3957,12 @@ class AppState extends ChangeNotifier {
       final currentSettings = await _firestoreService!
           .getAcademicYearSettings();
       if (currentSettings != null && currentSettings['academicYear'] != null) {
+        // Only record the year as finished. Its records are copied into the
+        // archive by the Head's session (see _archiveFinishedAcademicYears),
+        // since the Admin can't read them all.
         await _firestoreService!.archiveAcademicYearSettings(
           currentSettings['academicYear'].toString(),
           currentSettings,
-        );
-        await _firestoreService!.archiveReportsForAcademicYear(
-          currentSettings['academicYear'].toString(),
-        );
-        await _firestoreService!.archiveApplicationsForAcademicYear(
-          currentSettings['academicYear'].toString(),
-        );
-        await _firestoreService!.archiveTasksForAcademicYear(
-          currentSettings['academicYear'].toString(),
-        );
-        await _firestoreService!.archiveAnnouncementsForAcademicYear(
-          currentSettings['academicYear'].toString(),
-        );
-        await _firestoreService!.archiveCalendarEventsForAcademicYear(
-          currentSettings['academicYear'].toString(),
         );
         academicYearArchives = [
           ...academicYearArchives.where(
@@ -3995,9 +4010,26 @@ class AppState extends ChangeNotifier {
       final credential = await fb_auth.FirebaseAuth.instanceFor(
         app: secondaryApp,
       ).createUserWithEmailAndPassword(email: user.email, password: password);
-      final createdUser = user.copyWith(id: credential.user!.uid);
+      final authUser = credential.user!;
+      final createdUser = user.copyWith(id: authUser.uid);
+      try {
+        await _saveUserProfile(createdUser);
+      } catch (_) {
+        // Without a profile the login is useless, and it would block
+        // creating the account again ("email already exists"), so undo it.
+        try {
+          await authUser.delete();
+        } catch (_) {}
+        rethrow;
+      }
+      // Login requires a verified email, and nothing else would send the
+      // new user a link.
+      try {
+        await authUser.sendEmailVerification();
+      } catch (error) {
+        debugPrint('Failed to send verification email: $error');
+      }
       await _upsertUser(createdUser);
-      await _saveUserProfile(createdUser);
       notifyListeners();
       return null;
     } on fb_auth.FirebaseAuthException catch (e) {

@@ -340,20 +340,39 @@ class FirestoreService {
     await _db.collection('meta').doc('academic_year_settings').set(settings);
   }
 
+  DocumentReference<Map<String, dynamic>> _academicYearArchive(
+    String academicYear,
+  ) => _db
+      .collection('meta')
+      .doc('academic_year_archives')
+      .collection('years')
+      .doc(academicYear);
+
+  /// Records [academicYear] as finished, with its settings, unless it
+  /// already is. Its records are copied in later, by the Head's session
+  /// (see [markAcademicYearDataArchived]); [archiveAttendance] says whether
+  /// that copy should also retire the year's attendance logs.
   Future<void> archiveAcademicYearSettings(
     String academicYear,
-    Map<String, dynamic> settings,
-  ) async {
-    final archiveRef = _db
-        .collection('meta')
-        .doc('academic_year_archives')
-        .collection('years')
-        .doc(academicYear);
+    Map<String, dynamic> settings, {
+    bool archiveAttendance = false,
+  }) async {
+    final archiveRef = _academicYearArchive(academicYear);
     if ((await archiveRef.get()).exists) return;
     await archiveRef.set({
       ...settings,
       'academicYear': academicYear,
       'archivedAt': FieldValue.serverTimestamp(),
+      'archiveAttendance': archiveAttendance,
+      'dataArchived': false,
+    });
+  }
+
+  /// Marks [academicYear]'s records as copied into its archive.
+  Future<void> markAcademicYearDataArchived(String academicYear) async {
+    await _academicYearArchive(academicYear).update({
+      'dataArchived': true,
+      'dataArchivedAt': FieldValue.serverTimestamp(),
     });
   }
 
