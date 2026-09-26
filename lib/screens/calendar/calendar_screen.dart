@@ -51,6 +51,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         String role,
         String? department,
         String? campus,
+        List<String> offices,
         String? avatar,
       })
     >
@@ -63,6 +64,19 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   role: 'Student Assistant',
                   department: s.department,
                   campus: s.campus,
+                  // Only the supervisor's own offices, matched the same way
+                  // the Students screen does.
+                  offices: [
+                    for (final o in state.currentUserOffices)
+                      if (o.assistantIds.contains(s.userId ?? s.id) ||
+                          o.assistantIds.contains(s.id) ||
+                          o.assistantNames.any(
+                            (n) =>
+                                n.trim().toLowerCase() ==
+                                s.name.trim().toLowerCase(),
+                          ))
+                        o.name,
+                  ],
                   avatar: s.avatar,
                 ),
               )
@@ -80,6 +94,10 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   role: u.role,
                   department: u.department,
                   campus: u.campus,
+                  offices: state
+                      .officesForUser(u)
+                      .map((o) => o.name)
+                      .toList(),
                   avatar: u.avatar,
                 ),
               )
@@ -90,6 +108,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               String role,
               String? department,
               String? campus,
+              List<String> offices,
               String? avatar,
             })
           >[];
@@ -1914,6 +1933,7 @@ class _ScheduleOwnerSelector extends StatefulWidget {
       String role,
       String? department,
       String? campus,
+      List<String> offices,
       String? avatar,
     })
   >
@@ -2113,6 +2133,7 @@ class _ScheduleOwnerMenu extends StatefulWidget {
       String role,
       String? department,
       String? campus,
+      List<String> offices,
       String? avatar,
     })
   >
@@ -2142,6 +2163,7 @@ class _ScheduleOwnerMenuState extends State<_ScheduleOwnerMenu> {
   String _filterRole = 'All';
   String _filterDept = 'All Departments';
   String _filterCampus = 'All Campuses';
+  String _filterOffice = 'All Offices';
 
   @override
   Widget build(BuildContext context) {
@@ -2156,6 +2178,11 @@ class _ScheduleOwnerMenuState extends State<_ScheduleOwnerMenu> {
       for (final u in widget.users)
         if ((u.campus ?? '').isNotEmpty) u.campus!,
     }.toList()..sort();
+    final offices = <String>{
+      for (final u in widget.users)
+        for (final o in u.offices)
+          if (o.isNotEmpty) o,
+    }.toList()..sort();
 
     final q = _query.trim().toLowerCase();
     final filtered = widget.users.where((u) {
@@ -2167,14 +2194,17 @@ class _ScheduleOwnerMenuState extends State<_ScheduleOwnerMenu> {
           (u.department ?? '') == _filterDept;
       final matchCampus =
           _filterCampus == 'All Campuses' || (u.campus ?? '') == _filterCampus;
-      return matchQuery && matchRole && matchDept && matchCampus;
+      final matchOffice =
+          _filterOffice == 'All Offices' || u.offices.contains(_filterOffice);
+      return matchQuery && matchRole && matchDept && matchCampus && matchOffice;
     }).toList()..sort((a, b) => a.name.compareTo(b.name));
 
     final showMySchedule =
         q.isEmpty &&
         _filterRole == 'All' &&
         (widget.officeScoped || _filterDept == 'All Departments') &&
-        _filterCampus == 'All Campuses';
+        _filterCampus == 'All Campuses' &&
+        _filterOffice == 'All Offices';
 
     return Material(
       color: Colors.transparent,
@@ -2254,6 +2284,16 @@ class _ScheduleOwnerMenuState extends State<_ScheduleOwnerMenu> {
                   value: _filterDept,
                   options: ['All Departments', ...depts],
                   onChanged: (v) => setState(() => _filterDept = v),
+                ),
+              ),
+            if (offices.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(10, 0, 10, 8),
+                child: _FilterDropdown(
+                  icon: Icons.business_center_rounded,
+                  value: _filterOffice,
+                  options: ['All Offices', ...offices],
+                  onChanged: (v) => setState(() => _filterOffice = v),
                 ),
               ),
             if (campuses.isNotEmpty)
