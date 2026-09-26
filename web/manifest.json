@@ -1,11 +1,11 @@
 {
-    "name": "projectsais",
-    "short_name": "projectsais",
+    "name": "SAIS",
+    "short_name": "SAIS",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#8B1C3E",
+    "theme_color": "#8B1C3E",
+    "description": "SAIS: Student Assistant Information System",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
