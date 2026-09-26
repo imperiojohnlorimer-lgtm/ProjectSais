@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
@@ -23,16 +25,19 @@ class DashboardScreen extends StatelessWidget {
   }
 }
 
-/// Shared page frame: padding, heading, then the sections.
+/// Shared page frame: padding, heading, an optional lead card, the stats,
+/// then the sections.
 class _DashboardPage extends StatelessWidget {
   final String title;
   final String subtitle;
+  final Widget? lead;
   final List<DashboardStatTile> stats;
   final List<Widget> sections;
 
   const _DashboardPage({
     required this.title,
     required this.subtitle,
+    this.lead,
     required this.stats,
     required this.sections,
   });
@@ -47,6 +52,7 @@ class _DashboardPage extends StatelessWidget {
         children: [
           DashboardHeading(title: title, subtitle: subtitle),
           SizedBox(height: metrics.isMobile ? 18 : 26),
+          if (lead != null) ...[lead!, SizedBox(height: metrics.gap)],
           DashboardStatRow(tiles: stats),
           SizedBox(height: metrics.sectionGap),
           ...sections,
@@ -154,7 +160,6 @@ class _StudentAssistantDashboard extends StatelessWidget {
         .where((r) => r.studentName == name)
         .toList();
     final myAttendance = state.filteredAttendance; // already scoped to this SA
-    final activeRecord = state.activeAttendanceRecord;
 
     final totalHours = myAttendance.fold<double>(
       0,
@@ -162,22 +167,17 @@ class _StudentAssistantDashboard extends StatelessWidget {
     );
     final pendingTasks = myTasks.where((t) => t.status != 'Completed').length;
     final pendingReports = myReports.where((r) => r.status == 'Pending').length;
-    final onDuty = activeRecord != null;
 
     return _DashboardPage(
       title: 'Welcome back, ${name.split(' ').first}',
       subtitle: 'Here\'s a quick look at your activity',
+      // Duty status lives in the Today card, so there's no "On duty" tile.
+      lead: const _TodayCard(),
       stats: [
         DashboardStatTile(
           label: 'My total hours',
           value: totalHours.toStringAsFixed(1),
           icon: Icons.access_time_rounded,
-        ),
-        DashboardStatTile(
-          label: 'On duty',
-          value: onDuty ? 'Yes' : 'No',
-          icon: Icons.badge_outlined,
-          tone: onDuty ? StatTone.good : StatTone.muted,
         ),
         DashboardStatTile(
           label: 'Pending tasks',
@@ -246,6 +246,407 @@ class _StudentAssistantDashboard extends StatelessWidget {
       ],
     );
   }
+}
+
+// ─── Student Assistant: Today card ─────────────────────
+/// What a student assistant needs first: whether they're on duty and until
+/// when, and how much of the weekly hours cap they've used. Follows
+/// clock-attendance's rules: two sessions a day, a session that isn't timed
+/// out before it ends doesn't count, and while the Admin's cap is on at most
+/// [AppState.weeklyHourCap] hours are credited per Monday–Sunday week.
+class _TodayCard extends StatefulWidget {
+  const _TodayCard();
+
+  @override
+  State<_TodayCard> createState() => _TodayCardState();
+}
+
+class _TodayCardState extends State<_TodayCard> {
+  static const _weekdays = [
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+  static const _months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  // Nothing notifies when the clock moves, so tick to keep the time on duty
+  // and the session status current.
+  late final Timer _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => setState(() {}),
+    );
+  }
+
+  @override
+  void dispose() {
+    _ticker.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    final metrics = DashboardMetrics.of(context);
+    final now = DateTime.now();
+
+    final status = _DutyStatus(state: state, now: now);
+    final week = _WeekHours(state: state, now: now);
+
+    return DashboardSectionCard(
+      title: 'Today',
+      subtitle:
+          '${_weekdays[now.weekday - 1]}, ${_months[now.month - 1]} ${now.day}',
+      actionLabel: 'Attendance',
+      onAction: () => state.setTab('attendance'),
+      child: metrics.isSmall
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                status,
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Divider(height: 1, color: AppTheme.slate100),
+                ),
+                week,
+              ],
+            )
+          : IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: status),
+                  const VerticalDivider(
+                    width: 40,
+                    thickness: 1,
+                    color: AppTheme.slate100,
+                  ),
+                  Expanded(child: week),
+                ],
+              ),
+            ),
+    );
+  }
+}
+
+/// Left half of the Today card: on duty or not, and what that means now.
+class _DutyStatus extends StatelessWidget {
+  final AppState state;
+  final DateTime now;
+
+  const _DutyStatus({required this.state, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    final record = state.activeAttendanceRecord;
+    final start = state.activeDutyStart;
+    final onDuty = record != null;
+    final atCap =
+        state.enforceAssistantHourCap &&
+        state.myCreditedHoursThisWeek >= AppState.weeklyHourCap;
+    final creditedToday = state.myCreditedHoursToday;
+
+    final String headline;
+    final String detail;
+    String? hint;
+    if (onDuty) {
+      headline = start == null
+          ? 'On duty'
+          : 'On duty · ${_formatElapsed(now.difference(start))}';
+      detail = 'Timed in at ${record.timeIn}';
+      final session = start == null
+          ? null
+          : state.attendanceQrSessionLabel(start);
+      final end = start == null ? null : state.attendanceQrSessionEnd(start);
+      if (session != null && end != null) {
+        hint =
+            '$session ends at ${_formatClock(end)}. Time out before then, '
+            'or this session won\'t count.';
+      }
+    } else {
+      headline = 'Not on duty';
+      final session = state.attendanceQrSessionLabel(now);
+      final next = state.nextAttendanceSessionStart(now);
+      if (atCap) {
+        detail =
+            'You\'ve reached this week\'s '
+            '${_formatHours(AppState.weeklyHourCap)}-hour limit.';
+        hint = 'You can time in again on Monday.';
+      } else if (session != null) {
+        detail =
+            '$session is open until '
+            '${_formatClock(state.attendanceQrSessionEnd(now)!)}.';
+        hint = 'Scan the attendance QR code on the Attendance page to time in.';
+      } else if (next != null) {
+        detail =
+            '${state.attendanceQrSessionLabel(next)} opens at '
+            '${_formatClock(next)}.';
+      } else {
+        detail = 'Today\'s sessions are over.';
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 10,
+              height: 10,
+              decoration: BoxDecoration(
+                color: onDuty ? AppTheme.emerald500 : AppTheme.slate300,
+                shape: BoxShape.circle,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                headline,
+                style: const TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.slate900,
+                  letterSpacing: -0.3,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(
+          detail,
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.slate700,
+            height: 1.4,
+          ),
+        ),
+        if (hint != null) ...[
+          const SizedBox(height: 3),
+          Text(
+            hint,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.slate500,
+              height: 1.4,
+            ),
+          ),
+        ],
+        if (creditedToday > 0) ...[
+          const SizedBox(height: 10),
+          Text(
+            '${_hoursPhrase(creditedToday)} credited today',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate500,
+            ),
+          ),
+        ],
+        if (state.myMissedTimeOutToday) ...[
+          const SizedBox(height: 10),
+          const _CardNote(
+            text: 'You missed a time-out today, so that session didn\'t count.',
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Right half of the Today card: this week's credited hours against the cap.
+class _WeekHours extends StatelessWidget {
+  final AppState state;
+  final DateTime now;
+
+  const _WeekHours({required this.state, required this.now});
+
+  @override
+  Widget build(BuildContext context) {
+    const cap = AppState.weeklyHourCap;
+    final credited = state.myCreditedHoursThisWeek;
+    final capOn = state.enforceAssistantHourCap;
+    final start = state.activeDutyStart;
+    final running = start == null || now.isBefore(start)
+        ? 0.0
+        : now.difference(start).inMinutes / 60.0;
+    final full = credited >= cap;
+    final left = full ? 0.0 : cap - credited;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'This week',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.slate500,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text.rich(
+          TextSpan(
+            children: [
+              TextSpan(
+                text: _formatHours(credited),
+                style: const TextStyle(
+                  fontSize: 26,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.slate900,
+                  letterSpacing: -0.5,
+                ),
+              ),
+              TextSpan(
+                text: capOn
+                    ? ' of ${_formatHours(cap)} hours'
+                    : (credited == 1 ? ' hour' : ' hours'),
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.slate500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (capOn) ...[
+          const SizedBox(height: 10),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: (credited / cap).clamp(0.0, 1.0),
+              minHeight: 8,
+              backgroundColor: AppTheme.slate100,
+              valueColor: AlwaysStoppedAnimation<Color>(
+                full ? AppTheme.amber500 : AppTheme.maroon,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            full
+                ? 'Limit reached · resets Monday'
+                : '${_hoursPhrase(left)} left · resets Monday',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate500,
+            ),
+          ),
+        ] else ...[
+          const SizedBox(height: 8),
+          const Text(
+            'No weekly hour limit is set this year.',
+            style: TextStyle(fontSize: 12, color: AppTheme.slate500),
+          ),
+        ],
+        if (start != null) ...[
+          const SizedBox(height: 10),
+          if (capOn && !full && running >= left)
+            _CardNote(
+              text:
+                  'This session has used up the week\'s hours. Time past '
+                  '${_formatHours(cap)} hours won\'t count.',
+            )
+          else
+            const Text(
+              'Your current session is added when you time out.',
+              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+            ),
+        ],
+      ],
+    );
+  }
+}
+
+/// A short warning inside the Today card.
+class _CardNote extends StatelessWidget {
+  final String text;
+
+  const _CardNote({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: AppTheme.amber50,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(
+            Icons.warning_amber_rounded,
+            size: 15,
+            color: AppTheme.amber500,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.slate800,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// `6.5`, or `6` rather than `6.0`.
+String _formatHours(double hours) {
+  final text = hours.toStringAsFixed(1);
+  return text.endsWith('.0') ? text.substring(0, text.length - 2) : text;
+}
+
+/// `1 hour`, `6.5 hours`.
+String _hoursPhrase(double hours) =>
+    hours == 1 ? '1 hour' : '${_formatHours(hours)} hours';
+
+/// `12:00 PM` — the shape attendance times are stored in.
+String _formatClock(DateTime time) {
+  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+  final minute = time.minute.toString().padLeft(2, '0');
+  return '$hour:$minute ${time.hour < 12 ? 'AM' : 'PM'}';
+}
+
+/// `1h 42m`, `42m`.
+String _formatElapsed(Duration elapsed) {
+  if (elapsed.inMinutes < 1) return 'just started';
+  final hours = elapsed.inHours;
+  final minutes = elapsed.inMinutes % 60;
+  if (hours == 0) return '${minutes}m';
+  return minutes == 0 ? '${hours}h' : '${hours}h ${minutes}m';
 }
 
 // ─── Admin dashboard (Accounts / Departments / Settings scope) ──

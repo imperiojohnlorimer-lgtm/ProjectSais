@@ -169,18 +169,28 @@ class DashboardStatRow extends StatelessWidget {
     final metrics = DashboardMetrics.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {
-        final columns = metrics.statColumns;
+        // Fewer tiles than columns share the row instead of leaving a gap.
+        final columns = tiles.length < metrics.statColumns
+            ? tiles.length
+            : metrics.statColumns;
         final gap = metrics.gap;
-        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+        double widthFor(int perRow) =>
+            (constraints.maxWidth - gap * (perRow - 1)) / perRow;
+        // A part-filled last row (three tiles on two columns) shares the
+        // full width rather than leaving a hole.
+        final lastRowStart = tiles.length - (tiles.length % columns);
+        final lastRowCount = tiles.length - lastRowStart;
         return Wrap(
           spacing: gap,
           runSpacing: gap,
           children: [
-            for (final tile in tiles)
+            for (var i = 0; i < tiles.length; i++)
               SizedBox(
-                width: width,
+                width: i >= lastRowStart && lastRowCount > 0
+                    ? widthFor(lastRowCount)
+                    : widthFor(columns),
                 height: metrics.statTileHeight,
-                child: tile,
+                child: tiles[i],
               ),
           ],
         );

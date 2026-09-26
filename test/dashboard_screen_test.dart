@@ -22,6 +22,7 @@ void main() {
     String role,
     Size size, {
     List<User>? users,
+    List<AttendanceRecord>? attendance,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -31,6 +32,7 @@ void main() {
         create: (_) {
           final state = AppState()..currentUser = _user(role);
           if (users != null) state.users = users;
+          if (attendance != null) state.attendance = attendance;
           return state;
         },
         child: MaterialApp(
@@ -56,8 +58,12 @@ void main() {
         ) async {
           await pumpDashboard(tester, role, Size(width, 1800));
           expect(tester.takeException(), isNull);
-          // Four headline numbers, however they are arranged.
-          expect(find.byType(DashboardStatTile), findsNWidgets(4));
+          // Four headline numbers, however they are arranged. The Student
+          // Assistant has three: duty status lives in the Today card.
+          expect(
+            find.byType(DashboardStatTile),
+            findsNWidgets(role == 'Student Assistant' ? 3 : 4),
+          );
         });
       }
 
@@ -92,6 +98,129 @@ void main() {
       // One column fills the row; four columns take about a quarter each.
       expect(narrow, greaterThan(250));
       expect(wide, lessThan(narrow * 1.6));
+    });
+  });
+
+  group('Student Assistant Today card', () {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+        'Sep', 'Oct', 'Nov', 'Dec'];
+    String dateOf(DateTime d) => '${months[d.month - 1]} ${d.day}, ${d.year}';
+    String clockOf(DateTime d) {
+      final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
+      final minute = d.minute.toString().padLeft(2, '0');
+      return '$hour:$minute ${d.hour < 12 ? 'AM' : 'PM'}';
+    }
+
+    AttendanceRecord record(
+      String id,
+      DateTime day, {
+      String timeIn = '8:00 AM',
+      String? timeOut = '11:00 AM',
+      double? hours = 3,
+      bool isInvalid = false,
+    }) => AttendanceRecord(
+      id: id,
+      studentName: 'Juan dela Cruz',
+      studentId: 'u_1',
+      date: dateOf(day),
+      timeIn: timeIn,
+      timeOut: timeOut,
+      totalHours: hours,
+      isInvalid: isInvalid,
+    );
+
+    Future<void> pumpStudent(
+      WidgetTester tester,
+      List<AttendanceRecord> attendance,
+    ) => pumpDashboard(
+      tester,
+      'Student Assistant',
+      const Size(1440, 1800),
+      attendance: attendance,
+    );
+
+    testWidgets('shows an empty week against the cap', (tester) async {
+      await pumpStudent(tester, const []);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Not on duty'), findsOneWidget);
+      expect(find.text('0 of 20 hours'), findsOneWidget);
+      expect(find.text('20 hours left · resets Monday'), findsOneWidget);
+    });
+
+    testWidgets('counts this week only, and leaves out voided sessions', (
+      tester,
+    ) async {
+      final today = DateTime.now();
+      await pumpStudent(tester, [
+        record('a', today, hours: 6.5),
+        record('b', today.subtract(const Duration(days: 8)), hours: 4),
+        record('c', today, hours: 2, isInvalid: true),
+      ]);
+      expect(find.text('6.5 of 20 hours'), findsOneWidget);
+      expect(find.text('13.5 hours left · resets Monday'), findsOneWidget);
+      expect(find.text('6.5 hours credited today'), findsOneWidget);
+      expect(
+        find.text('You missed a time-out today, so that session didn\'t count.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows who is on duty and since when', (tester) async {
+      final now = DateTime.now();
+      final timeIn = clockOf(now);
+      await pumpStudent(tester, [
+        record('open', now, timeIn: timeIn, timeOut: null, hours: null),
+      ]);
+      expect(find.textContaining('On duty'), findsOneWidget);
+      expect(find.text('Timed in at $timeIn'), findsOneWidget);
+      expect(
+        find.text('Your current session is added when you time out.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('says when the weekly limit is reached', (tester) async {
+      await pumpStudent(tester, [record('a', DateTime.now(), hours: 20)]);
+      expect(find.text('Limit reached · resets Monday'), findsOneWidget);
+      expect(
+        find.text('You\'ve reached this week\'s 20-hour limit.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('lets three stat tiles share the row', (tester) async {
+      double tileWidth() => tester
+          .widgetList<SizedBox>(
+            find.descendant(
+              of: find.byType(DashboardStatRow),
+              matching: find.byType(SizedBox),
+            ),
+          )
+          .first
+          .width!;
+
+      await pumpDashboard(tester, 'Head', const Size(1440, 1800));
+      final four = tileWidth();
+      // Unmount first, or the provider keeps the Head's state.
+      await tester.pumpWidget(const SizedBox());
+      await pumpStudent(tester, const []);
+      final three = tileWidth();
+      expect(three, greaterThan(four * 1.25));
+    });
+
+    testWidgets('lets a lone last tile span the row on phones', (tester) async {
+      await pumpDashboard(tester, 'Student Assistant', const Size(390, 1800));
+      final row = tester.widget<Wrap>(
+        find.descendant(
+          of: find.byType(DashboardStatRow),
+          matching: find.byType(Wrap),
+        ),
+      );
+      final widths = [
+        for (final tile in row.children) (tile as SizedBox).width,
+      ];
+      // Two columns: two half-width tiles, then one across the whole row.
+      expect(widths[2], greaterThan(widths[0]! * 1.9));
     });
   });
 

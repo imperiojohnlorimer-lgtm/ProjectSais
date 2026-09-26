@@ -129,6 +129,28 @@ class AppState extends ChangeNotifier {
     ).add(Duration(minutes: endMinutes));
   }
 
+  /// When the next session opens today, if [at] (defaults to now) falls
+  /// before the morning window or in the lunch break. Null during a session
+  /// and once the afternoon session has ended.
+  DateTime? nextAttendanceSessionStart([DateTime? at]) {
+    final now = at ?? DateTime.now();
+    final minutes = now.hour * 60 + now.minute;
+    final int startMinutes;
+    if (minutes < _qrMorningStartMinutes) {
+      startMinutes = _qrMorningStartMinutes;
+    } else if (minutes > _qrMorningEndMinutes &&
+        minutes < _qrAfternoonStartMinutes) {
+      startMinutes = _qrAfternoonStartMinutes;
+    } else {
+      return null;
+    }
+    return DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).add(Duration(minutes: startMinutes));
+  }
+
   /// Returns the QR token for the session running right now, minting and
   /// persisting one only when that session doesn't have a token yet.
   ///
@@ -228,6 +250,9 @@ class AppState extends ChangeNotifier {
   DateTime academicYearEnd = DateTime(2027, 7, 31);
   bool allowAcademicApplications = true;
   bool enforceAssistantHourCap = true;
+  // Credited hours allowed per Monday–Sunday week while the cap is on.
+  // Must match WEEKLY_HOUR_CAP in the clock-attendance function.
+  static const weeklyHourCap = 20.0;
   bool autoArchiveAttendanceLogs = true;
   List<Map<String, dynamic>> academicMilestones = [];
   List<Map<String, dynamic>> academicYearArchives = [];
@@ -5591,6 +5616,58 @@ class AppState extends ChangeNotifier {
     } catch (_) {
       return null;
     }
+  }
+
+  /// When the current user's open session started, or null when they
+  /// aren't clocked in or its time can't be read.
+  DateTime? get activeDutyStart {
+    final record = activeAttendanceRecord;
+    if (record == null) return null;
+    final day = _parseFormattedDate(record.date);
+    if (day == null) return null;
+    return _parseTime(record.timeIn, day);
+  }
+
+  /// Hours credited to the current user from finished sessions in the
+  /// current Monday–Sunday week: the figure clock-attendance checks
+  /// against [weeklyHourCap].
+  double get myCreditedHoursThisWeek {
+    final now = DateTime.now();
+    final monday = DateTime(
+      now.year,
+      now.month,
+      now.day,
+    ).subtract(Duration(days: now.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
+    return filteredAttendance
+        .where((r) {
+          if (r.isActive || r.isArchived || r.isInvalid) return false;
+          final day = _parseFormattedDate(r.date);
+          return day != null &&
+              !day.isBefore(monday) &&
+              day.isBefore(nextMonday);
+        })
+        .fold<double>(0, (total, r) => total + (r.totalHours ?? 0));
+  }
+
+  /// Hours credited to the current user from sessions finished today.
+  double get myCreditedHoursToday {
+    final today = _formattedToday();
+    return filteredAttendance
+        .where(
+          (r) =>
+              r.date == today && !r.isActive && !r.isArchived && !r.isInvalid,
+        )
+        .fold<double>(0, (total, r) => total + (r.totalHours ?? 0));
+  }
+
+  /// Whether one of the current user's sessions today was voided because
+  /// they didn't time out before it ended.
+  bool get myMissedTimeOutToday {
+    final today = _formattedToday();
+    return filteredAttendance.any(
+      (r) => r.date == today && r.isInvalid && !r.isArchived,
+    );
   }
 
   // ─── Dashboard Stats ───────────────────────────────
