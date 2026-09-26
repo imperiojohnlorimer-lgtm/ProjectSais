@@ -14,6 +14,7 @@ import './accounts/applicant_screening_screen.dart';
 import './accounts/rehiring_screen.dart';
 import './accounts/admin_announcements_screen.dart';
 import './accounts/create_department_screen.dart';
+import './accounts/programs_screen.dart';
 import './accounts/payroll_screen.dart';
 import './accounts/skills_screen.dart';
 import './profile/profile_screen.dart';
@@ -65,6 +66,13 @@ class _AppShellState extends State<AppShell> {
       label: 'Departments',
       icon: Icons.business_outlined,
       activeIcon: Icons.business,
+      roles: ['Admin'],
+    ),
+    (
+      id: 'programs',
+      label: 'Programs',
+      icon: Icons.school_outlined,
+      activeIcon: Icons.school,
       roles: ['Admin'],
     ),
     (
@@ -262,6 +270,8 @@ class _AppShellState extends State<AppShell> {
         return const AccountsScreen();
       case 'departments':
         return const CreateDepartmentScreen();
+      case 'programs':
+        return const ProgramsScreen();
       case 'payroll':
         return const PayrollScreen();
       case 'skills':
@@ -327,6 +337,8 @@ class _AppShellState extends State<AppShell> {
         return 'Rehiring';
       case 'departments':
         return 'Departments';
+      case 'programs':
+        return 'Programs';
       case 'payroll':
         return 'Payroll';
       case 'offices':

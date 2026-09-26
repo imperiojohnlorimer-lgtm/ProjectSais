@@ -1322,7 +1322,7 @@ class _AccountsScreenState extends State<AccountsScreen>
     final passwordCtrl = TextEditingController();
     final phoneCtrl = TextEditingController(text: user?.phone ?? '');
     final studentIdCtrl = TextEditingController(text: user?.studentId ?? '');
-    final courseProgramCtrl = TextEditingController(text: user?.courseProgram ?? '');
+    String? courseProgram = user?.courseProgram;
     var yearLevel = user?.yearLevel ?? '1st Year';
     var role = user?.role ?? 'Student';
     final departmentOptions = state.departments.isEmpty
@@ -1380,7 +1380,15 @@ class _AccountsScreenState extends State<AccountsScreen>
                     'Department',
                     department,
                     departmentOptions,
-                    (value) => setDialogState(() => department = value),
+                    (value) => setDialogState(() {
+                      department = value;
+                      // A program belongs to one department.
+                      if (!state
+                          .programsForDepartment(value)
+                          .any((p) => p.code == courseProgram)) {
+                        courseProgram = null;
+                      }
+                    }),
                     Icons.business_outlined,
                   ),
                   const SizedBox(height: 12),
@@ -1433,10 +1441,11 @@ class _AccountsScreenState extends State<AccountsScreen>
                     Icons.badge_outlined,
                   ),
                   const SizedBox(height: 12),
-                  _dialogField(
-                    'Course/Program (optional)',
-                    courseProgramCtrl,
-                    Icons.school_outlined,
+                  _programDropdown(
+                    state,
+                    department,
+                    courseProgram,
+                    (value) => setDialogState(() => courseProgram = value),
                   ),
                   const SizedBox(height: 12),
                   _accountDropdown(
@@ -1474,9 +1483,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                           studentId: studentIdCtrl.text.trim().isEmpty
                               ? null
                               : studentIdCtrl.text.trim(),
-                          courseProgram: courseProgramCtrl.text.trim().isEmpty
-                              ? null
-                              : courseProgramCtrl.text.trim(),
+                          courseProgram: courseProgram,
                           yearLevel: yearLevel,
                           skills: selectedSkills.toList(),
                         );
@@ -1498,9 +1505,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                       studentId: studentIdCtrl.text.trim().isEmpty
                           ? null
                           : studentIdCtrl.text.trim(),
-                      courseProgram: courseProgramCtrl.text.trim().isEmpty
-                          ? null
-                          : courseProgramCtrl.text.trim(),
+                      courseProgram: courseProgram,
                       yearLevel: yearLevel,
                       skills: selectedSkills.toList(),
                     ),
@@ -1682,6 +1687,63 @@ class _AccountsScreenState extends State<AccountsScreen>
             ),
           )
           .toList(),
+    );
+  }
+
+  /// Course/Program as a choice from [department]'s programs. A value saved
+  /// before it was on the program list stays selectable, so editing an
+  /// account doesn't quietly drop it.
+  Widget _programDropdown(
+    AppState state,
+    String department,
+    String? value,
+    ValueChanged<String?> onChanged,
+  ) {
+    final programs = state.programsForDepartment(department);
+    var current = value?.trim() ?? '';
+    for (final p in programs) {
+      if (p.code.toLowerCase() == current.toLowerCase()) current = p.code;
+    }
+    final listed = programs.any((p) => p.code == current);
+    return DropdownButtonFormField<String>(
+      // Starts over when the department changes the choices.
+      key: ValueKey('program-$department'),
+      initialValue: current,
+      isExpanded: true,
+      menuMaxHeight: 320,
+      onChanged: (next) => onChanged(next == null || next.isEmpty ? null : next),
+      decoration: const InputDecoration(
+        labelText: 'Course/Program (optional)',
+        prefixIcon: Icon(
+          Icons.school_outlined,
+          color: AppTheme.maroon,
+          size: 17,
+        ),
+      ),
+      items: [
+        DropdownMenuItem(
+          value: '',
+          child: Text(
+            programs.isEmpty ? 'No programs listed for this department' : 'None',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        if (current.isNotEmpty && !listed)
+          DropdownMenuItem(
+            value: current,
+            child: Text(
+              '$current (not on the program list)',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        for (final p in programs)
+          DropdownMenuItem(
+            value: p.code,
+            child: Text(p.label, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+      ],
     );
   }
 

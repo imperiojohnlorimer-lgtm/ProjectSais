@@ -299,6 +299,8 @@ class AppState extends ChangeNotifier {
     'Administration',
   ];
   Map<String, String> departmentCodes = {};
+  // Degree programs, sorted by code. Each belongs to one department.
+  List<Program> programs = [];
   List<String> skills = [];
 
   List<String> campuses = [
@@ -581,6 +583,9 @@ class AppState extends ChangeNotifier {
       departmentCodes = {
         for (final d in named) d['name'].toString(): d['code']?.toString() ?? '',
       };
+    });
+    listen('Programs', fs.collectionStream('programs'), (list) {
+      programs = _sortedPrograms(list.map(Program.fromJson));
     });
     listen('Skills', fs.collectionStream('skills'), (list) {
       skills = [
@@ -1344,6 +1349,9 @@ class AppState extends ChangeNotifier {
         final storedDepartments = await _firestoreService!.getAllDepartments();
         departments = storedDepartments;
         departmentCodes = await _firestoreService!.getDepartmentCodes();
+      } catch (_) {}
+      try {
+        programs = _sortedPrograms(await _firestoreService!.getAllPrograms());
       } catch (_) {}
       try {
         skills = await _firestoreService!.getAllSkills();
@@ -2307,6 +2315,90 @@ class AppState extends ChangeNotifier {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  // ─── Programs ──────────────────────────────────────
+  List<Program> _sortedPrograms(Iterable<Program> list) => [
+    for (final p in list)
+      if (p.code.trim().isNotEmpty) p,
+  ]..sort((a, b) => a.code.toLowerCase().compareTo(b.code.toLowerCase()));
+
+  /// The programs under [department], by code.
+  List<Program> programsForDepartment(String? department) =>
+      programs.where((p) => p.department == department).toList();
+
+  /// The program whose code is [code], ignoring case, if there is one.
+  Program? programByCode(String? code) {
+    final wanted = code?.trim().toLowerCase() ?? '';
+    if (wanted.isEmpty) return null;
+    return programs
+        .where((p) => p.code.trim().toLowerCase() == wanted)
+        .firstOrNull;
+  }
+
+  /// Adds [program], or saves changes to it when it has an id. Refuses a
+  /// blank code or name, or a code another program already uses. Students
+  /// who already chose a program keep its old code if the code changes, as
+  /// they keep a renamed department.
+  Future<bool> saveProgram(Program program) async {
+    final cleaned = program.copyWith(
+      code: program.code.trim(),
+      name: program.name.trim(),
+      department: program.department.trim(),
+    );
+    if (cleaned.code.isEmpty || cleaned.name.isEmpty) return false;
+    final clash = programByCode(cleaned.code);
+    if (clash != null && clash.id != cleaned.id) return false;
+    try {
+      _firestoreService ??= FirestoreService();
+      final id = await _firestoreService!.saveProgram(cleaned);
+      programs = _sortedPrograms([
+        for (final p in programs)
+          if (p.id != id) p,
+        Program(
+          id: id,
+          code: cleaned.code,
+          name: cleaned.name,
+          department: cleaned.department,
+        ),
+      ]);
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<bool> removeProgram(Program program) async {
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.deleteProgram(program.id);
+      programs = programs.where((p) => p.id != program.id).toList();
+      notifyListeners();
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Loads the department and program lists for the registration form,
+  /// which a visitor fills in before they have an account. The Firestore
+  /// rules let anyone read both lists for this. Keeps the built-in
+  /// department list if nothing is stored yet or the read fails.
+  Future<void> loadRegistrationCatalog() async {
+    try {
+      _firestoreService ??= FirestoreService();
+      // One read gives both the names and their codes.
+      final codes = await _firestoreService!.getDepartmentCodes();
+      if (codes.isNotEmpty) {
+        departments = codes.keys.toList()..sort();
+        departmentCodes = codes;
+      }
+      programs = _sortedPrograms(await _firestoreService!.getAllPrograms());
+      notifyListeners();
+    } catch (error) {
+      debugPrint('Registration lists failed to load: $error');
     }
   }
 

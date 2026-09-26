@@ -1916,7 +1916,7 @@ Widget _form(AppState state) {
     final fields = <Widget>[
       _input('Full Name', name),
       _input('Student ID / Applicant #', studentNumber),
-      _input('Academic Program', program),
+      _programSelect(state),
       _input('Permanent / Present Address', address),
       _input('Contact Information', contact),
       _input('Year Level', yearLevel),
@@ -1960,6 +1960,46 @@ Widget _form(AppState state) {
       },
     );
   }
+  /// Academic Program as a choice from the program list. Whatever the form
+  /// already holds that isn't on the list (an older typed entry, say) stays
+  /// selectable rather than being dropped.
+  Widget _programSelect(AppState state) {
+    final current = program.text.trim();
+    final match = state.programByCode(current);
+    final value = match?.code ?? current;
+    return DropdownButtonFormField<String>(
+      // initialValue is only read once, so rebuild when the form is loaded
+      // with another applicant's program.
+      key: ValueKey('academic-program-$value'),
+      initialValue: value.isEmpty ? null : value,
+      isExpanded: true,
+      menuMaxHeight: 320,
+      decoration: InputDecoration(
+        labelText: 'Academic Program',
+        isDense: true,
+        filled: true,
+        fillColor: AppTheme.slate50,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide.none,
+        ),
+      ),
+      items: [
+        if (value.isNotEmpty && match == null)
+          DropdownMenuItem(
+            value: value,
+            child: Text(value, overflow: TextOverflow.ellipsis),
+          ),
+        for (final p in state.programs)
+          DropdownMenuItem(
+            value: p.code,
+            child: Text(p.label, overflow: TextOverflow.ellipsis),
+          ),
+      ],
+      onChanged: (v) => setState(() => program.text = v ?? ''),
+    );
+  }
+
   Widget _input(String label, TextEditingController controller) => TextField(
     controller: controller,
     decoration: InputDecoration(

@@ -479,10 +479,20 @@ service cloud.firestore {
       allow read, write: if isHead();
     }
 
-    // Departments & Settings stay Admin-exclusive.
+    // Departments & Settings stay Admin-exclusive. Departments and the
+    // programs under them are readable without an account: the
+    // registration form lists them before the visitor has signed in.
     match /departments/{id} {
-      allow read: if signedIn();
+      allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /programs/{id} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        && request.resource.data.keys().hasOnly(
+          ['code', 'name', 'department', 'createdAt', 'updatedAt']);
+      allow delete: if isAdmin();
     }
 
     // Skills screen is Head-exclusive now.

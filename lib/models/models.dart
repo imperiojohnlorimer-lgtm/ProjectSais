@@ -135,6 +135,47 @@ class Office {
   };
 }
 
+/// A degree program the university offers (e.g. BSIT), under one
+/// department. Students pick theirs when they register; its [code] is what
+/// their profile keeps as [User.courseProgram].
+class Program {
+  final String id;
+  final String code;
+  final String name;
+  final String department;
+
+  const Program({
+    required this.id,
+    required this.code,
+    required this.name,
+    required this.department,
+  });
+
+  /// `BSIT · Bachelor of Science in Information Technology`.
+  String get label => name.isEmpty ? code : '$code · $name';
+
+  Program copyWith({String? code, String? name, String? department}) =>
+      Program(
+        id: id,
+        code: code ?? this.code,
+        name: name ?? this.name,
+        department: department ?? this.department,
+      );
+
+  factory Program.fromJson(Map<String, dynamic> json) => Program(
+    id: json['id']?.toString() ?? '',
+    code: json['code']?.toString() ?? '',
+    name: json['name']?.toString() ?? '',
+    department: json['department']?.toString() ?? '',
+  );
+
+  Map<String, dynamic> toJson() => {
+    'code': code,
+    'name': name,
+    'department': department,
+  };
+}
+
 // models/user.dart
 class User {
   final String id;

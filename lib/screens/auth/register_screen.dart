@@ -17,9 +17,12 @@ class _PhilippineMobileNumberFormatter extends TextInputFormatter {
   ) {
     final digits = newValue.text
         .replaceAll(RegExp(r'\D'), '')
-        .substring(0, newValue.text.replaceAll(RegExp(r'\D'), '').length > 11
-            ? 11
-            : newValue.text.replaceAll(RegExp(r'\D'), '').length);
+        .substring(
+          0,
+          newValue.text.replaceAll(RegExp(r'\D'), '').length > 11
+              ? 11
+              : newValue.text.replaceAll(RegExp(r'\D'), '').length,
+        );
 
     final buffer = StringBuffer();
     for (var i = 0; i < digits.length; i++) {
@@ -44,11 +47,7 @@ class RegisterScreen extends StatefulWidget {
   /// rather than to login — they may have arrived straight from "Get started".
   final VoidCallback? onBack;
 
-  const RegisterScreen({
-    super.key,
-    required this.onBackToLogin,
-    this.onBack,
-  });
+  const RegisterScreen({super.key, required this.onBackToLogin, this.onBack});
 
   @override
   State<RegisterScreen> createState() => _RegisterScreenState();
@@ -60,7 +59,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _passwordCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
   final _studentIdCtrl = TextEditingController();
-  final _courseProgramCtrl = TextEditingController();
+  // The chosen program's code, from the programs under [_department].
+  String? _program;
   final String _role = 'Student';
   String _department = 'College of Information and Computing Sciences';
   String _campus = 'Boac Campus';
@@ -69,6 +69,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscurePassword = true;
   String? _error;
   PasswordValidationResult? _passwordValidation;
+
+  @override
+  void initState() {
+    super.initState();
+    // A visitor isn't signed in, so nothing has loaded the Admin's
+    // departments and programs yet.
+    context.read<AppState>().loadRegistrationCatalog();
+  }
+
+  /// [_department] if it's still offered, else the first department:
+  /// the stored list can replace the built-in one after the form opens.
+  String _departmentIn(AppState state) =>
+      state.departments.contains(_department) || state.departments.isEmpty
+      ? _department
+      : state.departments.first;
+
+  String _departmentCode(AppState state, String department) =>
+      (state.departmentCodes[department] ?? '').trim();
 
   bool _isValidEmail(String email) {
     return RegExp(
@@ -107,6 +125,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    final appState = context.read<AppState>();
+    final department = _departmentIn(appState);
+    final offered = appState.programsForDepartment(department);
+    final program = offered.any((p) => p.code == _program) ? _program : null;
+    if (offered.isNotEmpty && program == null) {
+      setState(() => _error = 'Choose your course/program.');
+      return;
+    }
+
     final validation = PasswordValidator.validate(_passwordCtrl.text);
     if (!validation.isValid) {
       setState(() {
@@ -129,20 +156,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
       name: _nameCtrl.text.trim(),
       email: email,
       role: _role,
-      department: _department,
+      department: department,
       campus: _campus,
       phone: _phoneCtrl.text.trim(),
       studentId: _studentIdCtrl.text.trim().isEmpty
           ? null
           : _studentIdCtrl.text.trim(),
-      courseProgram: _courseProgramCtrl.text.trim().isEmpty
-          ? null
-          : _courseProgramCtrl.text.trim(),
+      courseProgram: program,
       yearLevel: _yearLevel,
     );
 
-    final appState = context.read<AppState>();
-    final authError = await appState.registerWithEmail(user, _passwordCtrl.text);
+    final authError = await appState.registerWithEmail(
+      user,
+      _passwordCtrl.text,
+    );
     if (!mounted) return;
 
     if (authError != null) {
@@ -181,7 +208,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _passwordCtrl.dispose();
     _phoneCtrl.dispose();
     _studentIdCtrl.dispose();
-    _courseProgramCtrl.dispose();
     super.dispose();
   }
 
@@ -216,6 +242,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   List<Widget> _buildFormFields() {
     final state = context.watch<AppState>();
+    final department = _departmentIn(state);
+    final programs = state.programsForDepartment(department);
+    final program = programs.any((p) => p.code == _program) ? _program : null;
 
     return [
       if (_error != null) ...[
@@ -342,50 +371,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       AuthFieldPair(
         left: AuthField(
-          label: 'Course/Program',
-          child: TextFormField(
-            controller: _courseProgramCtrl,
-            onChanged: _clearError,
-            decoration: const InputDecoration(
-              hintText: 'e.g. BSIT',
-              prefixIcon: Icon(
-                Icons.school_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
-          ),
-        ),
-        right: AuthField(
-          label: 'Year level',
-          child: DropdownButtonFormField<String>(
-            initialValue: _yearLevel,
-            isExpanded: true,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(
-                Icons.timeline_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
-            items: const [
-              DropdownMenuItem(value: '1st Year', child: Text('1st Year')),
-              DropdownMenuItem(value: '2nd Year', child: Text('2nd Year')),
-              DropdownMenuItem(value: '3rd Year', child: Text('3rd Year')),
-              DropdownMenuItem(value: '4th Year', child: Text('4th Year')),
-            ],
-            onChanged: (v) => setState(() => _yearLevel = v ?? _yearLevel),
-          ),
-        ),
-      ),
-      const SizedBox(height: 18),
-
-      AuthFieldPair(
-        left: AuthField(
           label: 'Department',
           child: DropdownButtonFormField<String>(
-            initialValue: _department,
+            // Rebuilt when the stored department list arrives.
+            key: ValueKey('department-${state.departments.join('|')}'),
+            initialValue: department,
             isExpanded: true,
+            menuMaxHeight: 360,
+            // Two-line options, like Course/Program: code over full name.
+            itemHeight: null,
             decoration: const InputDecoration(
               prefixIcon: Icon(
                 Icons.business_outlined,
@@ -393,15 +387,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 size: 20,
               ),
             ),
-            items: state.departments
-                .map(
-                  (d) => DropdownMenuItem(
-                    value: d,
-                    child: Text(d, overflow: TextOverflow.ellipsis),
+            // The closed field shows the code, or the name if there's none.
+            selectedItemBuilder: (_) => [
+              for (final d in state.departments)
+                Text(
+                  _departmentCode(state, d).isEmpty
+                      ? d
+                      : _departmentCode(state, d),
+                  overflow: TextOverflow.ellipsis,
+                ),
+            ],
+            items: [
+              for (final d in state.departments)
+                DropdownMenuItem(
+                  value: d,
+                  child: _CodeNameOption(
+                    code: _departmentCode(state, d),
+                    name: d,
                   ),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => _department = v!),
+                ),
+            ],
+            onChanged: (v) => setState(() {
+              _department = v!;
+              _program = null;
+            }),
           ),
         ),
         right: AuthField(
@@ -425,6 +434,76 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 )
                 .toList(),
             onChanged: (v) => setState(() => _campus = v!),
+          ),
+        ),
+      ),
+      const SizedBox(height: 18),
+
+      AuthFieldPair(
+        left: AuthField(
+          label: 'Course/Program',
+          // Keyed on the department so it starts over when that changes;
+          // the old choice isn't one of the new department's programs.
+          child: DropdownButtonFormField<String>(
+            key: ValueKey('program-$department-${programs.length}'),
+            initialValue: program,
+            isExpanded: true,
+            menuMaxHeight: 360,
+            // Lets each option take two lines: the field is half the form
+            // wide, too narrow for a full program name on one.
+            itemHeight: null,
+            hint: Text(
+              programs.isEmpty
+                  ? 'No programs listed for this department'
+                  : 'Choose your program',
+              overflow: TextOverflow.ellipsis,
+            ),
+            decoration: const InputDecoration(
+              prefixIcon: Icon(
+                Icons.school_outlined,
+                color: AppTheme.maroon,
+                size: 20,
+              ),
+            ),
+            // The closed field shows just the code; the menu the full name.
+            selectedItemBuilder: (_) => [
+              for (final p in programs)
+                Text(p.code, overflow: TextOverflow.ellipsis),
+            ],
+            items: [
+              for (final p in programs)
+                DropdownMenuItem(
+                  value: p.code,
+                  child: _CodeNameOption(code: p.code, name: p.name),
+                ),
+            ],
+            onChanged: programs.isEmpty
+                ? null
+                : (v) => setState(() {
+                    _program = v;
+                    _error = null;
+                  }),
+          ),
+        ),
+        right: AuthField(
+          label: 'Year level',
+          child: DropdownButtonFormField<String>(
+            initialValue: _yearLevel,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(
+                Icons.timeline_outlined,
+                color: AppTheme.maroon,
+                size: 20,
+              ),
+            ),
+            items: const [
+              DropdownMenuItem(value: '1st Year', child: Text('1st Year')),
+              DropdownMenuItem(value: '2nd Year', child: Text('2nd Year')),
+              DropdownMenuItem(value: '3rd Year', child: Text('3rd Year')),
+              DropdownMenuItem(value: '4th Year', child: Text('4th Year')),
+            ],
+            onChanged: (v) => setState(() => _yearLevel = v ?? _yearLevel),
           ),
         ),
       ),
@@ -577,6 +656,54 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ],
               );
             },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A dropdown option shown as its short code over its full name, so the
+/// half-width fields can still tell similar names apart. Without a code,
+/// the name alone takes the top line.
+class _CodeNameOption extends StatelessWidget {
+  const _CodeNameOption({required this.code, required this.name});
+
+  final String code;
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (code.isNotEmpty)
+            Text(
+              code,
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate900,
+              ),
+            ),
+          Text(
+            name,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: code.isEmpty
+                ? const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate900,
+                  )
+                : const TextStyle(
+                    fontSize: 12,
+                    color: AppTheme.slate500,
+                    height: 1.3,
+                  ),
           ),
         ],
       ),

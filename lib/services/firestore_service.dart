@@ -559,6 +559,41 @@ class FirestoreService {
     if (oldName != newName) await deleteDepartment(oldName);
   }
 
+  CollectionReference get _programs => _db.collection('programs');
+
+  Future<List<Program>> getAllPrograms() async {
+    final snapshot = await _programs.get();
+    return snapshot.docs
+        .map(
+          (doc) => Program.fromJson({
+            ...(doc.data() as Map<String, dynamic>),
+            'id': doc.id,
+          }),
+        )
+        .toList();
+  }
+
+  /// Saves [program], creating it when its id is empty. Returns its id.
+  Future<String> saveProgram(Program program) async {
+    final data = {
+      ...program.toJson(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (program.id.isEmpty) {
+      final doc = await _programs.add({
+        ...data,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      return doc.id;
+    }
+    await _programs.doc(program.id).set(data, SetOptions(merge: true));
+    return program.id;
+  }
+
+  Future<void> deleteProgram(String id) async {
+    await _programs.doc(id).delete();
+  }
+
   CollectionReference get _skills => _db.collection('skills');
 
   Future<List<String>> getAllSkills() async {
