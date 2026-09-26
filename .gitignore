@@ -47,3 +47,20 @@ lib.zip
 
 # Firebase CLI deploy cache
 .firebase/
+
+# Secrets: the repo is public, so these must never be committed. The
+# Firebase admin key and the Supabase service-role key belong in the
+# Supabase function secrets, not in files here.
+*adminsdk*.json
+*service-account*.json
+*serviceAccount*.json
+.env
+.env.*
+!.env.example
+*.pem
+*.p12
+*.p8
+
+# Supabase CLI local state
+supabase/.temp/
+supabase/.branches/
