@@ -298,14 +298,25 @@ class _TasksScreenState extends State<TasksScreen> {
                     role: role,
                     isBusy: _pendingIds.contains(tasks[i].id),
                     onStatusChange: (newStatus) async {
-                      setState(() => _pendingIds.add(tasks[i].id));
-                      await state.updateTaskStatus(tasks[i].id, newStatus);
+                      final taskId = tasks[i].id;
+                      setState(() => _pendingIds.add(taskId));
+                      final saved = await state.updateTaskStatus(
+                        taskId,
+                        newStatus,
+                      );
                       if (!context.mounted) return;
-                      setState(() => _pendingIds.remove(tasks[i].id));
+                      setState(() => _pendingIds.remove(taskId));
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('Task status updated to "$newStatus"'),
-                          backgroundColor: AppTheme.blue500,
+                          content: Text(
+                            saved
+                                ? 'Task status updated to "$newStatus"'
+                                : "Couldn't update the task. Check your "
+                                      'connection and try again.',
+                          ),
+                          backgroundColor: saved
+                              ? AppTheme.blue500
+                              : AppTheme.red500,
                           duration: const Duration(seconds: 2),
                           behavior: SnackBarBehavior.floating,
                           shape: RoundedRectangleBorder(
@@ -448,6 +459,8 @@ class _TasksScreenState extends State<TasksScreen> {
     // Defaults to a week from today; the supervisor can pick any date.
     DateTime dueDate = DateTime.now().add(const Duration(days: 7));
     List<String> checklistItems = [];
+    // Set while the task saves, so a second tap can't assign it twice.
+    var saving = false;
 
     final students = state.filteredStudents;
 
@@ -756,8 +769,11 @@ class _TasksScreenState extends State<TasksScreen> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: () async {
+                        onPressed: saving ? null : () async {
                           if (titleCtrl.text.trim().isEmpty) return;
+                          setSt(() => saving = true);
+                          final navigator = Navigator.of(context);
+                          final messenger = ScaffoldMessenger.of(context);
                           final student = assignedTo != null
                               ? students.firstWhere(
                                   (s) => s.id == assignedTo,
@@ -777,8 +793,8 @@ class _TasksScreenState extends State<TasksScreen> {
                             checklistItems: checklistItems,
                           );
                           await state.addTask(task);
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
+                          navigator.pop();
+                          messenger.showSnackBar(
                             SnackBar(
                               content: const Text(
                                 'Task assigned successfully!',
@@ -802,9 +818,9 @@ class _TasksScreenState extends State<TasksScreen> {
                             borderRadius: BorderRadius.circular(13),
                           ),
                         ),
-                        child: const Text(
-                          'Assign Task',
-                          style: TextStyle(
+                        child: Text(
+                          saving ? 'Assigning...' : 'Assign Task',
+                          style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 14.5,
                           ),

@@ -62,6 +62,54 @@ class Office {
     this.requiredSkills = const [],
   });
 
+  /// Whether the user [userId] (named [name]) is one of this office's
+  /// student assistants. The id lists decide it — two people can share a
+  /// name — so a name only counts at a position saved without an id.
+  bool hasAssistant(String userId, String name) =>
+      _listedAt(assistantIds, assistantNames, userId, name).isNotEmpty;
+
+  /// Whether the user [userId] (named [name]) supervises this office,
+  /// matched the same way as [hasAssistant].
+  bool hasHead(String userId, String name) =>
+      _listedAt(headIds, headNames, userId, name).isNotEmpty;
+
+  /// This office with [userId] (named [name]) taken off its assistants,
+  /// matched as in [hasAssistant]. The id and name lists run in parallel,
+  /// so the same positions go from both.
+  Office withoutAssistant(String userId, String name) {
+    final drop = _listedAt(assistantIds, assistantNames, userId, name).toSet();
+    return copyWith(
+      assistantIds: [
+        for (var i = 0; i < assistantIds.length; i++)
+          if (!drop.contains(i)) assistantIds[i],
+      ],
+      assistantNames: [
+        for (var i = 0; i < assistantNames.length; i++)
+          if (!drop.contains(i)) assistantNames[i],
+      ],
+    );
+  }
+
+  /// The positions in the parallel [ids]/[names] lists that hold the user.
+  static List<int> _listedAt(
+    List<String> ids,
+    List<String> names,
+    String userId,
+    String name,
+  ) {
+    final wanted = name.trim().toLowerCase();
+    final length = ids.length > names.length ? ids.length : names.length;
+    return [
+      for (var i = 0; i < length; i++)
+        if (i < ids.length && ids[i].isNotEmpty
+            ? ids[i] == userId
+            : wanted.isNotEmpty &&
+                  i < names.length &&
+                  names[i].trim().toLowerCase() == wanted)
+          i,
+    ];
+  }
+
   Office copyWith({
     String? name,
     String? code,
@@ -198,6 +246,12 @@ class User {
   // studentId, which is the university-issued school ID.
   final String? saId;
 
+  /// Set when the Admin deletes the account. The profile stays, archived,
+  /// because deleting it would not delete the sign-in: the person could
+  /// still log in and be let back in as a new Student. Deleted accounts
+  /// are hidden everywhere in the app.
+  final bool isDeleted;
+
   User({
     required this.id,
     required this.name,
@@ -214,6 +268,7 @@ class User {
     this.courseProgram,
     this.yearLevel,
     this.saId,
+    this.isDeleted = false,
   });
 
   User copyWith({
@@ -231,6 +286,7 @@ class User {
     String? courseProgram,
     String? yearLevel,
     String? saId,
+    bool? isDeleted,
   }) => User(
     id: id ?? this.id,
     name: name ?? this.name,
@@ -247,6 +303,7 @@ class User {
     courseProgram: courseProgram ?? this.courseProgram,
     yearLevel: yearLevel ?? this.yearLevel,
     saId: saId ?? this.saId,
+    isDeleted: isDeleted ?? this.isDeleted,
   );
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -267,6 +324,7 @@ class User {
     courseProgram: json['courseProgram'],
     yearLevel: json['yearLevel'],
     saId: json['saId'],
+    isDeleted: json['deleted'] == true,
   );
 
   Map<String, dynamic> toJson() => {
@@ -285,6 +343,7 @@ class User {
     'courseProgram': courseProgram,
     'yearLevel': yearLevel,
     'saId': saId,
+    if (isDeleted) 'deleted': true,
   };
 
   String get initials {
@@ -396,6 +455,11 @@ class AttendanceRecord {
   });
 
   bool get isActive => timeOut == null || timeOut!.isEmpty;
+
+  /// Whether this record's hours are credited — to payroll, the DTR and
+  /// every hours total: timed out, and neither archived nor flagged as a
+  /// missed time-out. The clock-attendance server counts the same way.
+  bool get countsTowardHours => !isActive && !isArchived && !isInvalid;
 
   AttendanceRecord copyWith({
     String? timeOut,
@@ -825,6 +889,37 @@ class Announcement {
   /// Whether students should be able to see/apply to this announcement.
   bool get isVisibleToStudents => isApproved && isOpen;
 
+  /// The last day applications are taken, read from [deadline] — the date
+  /// pickers save "Jun 5, 2026", and older forms took "June 5, 2026" typed
+  /// in. Null when there's no deadline or it can't be read.
+  DateTime? get deadlineDate {
+    final match = RegExp(
+      r'^([A-Za-z]+)\.?\s+(\d{1,2}),?\s+(\d{4})$',
+    ).firstMatch(deadline?.trim() ?? '');
+    if (match == null) return null;
+    final name = match.group(1)!.toLowerCase();
+    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug',
+        'sep', 'oct', 'nov', 'dec'];
+    final month = months.indexWhere(
+      (m) => name.length >= 3 && m == name.substring(0, 3),
+    );
+    if (month < 0) return null;
+    return DateTime(
+      int.parse(match.group(3)!),
+      month + 1,
+      int.parse(match.group(2)!),
+    );
+  }
+
+  /// Whether the deadline has passed. Applications are taken through the
+  /// whole of the deadline day, and close the day after.
+  bool isPastDeadline([DateTime? now]) {
+    final last = deadlineDate;
+    if (last == null) return false;
+    final today = now ?? DateTime.now();
+    return DateTime(today.year, today.month, today.day).isAfter(last);
+  }
+
   Announcement copyWith({
     bool? isOpen,
     bool? acceptsApplications,
@@ -978,6 +1073,12 @@ class ScreeningRecord {
     this.academicYear,
     this.createdAt,
   });
+
+  /// The average of every skill and overall rating, out of 5.
+  double get averageScore {
+    final values = [...skills.values, ...overall.values];
+    return values.isEmpty ? 0 : values.reduce((a, b) => a + b) / values.length;
+  }
 
   /// Keyed by applicant + academic year so re-screening the same person in a
   /// later academic year creates a new historical record instead of

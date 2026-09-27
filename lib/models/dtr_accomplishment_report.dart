@@ -13,8 +13,9 @@ class DtrDayEntry {
 
   /// True when this entry was auto-filled from a task the student marked
   /// "Completed" on a day they weren't supposed to be working (a weekend
-  /// with no matching schedule, or an official holiday). Flagged instead of
-  /// silently crediting hours, so the supervisor can review/correct it.
+  /// with no matching schedule, or an official holiday), or when the
+  /// student missed a time-out that day. Flagged instead of silently
+  /// crediting hours, so the supervisor can review/correct it.
   final bool isInvalid;
 
   /// True when this entry was auto-filled from a completed task on a valid

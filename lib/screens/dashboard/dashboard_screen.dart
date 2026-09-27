@@ -161,10 +161,9 @@ class _StudentAssistantDashboard extends StatelessWidget {
         .toList();
     final myAttendance = state.filteredAttendance; // already scoped to this SA
 
-    final totalHours = myAttendance.fold<double>(
-      0,
-      (sum, r) => sum + (r.totalHours ?? 0),
-    );
+    final totalHours = myAttendance
+        .where((r) => r.countsTowardHours)
+        .fold<double>(0, (sum, r) => sum + (r.totalHours ?? 0));
     final pendingTasks = myTasks.where((t) => t.status != 'Completed').length;
     final pendingReports = myReports.where((r) => r.status == 'Pending').length;
 

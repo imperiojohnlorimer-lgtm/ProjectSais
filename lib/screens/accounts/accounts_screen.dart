@@ -7,8 +7,10 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/web_download_stub.dart'
+    if (dart.library.html) '../../utils/web_download.dart'
+    as web_download;
 import '../../widgets/shared_widgets.dart';
-import 'dart:html' if (dart.library.html) 'dart:html' as html;
 
 const _roles = ['Admin', 'Head', 'Supervisor', 'Student Assistant', 'Student'];
 
@@ -710,7 +712,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                           context,
                           title: 'Delete Account Permanently',
                           message:
-                              'Delete ${users[i].name} from the system? This removes the Firestore profile and cannot be undone.',
+                              'Delete ${users[i].name} from the system? They will no longer be able to sign in, and the account disappears from every list. This cannot be undone, and their email cannot be used for a new account.',
                           confirmLabel: 'Delete',
                           confirmColor: AppTheme.red500,
                         );
@@ -720,7 +722,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              'Account profile deleted from the system.',
+                              'Account deleted from the system.',
                             ),
                             backgroundColor: AppTheme.emerald500,
                             behavior: SnackBarBehavior.floating,
@@ -3040,8 +3042,20 @@ class _AdminAnnouncementCard extends StatelessWidget {
                       confirmLabel: 'Close',
                       confirmColor: AppTheme.slate700,
                     );
-                    if (!ctx.mounted) return;
-                    if (ok) state.closeAnnouncement(ann.id);
+                    if (!ok || !ctx.mounted) return;
+                    final messenger = ScaffoldMessenger.of(ctx);
+                    if (!await state.closeAnnouncement(ann.id)) {
+                      messenger.showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Could not close the announcement, so it is still '
+                            'taking applications. Try again.',
+                          ),
+                          backgroundColor: AppTheme.red500,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
                   },
                   icon: const Icon(Icons.lock_outline, size: 14),
                   label: const Text(
@@ -3072,11 +3086,14 @@ class _AdminAnnouncementCard extends StatelessWidget {
                   );
                   if (!ctx.mounted) return;
                   if (ok) {
-                    state.deleteAnnouncement(ann.id);
-                    ScaffoldMessenger.of(ctx).showSnackBar(
+                    final messenger = ScaffoldMessenger.of(ctx);
+                    final deleted = await state.deleteAnnouncement(ann.id);
+                    messenger.showSnackBar(
                       SnackBar(
-                        content: const Text(
-                          'Announcement deleted successfully',
+                        content: Text(
+                          deleted
+                              ? 'Announcement deleted successfully'
+                              : 'Could not delete the announcement. Try again.',
                         ),
                         backgroundColor: AppTheme.red500,
                         duration: const Duration(seconds: 2),
@@ -3819,13 +3836,7 @@ class _AdminApplicationCard extends StatelessWidget {
     if (!kIsWeb) return;
 
     try {
-      // For web, create a blob and trigger download with proper filename
-      final blob = html.Blob([bytes]);
-      final url = html.Url.createObjectUrl(blob);
-      html.AnchorElement(href: url)
-        ..setAttribute('download', fileName)
-        ..click();
-      html.Url.revokeObjectUrl(url);
+      web_download.WebDownloadUtils.downloadBytes(fileName, bytes);
 
       if (!ctx.mounted) return;
       ScaffoldMessenger.of(ctx).showSnackBar(

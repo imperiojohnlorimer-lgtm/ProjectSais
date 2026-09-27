@@ -51,6 +51,7 @@ void main() {
     Size size, {
     required User user,
     List<User> others = const [],
+    List<AttendanceRecord> attendance = const [],
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -58,6 +59,7 @@ void main() {
     final state = AppState()
       ..currentUser = user
       ..users = [user, ...others]
+      ..attendance = attendance
       ..students = [
         Student(
           id: 's1',
@@ -130,6 +132,41 @@ void main() {
       expect(find.text('REPORT DETAILS'), findsOneWidget);
     });
   }
+
+  testWidgets('a missed time-out is flagged, not shown as present', (
+    tester,
+  ) async {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+        'Sep', 'Oct', 'Nov', 'Dec'];
+    final now = DateTime.now();
+    await pumpScreen(
+      tester,
+      const Size(1280, 1400),
+      user: _head,
+      attendance: [
+        AttendanceRecord(
+          id: 'r1',
+          // Found by id, whatever name it was saved under.
+          studentId: 's1',
+          studentName: 'C. Matining',
+          date: '${months[now.month - 1]} ${now.day}, ${now.year}',
+          timeIn: '8:00 AM',
+          isInvalid: true,
+        ),
+      ],
+    );
+    await openBuilder(tester);
+
+    final flagged = find.text('Missed time-out — please record the time-out');
+    await tester.dragUntilVisible(
+      flagged,
+      find.byType(ListView).last,
+      const Offset(0, -300),
+    );
+
+    expect(flagged, findsOneWidget);
+    expect(find.text('Present (ongoing)'), findsNothing);
+  });
 
   testWidgets('the Head is not offered "Send to Head"', (tester) async {
     await pumpScreen(tester, const Size(1280, 1400), user: _head);

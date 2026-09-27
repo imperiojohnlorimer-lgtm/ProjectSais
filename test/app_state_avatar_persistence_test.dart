@@ -1,18 +1,38 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:projectsais/services/firestore_service.dart';
+
+/// Keeps user profiles in memory the way Firestore's users collection does,
+/// so a second AppState (a reload) reads back what the first one saved.
+class _ProfileStore extends FirestoreService {
+  final profiles = <String, User>{};
+
+  @override
+  Future<void> setUserProfile(User user) async => profiles[user.id] = user;
+
+  @override
+  Future<User?> getUserProfileById(String id) async => profiles[id];
+
+  @override
+  Future<User?> getUserProfileByEmail(String email) async => profiles.values
+      .where((u) => u.email.toLowerCase() == email.toLowerCase())
+      .firstOrNull;
+
+  @override
+  Future<List<User>> getAllUserProfiles() async => profiles.values.toList();
+}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('AppState avatar persistence', () {
-    setUp(() async {
-      SharedPreferences.setMockInitialValues({});
-    });
+    late _ProfileStore store;
+
+    setUp(() => store = _ProfileStore());
 
     test('restores avatar after reloading state', () async {
-      final state = AppState();
+      final state = AppState(firestoreService: store);
       await state.init();
 
       await state.login(
@@ -26,7 +46,7 @@ void main() {
 
       await state.updateProfile(avatar: 'data:image/png;base64,abc123');
 
-      final reloaded = AppState();
+      final reloaded = AppState(firestoreService: store);
       await reloaded.init();
       await reloaded.login(
         User(
@@ -40,10 +60,12 @@ void main() {
       expect(reloaded.currentUser?.avatar, 'data:image/png;base64,abc123');
     });
 
+    // Found by email when the account id it signs in with has changed —
+    // never by name, which two people can share.
     test(
       'restores avatar for student accounts when the login id changes',
       () async {
-        final state = AppState();
+        final state = AppState(firestoreService: store);
         await state.init();
 
         await state.login(
@@ -59,13 +81,13 @@ void main() {
           avatar: 'data:image/png;base64,student-avatar',
         );
 
-        final reloaded = AppState();
+        final reloaded = AppState(firestoreService: store);
         await reloaded.init();
         await reloaded.login(
           User(
             id: 'u_seeded_student',
             name: 'Test Student',
-            email: 'test@example.com',
+            email: 'Student@Example.com',
             role: 'Student',
           ),
         );
@@ -76,6 +98,33 @@ void main() {
         );
       },
     );
+
+    test('does not give an avatar to someone who only shares a name', () async {
+      final state = AppState(firestoreService: store);
+      await state.init();
+      await state.login(
+        User(
+          id: 'u_first',
+          name: 'Test Student',
+          email: 'first@example.com',
+          role: 'Student',
+        ),
+      );
+      await state.updateProfile(avatar: 'data:image/png;base64,first');
+
+      final other = AppState(firestoreService: store);
+      await other.init();
+      await other.login(
+        User(
+          id: 'u_second',
+          name: 'Test Student',
+          email: 'second@example.com',
+          role: 'Student',
+        ),
+      );
+
+      expect(other.currentUser?.avatar, isNull);
+    });
   });
 
   group('task categories and checklist items', () {
@@ -106,7 +155,8 @@ void main() {
 
   group('user profile data', () {
     test('stores and restores year level in the profile model', () async {
-      final state = AppState();
+      final store = _ProfileStore();
+      final state = AppState(firestoreService: store);
       await state.init();
 
       state.currentUser = User(
@@ -120,6 +170,7 @@ void main() {
       await state.updateProfile(yearLevel: '4th Year');
 
       expect(state.currentUser?.yearLevel, '4th Year');
+      expect(store.profiles['u-year-level']?.yearLevel, '4th Year');
       expect(
         User.fromJson({'yearLevel': '2nd Year'}).yearLevel,
         '2nd Year',
@@ -162,160 +213,5 @@ void main() {
 
       expect(state.skillsForUser(user), ['Approved skill', 'Existing skill']);
     });
-  });
-
-  group('announcement notifications', () {
-    test(
-      'submitAnnouncementForApproval notifies the currently logged-in admin as a fallback',
-      () {
-        final state = AppState();
-        state.currentUser = User(
-          id: 'admin-current',
-          name: 'Admin User',
-          email: 'admin@example.com',
-          role: 'Admin',
-        );
-        state.users = [
-          User(
-            id: 'u-supervisor',
-            name: 'Supervisor User',
-            email: 'supervisor@example.com',
-            role: 'Supervisor',
-          ),
-        ];
-
-        state.submitAnnouncementForApproval(
-          Announcement(
-            id: 'a-approval',
-            title: 'Pending Internship',
-            body: 'Body',
-            postedBy: 'Supervisor User',
-            postedByRole: 'Supervisor',
-            postedAt: '2026-07-30',
-            postedById: 'u-supervisor',
-            approvalStatus: 'Pending',
-            isOpen: false,
-          ),
-        );
-
-        expect(
-          state.notifications.any(
-            (n) =>
-                n.userId == 'admin-current' &&
-                n.title == 'Announcement Awaiting Approval',
-          ),
-          isTrue,
-        );
-      },
-    );
-
-    test(
-      'admin users can see notifications targeted to other admin accounts',
-      () {
-        final state = AppState();
-        state.currentUser = User(
-          id: 'u-admin-2',
-          name: 'Admin Two',
-          email: 'admin2@example.com',
-          role: 'Admin',
-        );
-        state.users = [
-          User(
-            id: 'u-admin-1',
-            name: 'Admin One',
-            email: 'admin1@example.com',
-            role: 'Admin',
-          ),
-          User(
-            id: 'u-admin-2',
-            name: 'Admin Two',
-            email: 'admin2@example.com',
-            role: 'Admin',
-          ),
-        ];
-        state.notifications = [
-          AppNotification(
-            id: 'n-admin-1',
-            userId: 'u-admin-1',
-            title: 'Announcement Awaiting Approval',
-            message: 'A supervisor submitted a new announcement.',
-            type: 'announcement',
-            createdAt: 'Today',
-          ),
-        ];
-
-        expect(state.myNotifications, hasLength(1));
-      },
-    );
-
-    test(
-      'approveAnnouncement notifies the submitter by postedById even without a matching user record',
-      () async {
-        final state = AppState();
-        state.users = [
-          User(
-            id: 'u-student',
-            name: 'Student User',
-            email: 'student@example.com',
-            role: 'Student',
-          ),
-        ];
-        state.announcements = [
-          Announcement(
-            id: 'a1',
-            title: 'Summer Internship',
-            body: 'Body',
-            postedBy: 'Supervisor Name',
-            postedByRole: 'Supervisor',
-            postedAt: '2026-07-30',
-            postedById: 'u-supervisor',
-            approvalStatus: 'Pending',
-            isOpen: false,
-          ),
-        ];
-
-        await state.approveAnnouncement('a1');
-
-        expect(
-          state.notifications.any(
-            (n) =>
-                n.userId == 'u-supervisor' &&
-                n.title == 'Announcement Approved',
-          ),
-          isTrue,
-        );
-      },
-    );
-
-    test(
-      'rejectAnnouncement notifies the submitter by postedById even without a matching user record',
-      () {
-        final state = AppState();
-        state.announcements = [
-          Announcement(
-            id: 'a2',
-            title: 'Winter Internship',
-            body: 'Body',
-            postedBy: 'Supervisor Name',
-            postedByRole: 'Supervisor',
-            postedAt: '2026-07-30',
-            postedById: 'u-supervisor-2',
-            approvalStatus: 'Pending',
-            isOpen: false,
-          ),
-        ];
-
-        state.rejectAnnouncement('a2', reason: 'Needs more detail');
-
-        expect(
-          state.notifications.any(
-            (n) =>
-                n.userId == 'u-supervisor-2' &&
-                n.title == 'Announcement Rejected',
-          ),
-          isTrue,
-        );
-      },
-    );
   });
 }

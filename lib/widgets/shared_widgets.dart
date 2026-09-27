@@ -116,6 +116,39 @@ class AppLogo extends StatelessWidget {
 }
 
 // ─── Status Badge ───────────────────────────────────
+// ─── Unread Count Badge ─────────────────────────────
+/// The red unread count on a notification bell or nav item. It widens into
+/// a pill for two digits and stops at "99+", so a big count never spills
+/// out of it.
+class UnreadBadge extends StatelessWidget {
+  final int count;
+
+  const UnreadBadge({super.key, required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 14,
+      constraints: const BoxConstraints(minWidth: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppTheme.red500,
+        borderRadius: BorderRadius.circular(7),
+      ),
+      child: Text(
+        count > 99 ? '99+' : '$count',
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 8,
+          fontWeight: FontWeight.w800,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
 class StatusBadge extends StatelessWidget {
   final String label;
   final Color bgColor;

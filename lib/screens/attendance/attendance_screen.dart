@@ -67,10 +67,9 @@ class _AttendanceScreenState extends State<AttendanceScreen>
         .toList();
     final clockedInCount = liveRecords.where((r) => r.isActive).length;
     final invalidCount = liveRecords.where((r) => r.isInvalid).length;
-    final totalHours = liveRecords.fold<double>(
-      0,
-      (running, r) => running + (r.totalHours ?? 0),
-    );
+    final totalHours = liveRecords
+        .where((r) => r.countsTowardHours)
+        .fold<double>(0, (running, r) => running + (r.totalHours ?? 0));
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -371,15 +370,22 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                           if (!confirmed || !context.mounted) {
                                             return;
                                           }
-                                          await state.setManualTimeOut(
-                                            r.id,
-                                            '$hour:$minute $period',
-                                          );
+                                          final saved = await state
+                                              .setManualTimeOut(
+                                                r.id,
+                                                '$hour:$minute $period',
+                                              );
                                           if (!context.mounted) return;
                                           _snack(
                                             context,
-                                            'Time-out recorded and verified',
-                                            AppTheme.emerald500,
+                                            saved
+                                                ? 'Time-out recorded and verified'
+                                                : "Couldn't save the time-out. "
+                                                      'Check your connection '
+                                                      'and try again.',
+                                            saved
+                                                ? AppTheme.emerald500
+                                                : AppTheme.red500,
                                           );
                                         }
                                       : null,
@@ -564,7 +570,20 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     }
     // Returns the session's existing code when there already is one, so
     // re-opening the generator never invalidates a QR that's already posted.
-    final token = await state.generateAttendanceQrToken();
+    final String? token;
+    try {
+      token = await state.generateAttendanceQrToken();
+    } catch (error) {
+      debugPrint('Could not get the attendance QR: $error');
+      if (!context.mounted) return;
+      _snack(
+        context,
+        "Couldn't load or save this session's QR code, so scans would be "
+        'rejected. Check your connection and try again.',
+        AppTheme.red500,
+      );
+      return;
+    }
     if (!context.mounted) return;
     if (token == null) {
       _snack(

@@ -1965,7 +1965,16 @@ class _AdminAnnouncementCard extends StatelessWidget {
       confirmLabel: 'Delete',
     );
     if (!ok || !ctx.mounted) return;
-    ctx.read<AppState>().deleteAnnouncement(ann.id);
+    final messenger = ScaffoldMessenger.of(ctx);
+    final deleted = await ctx.read<AppState>().deleteAnnouncement(ann.id);
+    if (!deleted) {
+      AppSnackBar.showWithMessenger(
+        messenger,
+        'Could not delete "${ann.title}". Check your connection and try '
+        'again.',
+        type: SnackType.error,
+      );
+    }
   }
 
   Future<void> _confirmClose(BuildContext ctx) async {
@@ -1979,7 +1988,16 @@ class _AdminAnnouncementCard extends StatelessWidget {
       confirmColor: AppTheme.slate600,
     );
     if (!ok || !ctx.mounted) return;
-    ctx.read<AppState>().closeAnnouncement(ann.id);
+    final messenger = ScaffoldMessenger.of(ctx);
+    final closed = await ctx.read<AppState>().closeAnnouncement(ann.id);
+    if (!closed) {
+      AppSnackBar.showWithMessenger(
+        messenger,
+        'Could not close "${ann.title}", so it is still taking '
+        'applications. Check your connection and try again.',
+        type: SnackType.error,
+      );
+    }
   }
 
   Future<void> _confirmReopen(BuildContext ctx) async {
@@ -2057,14 +2075,23 @@ class _AdminAnnouncementCard extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
               ),
             ),
-            onPressed: () {
-              dialogContext.read<AppState>().rejectAnnouncement(
-                announcementId,
-                reason: reasonCtrl.text.trim().isEmpty
-                    ? null
-                    : reasonCtrl.text.trim(),
-              );
+            onPressed: () async {
+              final messenger = ScaffoldMessenger.of(context);
+              final state = dialogContext.read<AppState>();
+              final reason = reasonCtrl.text.trim();
               Navigator.of(dialogContext).pop();
+              final rejected = await state.rejectAnnouncement(
+                announcementId,
+                reason: reason.isEmpty ? null : reason,
+              );
+              if (!rejected) {
+                AppSnackBar.showWithMessenger(
+                  messenger,
+                  'Could not reject the request. Check your connection and '
+                  'try again.',
+                  type: SnackType.error,
+                );
+              }
             },
             child: const Text('Reject'),
           ),

@@ -22,10 +22,21 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
     (id: 2, label: 'Profile',        icon: Icons.person_outline,           activeIcon: Icons.person),
   ];
 
+  /// Opens the tab a tapped notification is about (see
+  /// [AppState.notificationTab]).
+  void _openTab(String tab) {
+    final index = switch (tab) {
+      'announcements' => 0,
+      'profile' => 2,
+      _ => null,
+    };
+    if (index != null) setState(() => _tab = index);
+  }
+
   Widget _body() {
     switch (_tab) {
       case 0: return const AnnouncementsScreen();
-      case 1: return const SpNotificationsScreen();
+      case 1: return SpNotificationsScreen(onOpen: _openTab);
       case 2: return const SpProfileScreen();
       default: return const AnnouncementsScreen();
     }
@@ -164,12 +175,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                               if (unread > 0)
                                 Positioned(
                                   top: -2, right: -2,
-                                  child: Container(
-                                    width: 14, height: 14,
-                                    decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
-                                    child: Center(child: Text('$unread',
-                                      style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w800))),
-                                  ),
+                                  child: UnreadBadge(count: unread),
                                 ),
                             ]),
                             const SizedBox(width: 6),
@@ -245,17 +251,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                                   Positioned(
                                     top: 6,
                                     right: 6,
-                                    child: Container(
-                                      width: 14,
-                                      height: 14,
-                                      decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
-                                      child: Center(
-                                        child: Text(
-                                          '$unread',
-                                          style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w800),
-                                        ),
-                                      ),
-                                    ),
+                                    child: UnreadBadge(count: unread),
                                   ),
                               ],
                             ),
@@ -448,14 +444,7 @@ class _Sidebar extends StatelessWidget {
                               if (item.id == 1 && unread > 0)
                                 Positioned(
                                   top: -4, right: -4,
-                                  child: Container(
-                                    width: 14, height: 14,
-                                    decoration: const BoxDecoration(color: AppTheme.red500, shape: BoxShape.circle),
-                                    child: Center(
-                                      child: Text('$unread',
-                                        style: const TextStyle(color: Colors.white, fontSize: 8, fontWeight: FontWeight.w800)),
-                                    ),
-                                  ),
+                                  child: UnreadBadge(count: unread),
                                 ),
                             ]),
                             const SizedBox(width: 14),

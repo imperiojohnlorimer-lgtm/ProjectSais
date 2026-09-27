@@ -179,6 +179,7 @@ service cloud.firestore {
           && request.resource.data.role == 'Student'
           && request.resource.data.get('status', 'Active') == 'Active'
           && request.resource.data.get('saId', null) == null
+          && request.resource.data.get('deleted', false) == false
           && request.resource.data.email.lower()
             == request.auth.token.email.lower()
         );
@@ -196,6 +197,8 @@ service cloud.firestore {
       // department. Names matter: payroll and several screens match records
       // to people by name, so a self-chosen name could claim someone
       // else's records.
+      //
+      // Only the Admin deletes accounts, which marks them `deleted`.
       allow update: if isAdmin()
         || (
           signedIn()
@@ -209,6 +212,7 @@ service cloud.firestore {
           && unchanged('department')
           && unchanged('campus')
           && unchanged('courseProgram')
+          && sameOr('deleted', false)
         )
         || (
           isHead()
@@ -216,9 +220,50 @@ service cloud.firestore {
           && request.resource.data.role in ['Student', 'Student Assistant']
           && request.resource.data.status == resource.data.status
           && request.resource.data.email == resource.data.email
+          && sameOr('deleted', false)
         );
 
-      allow delete: if isAdmin();
+      // A registration that can't finish (its Student ID is taken) removes
+      // the profile it just made. That's only possible before the email is
+      // verified, i.e. before the account has ever been usable.
+      allow delete: if isAdmin()
+        || (
+          authed()
+          && request.auth.uid == uid
+          && request.auth.token.email_verified != true
+        );
+    }
+
+    // One document per Student ID, naming the account that holds it, so no
+    // two accounts register the same ID. Registration reserves the ID on
+    // the profile it has just saved — before the email is verified, hence
+    // authed() — and only the Admin or Head can overwrite a reservation,
+    // which is what keeps an ID with whoever registered it first. The Admin
+    // and Head sessions also keep reservations in step with the profiles.
+    match /studentIds/{studentId} {
+      allow get: if authed();
+      allow list: if isAdmin() || isHead();
+
+      allow create: if isAdmin() || isHead()
+        || (
+          authed()
+          && request.resource.data.keys().hasOnly(['uid'])
+          && request.resource.data.uid == request.auth.uid
+          && exists(userPath(request.auth.uid))
+          && string(
+            get(userPath(request.auth.uid)).data.get('studentId', '')
+          ).trim().upper() == studentId
+        );
+
+      allow update: if isAdmin() || isHead();
+
+      // Undoing a registration frees the ID it reserved.
+      allow delete: if isAdmin() || isHead()
+        || (
+          authed()
+          && request.auth.token.email_verified != true
+          && resource.data.uid == request.auth.uid
+        );
     }
 
     match /students/{id} {
@@ -425,14 +470,12 @@ service cloud.firestore {
         || isSupervisorOfStudent(resource.data.studentId);
     }
 
-    // Notifications: Head owns the admin_notifications feed, Supervisor
-    // owns sa_notifications. Deletion (feed management) is Head-only now.
+    // Notifications are private to the person they're for — they carry pay,
+    // evaluation ratings and rejection remarks. The app only ever reads,
+    // marks read or clears the signed-in user's own.
     match /notifications/{id} {
-      allow read: if isStaff()
-        || (
-          signedIn()
-          && resource.data.userId == request.auth.uid
-        );
+      allow read: if signedIn()
+        && resource.data.userId == request.auth.uid;
 
       // Staff and the Admin (payroll, role changes) may notify anyone.
       // Anyone else may notify themselves, or send the Head or a Supervisor
@@ -453,17 +496,14 @@ service cloud.firestore {
           && isStaffAccount(request.resource.data.userId)
         );
 
-      allow update: if isStaff()
-        || (
-          signedIn()
-          && resource.data.userId == request.auth.uid
-        );
+      // Marking read is the only change the app makes.
+      allow update: if signedIn()
+        && resource.data.userId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['isRead']);
 
-      allow delete: if isHead()
-        || (
-          signedIn()
-          && resource.data.userId == request.auth.uid
-        );
+      allow delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
     }
 
     // Offices decide which students each Supervisor may change, so only the

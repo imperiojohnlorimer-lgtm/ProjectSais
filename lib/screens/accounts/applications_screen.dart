@@ -932,6 +932,9 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         break;
       }
     }
+    final screening = state.screeningRecords
+        .where((r) => r.applicationId == app.id)
+        .firstOrNull;
     final announcement = state.announcements.firstWhere(
       (a) => a.id == app.announcementId,
       orElse: () => Announcement(
@@ -1097,6 +1100,7 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                   const SizedBox(height: 16),
                   if (app.skills.isNotEmpty ||
                       applicant != null ||
+                      screening != null ||
                       app.remarks?.isNotEmpty == true) ...[
                     const Text(
                       'APPLICATION DETAILS',
@@ -1156,6 +1160,14 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                           if (applicant.campus?.isNotEmpty == true)
                             _applicationDetail('Campus', applicant.campus!),
                         ],
+                      ),
+                    ],
+                    if (screening != null) ...[
+                      const SizedBox(height: 8),
+                      _applicationDetail(
+                        'Screening score',
+                        '${screening.averageScore.toStringAsFixed(1)}/5 · '
+                            '${screening.recommendation}',
                       ),
                     ],
                     if (app.remarks?.isNotEmpty == true) ...[

@@ -54,6 +54,14 @@ class AppState extends ChangeNotifier {
   /// Bumped each time the live listeners restart, so a listener set up
   /// after an async gap can tell it belongs to an older session.
   int _liveGeneration = 0;
+
+  /// The Head ids this session last wrote to meta/heads (comma-joined), so
+  /// each roster update doesn't rewrite an unchanged list.
+  String? _publishedHeadIds;
+
+  /// The profiles' Student IDs as [_syncStudentIdClaims] last reconciled
+  /// them, so an unrelated profile change doesn't re-read every claim.
+  String? _syncedStudentIds;
   Timer? _missedTimeOutTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
@@ -157,31 +165,19 @@ class AppState extends ChangeNotifier {
   /// Calling this again during the same session hands back the same code, so
   /// a printed QR keeps working until the session ends. Returns null outside
   /// the two daily windows.
-  Future<String?> generateAttendanceQrToken() async {
-    final now = DateTime.now();
+  ///
+  /// Throws when the code can't be read or saved. The server checks every
+  /// scan against the saved code, so showing one that isn't saved would
+  /// only get every scan rejected — and minting a replacement because a
+  /// read failed would break the code already posted for the session.
+  Future<String?> generateAttendanceQrToken([DateTime? at]) async {
+    final now = at ?? DateTime.now();
     final sessionKey = attendanceQrSessionKey(now);
     if (sessionKey == null) return null;
 
     // Already holding this session's token locally.
     if (currentQrToken != null && currentQrSessionKey == sessionKey) {
       return currentQrToken;
-    }
-
-    _firestoreService ??= FirestoreService();
-
-    // Another device may have already created this session's token.
-    try {
-      final doc = await _firestoreService!.getCurrentQrToken();
-      final token = doc?['token'] as String?;
-      if (token != null && _sessionKeyOfQrDoc(doc!) == sessionKey) {
-        currentQrToken = token;
-        currentQrSessionKey = sessionKey;
-        qrGeneratedAt = _generatedAtOfQrDoc(doc) ?? now;
-        notifyListeners();
-        return token;
-      }
-    } catch (_) {
-      // Firestore unavailable — fall through and mint a local token.
     }
 
     // Random, not a timestamp: the session is public knowledge and the
@@ -193,19 +189,19 @@ class AppState extends ChangeNotifier {
       16,
       (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
-    final token = 'SAIS-ATT-$sessionKey-$secret';
+
+    // Kept only if no other device has saved this session's code already.
+    _firestoreService ??= FirestoreService();
+    final doc = await _firestoreService!.claimSessionQrToken(
+      'SAIS-ATT-$sessionKey-$secret',
+      sessionKey,
+      sessionOf: _sessionKeyOfQrDoc,
+    );
+    final token = doc['token'] as String;
     currentQrToken = token;
     currentQrSessionKey = sessionKey;
-    qrGeneratedAt = now;
+    qrGeneratedAt = _generatedAtOfQrDoc(doc) ?? now;
     notifyListeners();
-
-    // Persist so other devices validate against the same session token.
-    try {
-      await _firestoreService!.setCurrentQrToken(token, sessionKey);
-    } catch (_) {
-      // Firestore unavailable — continue with the in-memory token.
-    }
-
     return token;
   }
 
@@ -598,6 +594,8 @@ class AppState extends ChangeNotifier {
     if (isStaff || isAdmin) {
       listen('Users', fs.collectionStream('users'), (list) {
         _setUsers(list.map(User.fromJson).toList());
+        if (isStaff) _publishHeadIds();
+        if (isAdmin || isHead) _syncStudentIdClaims();
       });
       listen('Students', fs.collectionStream('students'), (list) {
         students = list.map(Student.fromJson).toList();
@@ -910,7 +908,13 @@ class AppState extends ChangeNotifier {
     await _ensureSeeded();
     final profile = await _loadUserProfile(uid: user.id, email: user.email);
     var authenticatedUser = preferProvidedProfile ? user : profile ?? user;
-    final firebaseUser = fb_auth.FirebaseAuth.instance.currentUser;
+    fb_auth.User? firebaseUser;
+    try {
+      firebaseUser = fb_auth.FirebaseAuth.instance.currentUser;
+    } catch (error) {
+      // No Firebase app (as in tests): go on with the stored profile.
+      debugPrint('Firebase auth unavailable: $error');
+    }
     if (!preferProvidedProfile &&
         firebaseUser != null &&
         firebaseUser.uid.isNotEmpty &&
@@ -1231,58 +1235,121 @@ class AppState extends ChangeNotifier {
       return 'Please register with a valid Gmail address or MSU email (@marsu.edu.ph).';
     }
 
-    await _ensureSeeded();
-
-    // Make sure this Student ID isn't already claimed by another account.
     final studentId = user.studentId?.trim() ?? '';
-    if (studentId.isNotEmpty) {
-      try {
-        _firestoreService ??= FirestoreService();
-        final existingByStudentId = await _firestoreService!
-            .getUserProfileByStudentId(studentId);
-        if (existingByStudentId != null &&
-            existingByStudentId.email.toLowerCase() != normalizedEmail) {
-          return 'This Student ID is already registered to another account.';
-        }
-      } catch (error) {
-        debugPrint('Failed to check Student ID uniqueness: $error');
-      }
+    final studentIdKey = AppState.studentIdKey(studentId);
+    if (studentId.isNotEmpty && studentIdKey == null) {
+      return 'Please enter a valid Student ID.';
     }
+
+    await _ensureSeeded();
 
     // Create the email/password account directly — no Google sign-in popup
     // during registration. Instead, Firebase sends a verification email to
     // the Gmail address the user provided. The user can link their Google
     // account later from the Profile section if they want to.
+    final fb_auth.User authUser;
     try {
       final credential = await fb_auth.FirebaseAuth.instance
           .createUserWithEmailAndPassword(
             email: user.email,
             password: password,
           );
-      final authUser = credential.user;
-      if (authUser == null) {
+      final created = credential.user;
+      if (created == null) {
         return 'Unable to create account. Please try again.';
       }
-
-      await authUser.sendEmailVerification();
-      final registeredUser = user.copyWith(id: authUser.uid);
-      await _saveUserProfile(registeredUser);
-
-      // Don't fully log the user in yet — they still need to verify their
-      // Gmail address. Sign them out of the Firebase session so the login
-      // screen's existing "please verify your Gmail" check takes over the
-      // next time they try to sign in.
-      await fb_auth.FirebaseAuth.instance.signOut();
-
-      return null;
+      authUser = created;
     } on fb_auth.FirebaseAuthException catch (e) {
-      if (e.code == 'email-already-in-use')
+      if (e.code == 'email-already-in-use') {
         return 'An account with this email already exists.';
+      }
       if (e.code == 'weak-password') return 'Password is too weak.';
       return e.message ?? 'Registration failed: ${e.code}';
     } catch (error) {
       return 'Registration failed: $error';
     }
+
+    // Save the profile, then reserve its Student ID. Nobody can look up
+    // other profiles before signing in, so the reservation is the check:
+    // the rules let an account reserve only the ID on its own profile, and
+    // never take one that's already reserved. If this ID is, or anything
+    // else fails, the registration is undone so the email can try again.
+    var profileSaved = false;
+    var idReserved = false;
+    try {
+      _firestoreService ??= FirestoreService();
+      await _saveUserProfile(user.copyWith(id: authUser.uid));
+      profileSaved = true;
+      if (studentIdKey != null) {
+        idReserved = await _firestoreService!.claimStudentId(
+          studentIdKey,
+          authUser.uid,
+        );
+        if (!idReserved) {
+          await _undoRegistration(authUser, deleteProfile: true);
+          return 'This Student ID is already registered to another account.';
+        }
+      }
+      await authUser.sendEmailVerification();
+    } catch (error) {
+      await _undoRegistration(
+        authUser,
+        deleteProfile: profileSaved,
+        releaseStudentId: idReserved ? studentIdKey : null,
+      );
+      return 'Registration failed: $error';
+    }
+
+    // Don't fully log the user in yet — they still need to verify their
+    // Gmail address. Sign them out of the Firebase session so the login
+    // screen's existing "please verify your Gmail" check takes over the
+    // next time they try to sign in.
+    await fb_auth.FirebaseAuth.instance.signOut();
+    return null;
+  }
+
+  /// The key a Student ID is reserved under in `studentIds`: trimmed and
+  /// upper-case, so "23b0626 " and "23B0626" are one ID. Null when there's
+  /// no ID, or one that can't name a document (it holds a "/").
+  static String? studentIdKey(String? studentId) {
+    final key = (studentId ?? '').trim().toUpperCase();
+    if (key.isEmpty || key.contains('/') || key == '.' || key == '..') {
+      return null;
+    }
+    return key;
+  }
+
+  /// Takes back a registration that couldn't finish — its reservation, its
+  /// profile, then the sign-in itself (the rules allow the first two only
+  /// while it's still signed in and unverified) — so the email and Student
+  /// ID are free to register again.
+  Future<void> _undoRegistration(
+    fb_auth.User authUser, {
+    required bool deleteProfile,
+    String? releaseStudentId,
+  }) async {
+    try {
+      if (releaseStudentId != null) {
+        await _firestoreService!.releaseStudentId(releaseStudentId);
+      }
+    } catch (error) {
+      debugPrint('Failed to release Student ID: $error');
+    }
+    try {
+      if (deleteProfile) {
+        await _firestoreService!.deleteUserProfile(authUser.uid);
+      }
+    } catch (error) {
+      debugPrint('Failed to remove unfinished profile: $error');
+    }
+    try {
+      await authUser.delete();
+    } catch (error) {
+      debugPrint('Failed to remove unfinished sign-in: $error');
+    }
+    try {
+      await fb_auth.FirebaseAuth.instance.signOut();
+    } catch (_) {}
   }
 
   Future<void> signOut() async {
@@ -1574,7 +1641,8 @@ class AppState extends ChangeNotifier {
         existing != null && existing.isNotEmpty ? existing : other;
 
     final byEmail = <String, User>{};
-    for (final u in firestoreUsers) {
+    // Deleted accounts only stay on file to block their sign-in.
+    for (final u in firestoreUsers.where((u) => !u.isDeleted)) {
       final key = u.email.toLowerCase();
       final existing = byEmail[key];
       byEmail[key] = existing == null
@@ -1911,72 +1979,91 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  void rejectAnnouncement(String id, {String? reason}) {
-    Announcement? rejected;
-    announcements = announcements.map((a) {
-      if (a.id != id) return a;
-      rejected = a.copyWith(
-        approvalStatus: 'Rejected',
-        isOpen: false,
-        rejectionReason: reason,
-      );
-      return rejected!;
-    }).toList();
+  /// Rejects a supervisor's pending request. Like [approveAnnouncement], the
+  /// rejection is saved before the supervisor is told, so a failed save
+  /// doesn't leave them notified of a rejection that never happened.
+  /// Returns whether it succeeded.
+  Future<bool> rejectAnnouncement(String id, {String? reason}) async {
+    final original = announcements.where((a) => a.id == id).firstOrNull;
+    if (original == null) return false;
 
-    if (rejected == null) return;
+    if (id.isNotEmpty) {
+      try {
+        _firestoreService ??= FirestoreService();
+        await _firestoreService!.updateAnnouncement(id, {
+          'approvalStatus': 'Rejected',
+          'isOpen': false,
+          'rejectionReason': reason,
+        });
+      } catch (error) {
+        debugPrint('Failed to reject announcement: $error');
+        return false;
+      }
+    }
 
-    if (rejected!.postedById != null && rejected!.postedById!.isNotEmpty) {
+    final rejected = original.copyWith(
+      approvalStatus: 'Rejected',
+      isOpen: false,
+      rejectionReason: reason,
+    );
+    announcements = announcements
+        .map((a) => a.id == id ? rejected : a)
+        .toList();
+
+    final postedById = rejected.postedById;
+    if (postedById != null && postedById.isNotEmpty) {
       _addNotification(
         AppNotification(
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_rejected',
-          userId: rejected!.postedById!,
+          userId: postedById,
           title: 'Announcement Rejected',
           message:
-              'Your announcement "${rejected!.title}" was not approved.${reason != null && reason.isNotEmpty ? " Reason: $reason" : ""}',
+              'Your announcement "${rejected.title}" was not approved.${reason != null && reason.isNotEmpty ? " Reason: $reason" : ""}',
           type: 'announcement',
           createdAt: _formattedToday(),
         ),
       );
     }
     notifyListeners();
-
-    // Persist rejection to Firestore.
-    try {
-      if (id.isNotEmpty) {
-        _firestoreService ??= FirestoreService();
-        _firestoreService!.updateAnnouncement(id, {
-          'approvalStatus': 'Rejected',
-          'isOpen': false,
-          'rejectionReason': reason,
-        });
-      }
-    } catch (_) {}
+    return true;
   }
 
-  void closeAnnouncement(String id) {
+  /// Stops an announcement taking applications. Saved first, like
+  /// [approveAnnouncement]: shown as closed only once it really is, since
+  /// students can keep applying to one that only looks closed. Returns
+  /// whether it succeeded.
+  Future<bool> closeAnnouncement(String id) async {
+    if (id.isNotEmpty) {
+      try {
+        _firestoreService ??= FirestoreService();
+        await _firestoreService!.updateAnnouncement(id, {'isOpen': false});
+      } catch (error) {
+        debugPrint('Failed to close announcement: $error');
+        return false;
+      }
+    }
     announcements = announcements
         .map((a) => a.id == id ? a.copyWith(isOpen: false) : a)
         .toList();
     notifyListeners();
-
-    try {
-      if (id.isNotEmpty) {
-        _firestoreService ??= FirestoreService();
-        _firestoreService!.updateAnnouncement(id, {'isOpen': false});
-      }
-    } catch (_) {}
+    return true;
   }
 
-  void deleteAnnouncement(String id) {
+  /// Deletes an announcement, saved first like [closeAnnouncement].
+  /// Returns whether it succeeded.
+  Future<bool> deleteAnnouncement(String id) async {
+    if (id.isNotEmpty) {
+      try {
+        _firestoreService ??= FirestoreService();
+        await _firestoreService!.deleteAnnouncement(id);
+      } catch (error) {
+        debugPrint('Failed to delete announcement: $error');
+        return false;
+      }
+    }
     announcements = announcements.where((a) => a.id != id).toList();
     notifyListeners();
-
-    try {
-      if (id.isNotEmpty) {
-        _firestoreService ??= FirestoreService();
-        _firestoreService!.deleteAnnouncement(id);
-      }
-    } catch (_) {}
+    return true;
   }
 
   /// Only admin-approved announcements are visible to students.
@@ -2148,13 +2235,19 @@ class AppState extends ChangeNotifier {
     }
 
     final assignedOffice = offices.firstWhere((item) => item.id == officeId);
-    final assignedNames = assistants
-        .map((assistant) => assistant.name)
-        .join(', ');
+    // Only students new to the office hear about it: saving the roster to
+    // add one student shouldn't tell everyone already there again.
+    final previousIds = office.assistantIds.toSet();
+    final added = assistants
+        .where((assistant) => !previousIds.contains(assistant.id))
+        .toList();
+    final removedAny = previousIds.any((id) => !assignedIds.contains(id));
+    if (added.isEmpty && !removedAny) return true;
+    final addedNames = added.map((assistant) => assistant.name).join(', ');
 
-    // Each assigned student only hears about their own assignment, not the
+    // Each new student only hears about their own assignment, not the
     // whole roster.
-    for (final assistant in assistants) {
+    for (final assistant in added) {
       _addNotification(
         AppNotification(
           id: 'n_${DateTime.now().microsecondsSinceEpoch}_office_${assistant.id}',
@@ -2166,13 +2259,13 @@ class AppState extends ChangeNotifier {
         ),
       );
     }
-    // Heads see the full roster summary since it's their office.
+    // The office's supervisors hear who joined, since it's their office.
     _notifyOfficeUsers(
       assignedOffice.headIds,
       title: 'Office Assignment Updated',
-      message: assistants.isEmpty
+      message: added.isEmpty
           ? 'Student assistant assignments were updated for ${assignedOffice.name}.'
-          : '$assignedNames ${assistants.length == 1 ? 'was' : 'were'} assigned to ${assignedOffice.name}.',
+          : '$addedNames ${added.length == 1 ? 'was' : 'were'} assigned to ${assignedOffice.name}.',
     );
     return true;
   }
@@ -2188,8 +2281,18 @@ class AppState extends ChangeNotifier {
     );
     await saveOffice(updatedOffice);
 
-    // Each assigned supervisor only hears about their own assignment.
-    for (final supervisor in supervisors) {
+    // As with students, only supervisors new to the office hear about it.
+    final previousIds = office.headIds.toSet();
+    final added = supervisors
+        .where((supervisor) => !previousIds.contains(supervisor.id))
+        .toList();
+    final removedAny = previousIds.any(
+      (id) => !supervisors.any((supervisor) => supervisor.id == id),
+    );
+    if (added.isEmpty && !removedAny) return;
+
+    // Each new supervisor only hears about their own assignment.
+    for (final supervisor in added) {
       _addNotification(
         AppNotification(
           id: 'n_${DateTime.now().microsecondsSinceEpoch}_office_${supervisor.id}',
@@ -2205,9 +2308,9 @@ class AppState extends ChangeNotifier {
     _notifyOfficeUsers(
       updatedOffice.assistantIds,
       title: 'Office Assignment Updated',
-      message: supervisors.isEmpty
+      message: added.isEmpty
           ? 'Supervisors were updated for ${updatedOffice.name}.'
-          : '${supervisors.map((supervisor) => supervisor.name).join(', ')} ${supervisors.length == 1 ? 'was' : 'were'} assigned to supervise ${updatedOffice.name}.',
+          : '${added.map((supervisor) => supervisor.name).join(', ')} ${added.length == 1 ? 'was' : 'were'} assigned to supervise ${updatedOffice.name}.',
     );
   }
 
@@ -2535,6 +2638,11 @@ class AppState extends ChangeNotifier {
         !allowAcademicApplications) {
       return false;
     }
+    // Nor after the posting's deadline, even if it hasn't been closed yet.
+    final announcement = announcements
+        .where((a) => a.id == app.announcementId)
+        .firstOrNull;
+    if (announcement != null && announcement.isPastDeadline()) return false;
     _firestoreService ??= FirestoreService();
     app = app.copyWith(academicYear: app.academicYear ?? academicYear);
     try {
@@ -2545,13 +2653,12 @@ class AppState extends ChangeNotifier {
     }
 
     applications = [app, ...applications];
-    // Notify admin users
-    final admins = users.where((u) => u.role == 'Head');
-    for (final u in admins) {
+    // Notify the Heads
+    for (final headId in await _headIds()) {
       _addNotification(
         AppNotification(
-          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${u.id}',
-          userId: u.id,
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_$headId',
+          userId: headId,
           title: 'New Application',
           message:
               '${app.applicantName} applied for "${app.announcementTitle}"',
@@ -2640,9 +2747,11 @@ class AppState extends ChangeNotifier {
           }
           await _saveUserProfile(updatedApplicant);
           if (applicant.role == 'Student') {
+            // "Application Approved" already tells them.
             await changeUserRole(
               updatedApplication!.applicantId,
               'Student Assistant',
+              notify: false,
             );
           }
           await ensureStudentAssistantId(updatedApplication!.applicantId);
@@ -3056,10 +3165,30 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Notifications ─────────────────────────────────
+  static const _docIdChars =
+      'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  final _docIdRandom = Random.secure();
+
+  /// A random 20-character id, the same shape Firestore generates.
+  String _newDocId() => String.fromCharCodes([
+    for (var i = 0; i < 20; i++)
+      _docIdChars.codeUnitAt(_docIdRandom.nextInt(_docIdChars.length)),
+  ]);
+
   void _addNotification(AppNotification n) {
-    notifications = [n, ...notifications];
+    // The local copy gets the id the saved one will have, so marking it read
+    // or deleting it before the live feed catches up reaches the saved one.
+    final id = _newDocId();
+    final local = AppNotification.fromJson({
+      ...n.toJson(),
+      'id': id,
+      'createdAt': DateTime.now(),
+    });
+    notifications = [local, ...notifications];
     _firestoreService ??= FirestoreService();
-    _firestoreService!.addNotification(n.toJson()).catchError((error) {
+    _firestoreService!.addNotification({...n.toJson(), 'id': id}).catchError((
+      error,
+    ) {
       debugPrint('Failed to persist notification: $error');
     });
   }
@@ -3085,6 +3214,78 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Writes the Head accounts to meta/heads for [_headIds]. Only called
+  /// with the full roster from the Users listener — a partial list here
+  /// would leave students alerting too few Heads.
+  void _publishHeadIds() {
+    final ids = [
+      for (final u in users)
+        if (u.role == 'Head' && u.status != 'Archived') u.id,
+    ]..sort();
+    final joined = ids.join(',');
+    if (ids.isEmpty || joined == _publishedHeadIds) return;
+    _publishedHeadIds = joined;
+    _firestoreService?.setHeadIds(ids).catchError((Object error) {
+      _publishedHeadIds = null;
+      debugPrint('Failed to publish the Head list: $error');
+    });
+  }
+
+  /// Keeps the `studentIds` reservations in step with the profiles, from
+  /// the full roster the Users listener delivers: accounts made before
+  /// reservations existed get theirs (so a newcomer can't register the
+  /// same ID), and an ID the Admin changed on a profile frees the old one.
+  /// Reservations for accounts not in the roster — deleted ones, or a
+  /// registration newer than this list — are left alone.
+  Future<void> _syncStudentIdClaims() async {
+    final fs = _firestoreService;
+    if (fs == null) return;
+    final keyOf = {for (final u in users) u.id: studentIdKey(u.studentId)};
+    final signature = (keyOf.entries.map((e) => '${e.key}=${e.value}').toList()
+          ..sort())
+        .join(',');
+    if (signature == _syncedStudentIds) return;
+    _syncedStudentIds = signature;
+    try {
+      final claims = await fs.getStudentIdClaims();
+      final changes = <String, String?>{};
+      for (final MapEntry(key: id, value: holder) in claims.entries) {
+        if (keyOf.containsKey(holder) && keyOf[holder] != id) {
+          changes[id] = null;
+        }
+      }
+      final held = {...claims}..removeWhere((id, _) => changes.containsKey(id));
+      for (final user in users) {
+        final id = keyOf[user.id];
+        // Two older accounts sharing an ID: the first keeps it.
+        if (id == null || held.containsKey(id)) continue;
+        held[id] = user.id;
+        changes[id] = user.id;
+      }
+      if (changes.isNotEmpty) await fs.writeStudentIdClaims(changes);
+    } catch (error) {
+      _syncedStudentIds = null;
+      debugPrint('Failed to sync Student ID reservations: $error');
+    }
+  }
+
+  /// The Heads to alert about something. Staff know them from the roster;
+  /// everyone else reads the list staff sessions publish.
+  Future<List<String>> _headIds() async {
+    final known = [
+      for (final u in users)
+        if (u.role == 'Head') u.id,
+    ];
+    if (known.isNotEmpty) return known;
+    try {
+      _firestoreService ??= FirestoreService();
+      return await _firestoreService!.getHeadIds();
+    } catch (error) {
+      debugPrint('Failed to look up the Heads: $error');
+      return [];
+    }
+  }
+
   Future<void> _loadNotificationsForCurrentUser() async {
     final user = currentUser;
     if (user == null) return;
@@ -3106,6 +3307,29 @@ class AppState extends ChangeNotifier {
   int get unreadNotificationCount =>
       myNotifications.where((n) => !n.isRead).length;
 
+  /// The tab a notification is about, among those the signed-in role has,
+  /// or null when there's nothing more to see than its message (a payout,
+  /// an evaluation result, a rehire decision). Student Portal tabs use the
+  /// same ids: 'announcements' and 'profile'.
+  String? notificationTab(AppNotification n) {
+    return switch ((n.type, role)) {
+      ('announcement', 'Head') => 'announcements_admin',
+      ('announcement', 'Supervisor') => 'sv_announcements',
+      ('announcement', 'Student Assistant' || 'Student') => 'announcements',
+      ('application', 'Head') => 'applications',
+      // A student's applications are listed on the Announcements screen.
+      ('application', 'Student') => 'announcements',
+      ('task', 'Head' || 'Supervisor' || 'Student Assistant') => 'tasks',
+      ('report', 'Supervisor' || 'Student Assistant') => 'reports',
+      ('head_forward', 'Head') => 'head_forwards',
+      ('office', 'Head') => 'offices',
+      ('office', 'Supervisor') => 'students',
+      // Role changes: the profile shows the new role.
+      ('system', _) => 'profile',
+      _ => null,
+    };
+  }
+
   void markNotificationRead(String id) {
     notifications = notifications
         .map((n) => n.id == id ? n.copyWith(isRead: true) : n)
@@ -3119,12 +3343,12 @@ class AppState extends ChangeNotifier {
   }
 
   void markAllNotificationsRead() {
+    // Only the unread ones need a write; the rest are already saved as read.
+    final unread = myNotifications.where((n) => !n.isRead).toList();
     notifications = notifications
         .map((n) => n.userId == currentUser?.id ? n.copyWith(isRead: true) : n)
         .toList();
-    for (final notification in notifications.where(
-      (n) => n.userId == currentUser?.id,
-    )) {
+    for (final notification in unread) {
       _firestoreService
           ?.updateNotification(notification.id, {'isRead': true})
           .catchError((error) {
@@ -3260,13 +3484,17 @@ class AppState extends ChangeNotifier {
   /// count toward payroll. Sets a real time-out and computes real elapsed
   /// hours (same as [clockOut]), and clears [AttendanceRecord.isInvalid]
   /// since a human has now confirmed when the student actually left.
-  Future<void> setManualTimeOut(String recordId, String timeOut) async {
+  ///
+  /// Returns whether it saved. A refused save is undone here, so the log
+  /// never shows a time-out that isn't really on file.
+  Future<bool> setManualTimeOut(String recordId, String timeOut) async {
     final existing = attendance.cast<AttendanceRecord?>().firstWhere(
       (r) => r?.id == recordId,
       orElse: () => null,
     );
     final totalHours = _hoursBetween(existing?.timeIn, timeOut);
 
+    final previousAttendance = attendance;
     attendance = attendance.map((r) {
       if (r.id != recordId) return r;
       return AttendanceRecord(
@@ -3291,8 +3519,12 @@ class AppState extends ChangeNotifier {
         'totalHours': totalHours,
         'isInvalid': false,
       });
-    } catch (_) {
-      // ignore
+      return true;
+    } catch (error) {
+      debugPrint('Failed to save the manual time-out: $error');
+      attendance = previousAttendance;
+      notifyListeners();
+      return false;
     }
   }
 
@@ -3498,7 +3730,8 @@ class AppState extends ChangeNotifier {
       dueDate: task.dueDate,
       assignedTo: task.assignedTo,
       assignedToName: task.assignedToName,
-      assignedBy: task.assignedBy,
+      // Whoever assigns it hears when the student changes its status.
+      assignedBy: task.assignedBy ?? currentUser?.id,
       category: task.category,
       checklistItems: task.checklistItems,
       isArchived: task.isArchived,
@@ -3510,10 +3743,18 @@ class AppState extends ChangeNotifier {
     // Optimistically update local state for immediate UI feedback.
     tasks = [task, ...tasks];
     if (task.assignedTo != null) {
+      // assignedTo is a roster id; older roster entries keep the student's
+      // account id in userId instead, and notifications go by account.
+      final rosterEntry = students
+          .where((s) => s.id == task.assignedTo)
+          .firstOrNull;
+      final recipientId = (rosterEntry?.userId ?? '').isNotEmpty
+          ? rosterEntry!.userId!
+          : task.assignedTo!;
       _addNotification(
         AppNotification(
-          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${task.assignedTo}',
-          userId: task.assignedTo!,
+          id: 'n_${DateTime.now().millisecondsSinceEpoch}_$recipientId',
+          userId: recipientId,
           title: 'New Task Assigned',
           message: 'You have been assigned "${task.title}".',
           type: 'task',
@@ -3531,7 +3772,10 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateTaskStatus(String id, String status) async {
+  /// Changes a task's status. Shown straight away, then saved; a save the
+  /// Firestore rules or the connection refuse is undone here and reported
+  /// as false, and only a saved change notifies whoever assigned the task.
+  Future<bool> updateTaskStatus(String id, String status) async {
     final existingTask = tasks.firstWhere(
       (task) => task.id == id,
       orElse: () => Task(
@@ -3543,7 +3787,8 @@ class AppState extends ChangeNotifier {
         dueDate: '',
       ),
     );
-    if (existingTask.id.isEmpty || existingTask.isArchived) return;
+    if (existingTask.id.isEmpty || existingTask.isArchived) return false;
+    final previousTasks = tasks;
     tasks = tasks.map((t) {
       if (t.id == id) {
         // Stamp (or clear) the completion date so the DTR/Accomplishment
@@ -3573,26 +3818,48 @@ class AppState extends ChangeNotifier {
       }
       return t;
     }).toList();
-    if (existingTask.assignedBy != null && existingTask.status != status) {
-      _addNotification(
-        AppNotification(
-          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${existingTask.assignedBy}',
-          userId: existingTask.assignedBy!,
-          title: 'Task Updated',
-          message:
-              '${existingTask.assignedToName ?? "A student"} marked "${existingTask.title}" as $status.',
-          type: 'task',
-          createdAt: _formattedToday(),
-        ),
-      );
-    }
     notifyListeners();
 
     try {
       _firestoreService ??= FirestoreService();
-      final updated = tasks.firstWhere((t) => t.id == id);
-      await _firestoreService!.setTask(updated);
-    } catch (_) {}
+      await _firestoreService!.setTask(tasks.firstWhere((t) => t.id == id));
+    } catch (error) {
+      debugPrint('Failed to save task status: $error');
+      tasks = previousTasks;
+      notifyListeners();
+      return false;
+    }
+
+    if (existingTask.status != status) {
+      // Tasks created before assignedBy was recorded go to the supervisors
+      // of the student's office instead.
+      final assignee = existingTask.assignedTo;
+      final recipientIds = existingTask.assignedBy != null
+          ? {existingTask.assignedBy!}
+          : {
+              for (final office in offices)
+                if (office.isActive &&
+                    assignee != null &&
+                    office.assistantIds.contains(assignee))
+                  ...office.headIds,
+            };
+      for (final recipientId in recipientIds) {
+        if (recipientId == currentUser?.id) continue;
+        _addNotification(
+          AppNotification(
+            id: 'n_${DateTime.now().microsecondsSinceEpoch}_$recipientId',
+            userId: recipientId,
+            title: 'Task Updated',
+            message:
+                '${existingTask.assignedToName ?? "A student"} marked "${existingTask.title}" as $status.',
+            type: 'task',
+            createdAt: _formattedToday(),
+          ),
+        );
+      }
+      notifyListeners();
+    }
+    return true;
   }
 
   Future<void> deleteTask(String id) async {
@@ -3652,16 +3919,11 @@ class AppState extends ChangeNotifier {
       final assistantId = assistant?.id ?? currentUser?.id;
       final assistantName = assistant?.name ?? report.studentName;
       final supervisorIds = offices
-          .where((office) {
-            if (!office.isActive) return false;
-            return (assistantId != null &&
-                    office.assistantIds.contains(assistantId)) ||
-                office.assistantNames.any(
-                  (name) =>
-                      name.trim().toLowerCase() ==
-                      assistantName.trim().toLowerCase(),
-                );
-          })
+          .where(
+            (office) =>
+                office.isActive &&
+                office.hasAssistant(assistantId ?? '', assistantName),
+          )
           .expand((office) => office.headIds)
           .toSet();
       for (final supervisorId in supervisorIds) {
@@ -4125,6 +4387,13 @@ class AppState extends ChangeNotifier {
     if (users.any((u) => u.email.toLowerCase() == user.email.toLowerCase())) {
       return 'An account with this email already exists.';
     }
+    final idKey = studentIdKey(user.studentId);
+    if ((user.studentId ?? '').trim().isNotEmpty && idKey == null) {
+      return 'Please enter a valid Student ID.';
+    }
+    if (idKey != null && users.any((u) => studentIdKey(u.studentId) == idKey)) {
+      return 'This Student ID is already registered to another account.';
+    }
 
     FirebaseApp? secondaryApp;
     try {
@@ -4146,6 +4415,15 @@ class AppState extends ChangeNotifier {
           await authUser.delete();
         } catch (_) {}
         rethrow;
+      }
+      if (idKey != null) {
+        try {
+          await _firestoreService!.claimStudentId(idKey, createdUser.id);
+        } catch (error) {
+          // The Admin's next roster update reserves it (see
+          // _syncStudentIdClaims), so the account itself still stands.
+          debugPrint('Failed to reserve Student ID: $error');
+        }
       }
       // Login requires a verified email, and nothing else would send the
       // new user a link.
@@ -4178,10 +4456,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Deletes an account as far as the app can. The sign-in itself can only
+  /// be removed from the Firebase console, so the profile stays behind,
+  /// archived and marked deleted: that blocks sign-in ("deactivated")
+  /// wherever it's checked, where a missing profile would let the person
+  /// back in as a brand-new Student. Deleted accounts are hidden everywhere.
   Future<void> deleteManagedUser(String id) async {
     final user = users.firstWhere((u) => u.id == id);
     _firestoreService ??= FirestoreService();
-    await _firestoreService!.deleteUserProfile(id);
+    await _saveUserProfile(user.copyWith(status: 'Archived', isDeleted: true));
 
     final linkedStudents = students
         .where(
@@ -4358,11 +4641,7 @@ class AppState extends ChangeNotifier {
   List<Office> get _supervisedOffices => offices.where((office) {
     final supervisor = currentUser;
     if (supervisor == null || !office.isActive) return false;
-    return office.headIds.contains(supervisor.id) ||
-        office.headNames.any(
-          (name) =>
-              name.trim().toLowerCase() == supervisor.name.trim().toLowerCase(),
-        );
+    return office.hasHead(supervisor.id, supervisor.name);
   }).toList();
 
   Set<String> _officeAssistantNamesForSupervisor() => _supervisedOffices
@@ -4410,35 +4689,18 @@ class AppState extends ChangeNotifier {
   List<Office> get currentUserOffices {
     final user = currentUser;
     if (user == null) return const [];
-    return offices.where((office) {
-      if (!office.isActive) return false;
-      return office.assistantIds.contains(user.id) ||
-          office.headIds.contains(user.id) ||
-          office.headNames.any(
-            (name) =>
-                name.trim().toLowerCase() == user.name.trim().toLowerCase(),
-          ) ||
-          office.assistantNames.any(
-            (name) =>
-                name.trim().toLowerCase() == user.name.trim().toLowerCase(),
-          );
-    }).toList();
+    return officesForUser(user);
   }
 
-  List<Office> officesForUser(User user) {
-    final normalizedName = user.name.trim().toLowerCase();
-    return offices.where((office) {
-      if (!office.isActive) return false;
-      return office.assistantIds.contains(user.id) ||
-          office.headIds.contains(user.id) ||
-          office.headNames.any(
-            (name) => name.trim().toLowerCase() == normalizedName,
-          ) ||
-          office.assistantNames.any(
-            (name) => name.trim().toLowerCase() == normalizedName,
-          );
-    }).toList();
-  }
+  /// The active offices [user] works in or supervises.
+  List<Office> officesForUser(User user) => offices
+      .where(
+        (office) =>
+            office.isActive &&
+            (office.hasAssistant(user.id, user.name) ||
+                office.hasHead(user.id, user.name)),
+      )
+      .toList();
 
   List<Student> get effectiveStudents {
     final userById = {for (final u in users) u.id: u};
@@ -4447,13 +4709,17 @@ class AppState extends ChangeNotifier {
           .where((name) => name.trim().isNotEmpty)
           .map((name) => name.trim().toLowerCase())
           .toSet();
+      // By id; only records saved without one fall back to the name, since
+      // two students can share a name.
       return attendance
           .where(
             (record) =>
-                (record.studentId != null && ids.contains(record.studentId)) ||
-                normalizedNames.contains(
-                  record.studentName.trim().toLowerCase(),
-                ),
+                record.countsTowardHours &&
+                ((record.studentId ?? '').isNotEmpty
+                    ? ids.contains(record.studentId)
+                    : normalizedNames.contains(
+                        record.studentName.trim().toLowerCase(),
+                      )),
           )
           .fold<double>(0, (sum, record) => sum + (record.totalHours ?? 0));
     }
@@ -4698,23 +4964,41 @@ class AppState extends ChangeNotifier {
   /// Total verified DTR hours for a student: the sum of completed
   /// (timed-out) attendance records, scoped the same way as
   /// [filteredAttendance] so a supervisor only sees their own office's data.
-  double verifiedDtrHoursForStudent(String studentName) {
+  double verifiedDtrHoursForStudent(Student student) {
     return filteredAttendance
         .where(
           (a) =>
-              a.studentName == studentName &&
-              !a.isArchived &&
-              !a.isActive, // has a timeOut => verified/completed
+              a.countsTowardHours &&
+              isRecordOfStudent(student, a.studentId, a.studentName),
         )
         .fold<double>(0, (sum, a) => sum + (a.totalHours ?? 0));
   }
 
   /// Accomplishment reports already approved by the supervisor for a
   /// student, scoped the same way as [filteredReports].
-  List<Report> approvedReportsForStudent(String studentName) {
+  List<Report> approvedReportsForStudent(Student student) {
     return filteredReports
-        .where((r) => r.studentName == studentName && r.status == 'Approved')
+        .where(
+          (r) =>
+              r.status == 'Approved' &&
+              isRecordOfStudent(student, r.applicantId, r.studentName),
+        )
         .toList();
+  }
+
+  /// Whether a record saved under [recordId] / [recordName] is [student]'s.
+  ///
+  /// Records carry the student's account (or roster) id, and that decides
+  /// it: two students can share a name, and matching by name would hand one
+  /// the other's hours. Only a record saved without an id — or a roster
+  /// entry not yet linked to an account — falls back to the name.
+  bool isRecordOfStudent(Student student, String? recordId, String recordName) {
+    if (recordId != null && recordId.isNotEmpty) {
+      if (recordId == student.id || recordId == student.userId) return true;
+      if ((student.userId ?? '').isNotEmpty) return false;
+    }
+    return recordName.trim().toLowerCase() ==
+        student.name.trim().toLowerCase();
   }
 
   // ─── Payroll ───────────────────────────────────────────
@@ -4817,40 +5101,56 @@ class AppState extends ChangeNotifier {
   /// month's payable hours can be capped at [PayrollRecord.maximumMonthlyHours]
   /// individually before the semester total is summed. Isn't scoped to the
   /// current viewer's role since only an Admin runs payroll.
-  /// Every name this user's attendance/report rows might be logged under —
-  /// their own account name plus any linked Student roster name — lowercase
-  /// and trimmed, the same identity-matching approach [effectiveStudents]
-  /// already uses, since older attendance/report rows may only have a
-  /// studentName string rather than a stable studentId. [studentsByUserId]/
-  /// [studentsByEmail] are precomputed once by the caller (typically
-  /// [buildPayrollPreview], over every active assistant) rather than
-  /// rescanning the full [students] roster per user.
-  Set<String> _nameKeysFor(
+  /// Who this user's attendance and report rows may be logged under: their
+  /// account id plus any linked Student roster id, and — for older rows
+  /// saved without an id — their account and roster names, lowercase and
+  /// trimmed. [studentsByUserId]/[studentsByEmail] are precomputed once by
+  /// the caller (typically [buildPayrollPreview], over every active
+  /// assistant) rather than rescanning the full [students] roster per user.
+  ({Set<String> ids, Set<String> names}) _payrollIdentityFor(
     User user, {
     required Map<String, Student> studentsByUserId,
     required Map<String, Student> studentsByEmail,
   }) {
-    final keys = <String>{user.name.trim().toLowerCase()};
     final linked =
         studentsByUserId[user.id] ??
         studentsByEmail[user.email.trim().toLowerCase()];
-    if (linked != null) keys.add(linked.name.trim().toLowerCase());
-    return keys;
+    return (
+      ids: {user.id, if (linked != null) linked.id},
+      names: {
+        user.name.trim().toLowerCase(),
+        if (linked != null) linked.name.trim().toLowerCase(),
+      },
+    );
   }
 
-  /// [studentId], when attendance/report rows have one, is preferred over
-  /// the fuzzy [studentNameKeys] match — it's the stable identity clockIn()
-  /// already records, whereas studentName is free text that can drift from
-  /// the account name (case, spacing, a roster rename).
+  /// Whether a row saved under [rowId] / [rowName] is one of [ids]'.
+  /// Rows carry an id, and that decides it — two students can share a
+  /// name. Only rows saved without one fall back to [names].
+  bool _payrollRowMatches(
+    String? rowId,
+    String rowName,
+    Set<String> ids,
+    Set<String> names,
+  ) => (rowId ?? '').isNotEmpty
+      ? ids.contains(rowId)
+      : names.contains(rowName.trim().toLowerCase());
+
+  /// Hours count only when [AttendanceRecord.countsTowardHours]: a record
+  /// flagged as a missed time-out is never paid, even once it has a
+  /// time-out on it.
   List<PayrollMonthBreakdown> monthlyHoursInPeriod(
-    String studentId,
+    Set<String> studentIds,
     Set<String> studentNameKeys,
     DateTime start,
     DateTime endInclusive,
   ) {
-    bool belongsToStudent(AttendanceRecord a) =>
-        a.studentId == studentId ||
-        studentNameKeys.contains(a.studentName.trim().toLowerCase());
+    bool belongsToStudent(AttendanceRecord a) => _payrollRowMatches(
+      a.studentId,
+      a.studentName,
+      studentIds,
+      studentNameKeys,
+    );
 
     return _monthsInRange(start, endInclusive).map((entry) {
       final (month, year) = entry;
@@ -4864,9 +5164,8 @@ class AppState extends ChangeNotifier {
       final hours = attendance
           .where(
             (a) =>
+                a.countsTowardHours &&
                 belongsToStudent(a) &&
-                !a.isArchived &&
-                !a.isActive &&
                 _dateWithinRange(a.date, rangeStart, rangeEnd),
           )
           .fold<double>(0, (sum, a) => sum + (a.totalHours ?? 0));
@@ -4887,13 +5186,19 @@ class AppState extends ChangeNotifier {
   /// a supervisor forwards to the Head) — exists for this student anywhere
   /// within the given period.
   bool hasApprovedReportInPeriod(
+    Set<String> studentIds,
     Set<String> studentNameKeys,
     DateTime start,
     DateTime endInclusive,
   ) {
     return reports.any(
       (r) =>
-          studentNameKeys.contains(r.studentName.trim().toLowerCase()) &&
+          _payrollRowMatches(
+            r.applicantId,
+            r.studentName,
+            studentIds,
+            studentNameKeys,
+          ) &&
           r.status == 'Approved' &&
           _dateWithinRange(r.submittedAt, start, endInclusive),
     );
@@ -4925,7 +5230,7 @@ class AppState extends ChangeNotifier {
     );
 
     // Built once for the whole preview rather than rescanning `students`
-    // per assistant inside `_nameKeysFor`.
+    // per assistant inside `_payrollIdentityFor`.
     final studentsByUserId = {
       for (final s in students)
         if (s.userId != null) s.userId!: s,
@@ -4938,20 +5243,21 @@ class AppState extends ChangeNotifier {
       final existing = existingByStudent[user.id];
       if (existing != null) return existing;
 
-      final nameKeys = _nameKeysFor(
+      final identity = _payrollIdentityFor(
         user,
         studentsByUserId: studentsByUserId,
         studentsByEmail: studentsByEmail,
       );
       final breakdown = monthlyHoursInPeriod(
-        user.id,
-        nameKeys,
+        identity.ids,
+        identity.names,
         start,
         endInclusive,
       );
       final dtrVerified = breakdown.any((m) => m.hoursWorked > 0);
       final reportVerified = hasApprovedReportInPeriod(
-        nameKeys,
+        identity.ids,
+        identity.names,
         start,
         endInclusive,
       );
@@ -5663,39 +5969,20 @@ class AppState extends ChangeNotifier {
   /// same one-office rule as [assignStudentAssistantsToOffice]); a null
   /// [officeId] takes them off every office.
   Future<void> _setAssistantOffice(User user, String? officeId) async {
-    final name = user.name.trim().toLowerCase();
-    bool isUser(String? id, String? assistantName) =>
-        id == user.id ||
-        (assistantName != null && assistantName.trim().toLowerCase() == name);
-
+    // Matched by id (see Office.hasAssistant): matching by name would also
+    // move or remove another student who happens to share it.
     for (final office in offices.toList()) {
-      final ids = office.assistantIds;
-      final names = office.assistantNames;
-      final isMember = ids.contains(user.id) || names.any((n) => isUser(null, n));
+      final isMember = office.hasAssistant(user.id, user.name);
       if (office.id == officeId) {
         if (isMember) continue;
         await saveOffice(
           office.copyWith(
-            assistantIds: [...ids, user.id],
-            assistantNames: [...names, user.name],
+            assistantIds: [...office.assistantIds, user.id],
+            assistantNames: [...office.assistantNames, user.name],
           ),
         );
       } else if (isMember) {
-        // The id and name lists run in parallel, so drop the same position
-        // from both.
-        final keptIds = <String>[];
-        final keptNames = <String>[];
-        final length = ids.length > names.length ? ids.length : names.length;
-        for (var i = 0; i < length; i++) {
-          final id = i < ids.length ? ids[i] : null;
-          final assistantName = i < names.length ? names[i] : null;
-          if (isUser(id, assistantName)) continue;
-          if (id != null) keptIds.add(id);
-          if (assistantName != null) keptNames.add(assistantName);
-        }
-        await saveOffice(
-          office.copyWith(assistantIds: keptIds, assistantNames: keptNames),
-        );
+        await saveOffice(office.withoutAssistant(user.id, user.name));
       }
     }
   }

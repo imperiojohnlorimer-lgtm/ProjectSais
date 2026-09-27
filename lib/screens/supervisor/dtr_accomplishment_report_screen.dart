@@ -85,9 +85,10 @@ class _DtrAccomplishmentReportScreenState
           s.department.toLowerCase().contains(q);
     }).toList()..sort((a, b) => a.name.compareTo(b.name));
 
+    // Keyed by id: two students can share a name.
     final verifiedByStudent = {
       for (final student in all)
-        student.name: state.verifiedDtrHoursForStudent(student.name),
+        student.id: state.verifiedDtrHoursForStudent(student),
     };
     final withHours = verifiedByStudent.values.where((h) => h > 0).length;
     final totalVerified = verifiedByStudent.values.fold<double>(
@@ -249,7 +250,7 @@ class _DtrAccomplishmentReportScreenState
   );
 
   Widget _studentCard(BuildContext context, AppState state, Student student) {
-    final verifiedHours = state.verifiedDtrHoursForStudent(student.name);
+    final verifiedHours = state.verifiedDtrHoursForStudent(student);
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -969,7 +970,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // calendar day (a day can have more than one session).
     final sessionsByDay = <int, List<AttendanceRecord>>{};
     for (final r in state.filteredAttendance) {
-      if (r.studentName != widget.student.name) continue;
+      if (!state.isRecordOfStudent(widget.student, r.studentId, r.studentName)) {
+        continue;
+      }
       if (r.isArchived) continue;
       final date = r.date;
       if (!date.startsWith(prefix) || !date.endsWith(yearSuffix)) continue;
@@ -989,8 +992,13 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     final tasksByDay = <int, List<Task>>{};
     for (final t in state.tasks) {
       if (t.isArchived || t.status != 'Completed') continue;
-      final owner = t.assignedToName ?? '';
-      if (owner != widget.student.name) continue;
+      if (!state.isRecordOfStudent(
+        widget.student,
+        t.assignedTo,
+        t.assignedToName ?? '',
+      )) {
+        continue;
+      }
       final completed = t.completedAt;
       if (completed == null) continue;
       if (!completed.startsWith(prefix) || !completed.endsWith(yearSuffix)) {
@@ -1031,10 +1039,19 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       String? amIn, amOut, pmIn, pmOut;
       var totalHours = 0.0;
       var hasOngoing = false;
+      var missedTimeOut = false;
+      final now = DateTime.now();
+      final isPastDay = date.isBefore(DateTime(now.year, now.month, now.day));
 
       for (final s in sessions) {
-        totalHours += s.totalHours ?? 0;
-        if (s.isActive) hasOngoing = true;
+        // Same rule as payroll: a missed time-out earns nothing until the
+        // supervisor records when the student actually left.
+        if (s.countsTowardHours) totalHours += s.totalHours ?? 0;
+        if (s.isInvalid || (s.isActive && isPastDay)) {
+          missedTimeOut = true;
+        } else if (s.isActive) {
+          hasOngoing = true;
+        }
         final inIsPm = _isPm(s.timeIn);
         if (!inIsPm && amIn == null) {
           amIn = s.timeIn;
@@ -1061,7 +1078,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         pmIn: pmIn,
         pmOut: pmOut,
         totalHours: totalHours == 0 ? null : totalHours,
-        note: hasOngoing ? 'Present (ongoing)' : 'Present',
+        note: missedTimeOut
+            ? 'Missed time-out — please record the time-out'
+            : (hasOngoing ? 'Present (ongoing)' : 'Present'),
+        isInvalid: missedTimeOut,
       );
     });
   }

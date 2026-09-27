@@ -134,8 +134,11 @@ class _AnnouncementCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasApplied = state.hasApplied(announcement.id);
     final myApp = state.myApplicationFor(announcement.id);
-    final isOpen = announcement.isOpen;
     final acceptsApplications = announcement.acceptsApplications;
+    // Past its deadline, a posting stops taking applications even if the
+    // Head hasn't closed it yet.
+    final pastDeadline = acceptsApplications && announcement.isPastDeadline();
+    final isOpen = announcement.isOpen && !pastDeadline;
     final isStudentAssistant = state.currentUser?.role == 'Student Assistant';
     // The Admin's "Open Applications" setting for this academic year.
     final applicationsClosed = !state.allowAcademicApplications;
@@ -454,19 +457,21 @@ class _AnnouncementCard extends StatelessWidget {
                         borderRadius: BorderRadius.circular(14),
                         border: Border.all(color: AppTheme.slate200),
                       ),
-                      child: const Center(
+                      child: Center(
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Icon(
+                            const Icon(
                               Icons.lock_outline_rounded,
                               size: 14,
                               color: AppTheme.slate400,
                             ),
-                            SizedBox(width: 8),
+                            const SizedBox(width: 8),
                             Text(
-                              'Applications Closed',
-                              style: TextStyle(
+                              pastDeadline
+                                  ? 'Applications Closed · Deadline passed'
+                                  : 'Applications Closed',
+                              style: const TextStyle(
                                 fontSize: 13,
                                 fontWeight: FontWeight.w600,
                                 color: AppTheme.slate400,
@@ -1001,6 +1006,16 @@ class _AnnouncementCard extends StatelessWidget {
               onPressed: uploadingReqs.isNotEmpty || submitting
                   ? null
                   : () async {
+                // The dialog may have been open since before the deadline.
+                if (ann.isPastDeadline()) {
+                  setState(() {
+                    noticeIsError = true;
+                    noticeMessage =
+                        'The deadline for this position (${ann.deadline}) '
+                        'has passed, so applications are closed.';
+                  });
+                  return;
+                }
                 if (ann.requirements.isNotEmpty &&
                     uploadedDocuments.length < ann.requirements.length) {
                   setState(() {

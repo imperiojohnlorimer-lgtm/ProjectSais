@@ -1,44 +1,42 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/web_download_stub.dart'
+    if (dart.library.html) '../../utils/web_download.dart'
+    as web_download;
 import '../../widgets/shared_widgets.dart';
 import '../../services/screening_document_service.dart';
-import 'dart:html' if (dart.library.html) 'dart:html' as html;
 
+/// What the screening form starts with for an applicant: their saved
+/// course program and year level, and the office they're assigned to.
+/// Anything not on file is left for the Head to pick rather than guessed —
+/// a department isn't a program, and the first office isn't theirs.
 ({String program, String yearLevel, String officeId, String officeName})
     resolveApplicantScreeningDefaults({
   User? user,
-  Application? application,
   required List<Office> offices,
 }) {
-  final normalizedName = (user?.name ?? '').trim().toLowerCase();
-  final assignedOffice = offices.where((office) {
-    if (!office.isActive) return false;
-    return office.assistantIds.contains(user?.id ?? '') ||
-        office.headIds.contains(user?.id ?? '') ||
-        office.headNames.any(
-          (name) => name.trim().toLowerCase() == normalizedName,
-        ) ||
-        office.assistantNames.any(
-          (name) => name.trim().toLowerCase() == normalizedName,
-        );
-  }).toList();
+  final userId = user?.id ?? '';
+  final userName = user?.name ?? '';
+  final assignedOffice = offices
+      .where(
+        (office) =>
+            office.isActive &&
+            (office.hasAssistant(userId, userName) ||
+                office.hasHead(userId, userName)),
+      )
+      .toList();
 
-  final programValue = (user?.courseProgram ?? '').trim();
-  final fallbackProgram = (application?.announcementTitle ?? '').trim();
   final yearLevelValue = (user?.yearLevel ?? '').trim();
-  final defaultOffice = offices.isEmpty ? null : offices.first;
-  final selectedOffice =
-      assignedOffice.isNotEmpty ? assignedOffice.first : defaultOffice;
+  final selectedOffice = assignedOffice.isNotEmpty ? assignedOffice.first : null;
 
   return (
-    program: programValue.isNotEmpty
-        ? programValue
-        : (fallbackProgram.isNotEmpty ? fallbackProgram : ''),
+    program: (user?.courseProgram ?? '').trim(),
     yearLevel: yearLevelValue.isNotEmpty ? yearLevelValue : '1st Year',
     officeId: selectedOffice?.id ?? '',
     officeName: selectedOffice?.name ?? '',
@@ -2593,38 +2591,20 @@ Widget _form(AppState state) {
     
     if (!mounted) return;
     
-    // Find the user's assigned office (assistant or head)
-    final normalizedName = (user?.name ?? '').trim().toLowerCase();
-    final assignedOffices = state.offices.where((office) {
-      if (!office.isActive) return false;
-      return office.assistantIds.contains(user?.id ?? '') ||
-          office.headIds.contains(user?.id ?? '') ||
-          office.headNames.any(
-            (name) => name.trim().toLowerCase() == normalizedName,
-          ) ||
-          office.assistantNames.any(
-            (name) => name.trim().toLowerCase() == normalizedName,
-          );
-    }).toList();
-    
-    final selectedOffice =
-        assignedOffices.isNotEmpty ? assignedOffices.first : null;
-    
+    final defaults = resolveApplicantScreeningDefaults(
+      user: user,
+      offices: state.offices,
+    );
     activeApplication = app;
     name.text = app.applicantName;
     studentNumber.text = user?.studentId ?? '';
-    // Academic Program = Course/Program (not department)
-    program.text = (user?.courseProgram ?? '').trim().isEmpty
-        ? app.announcementTitle
-        : user!.courseProgram!;
+    program.text = defaults.program;
     address.text = user?.address ?? '';
     contact.text = '${user?.phone ?? ''} / ${user?.email ?? ''}';
-    // Year Level = saved yearLevel from user profile
-    yearLevel.text = (user?.yearLevel ?? '').trim().isEmpty ? '1st Year' : user!.yearLevel!;
+    yearLevel.text = defaults.yearLevel;
     interviewer.text = state.currentUser?.name ?? '';
-    // Office = user's assigned office, not first office
-    targetOfficeId = selectedOffice?.id ?? '';
-    targetOfficeName = selectedOffice?.name ?? '';
+    targetOfficeId = defaults.officeId;
+    targetOfficeName = defaults.officeName;
     setState(() => view = 'form');
   }
 
@@ -2655,10 +2635,7 @@ Widget _form(AppState state) {
     return null;
   }
 
-  double _score(ScreeningRecord record) {
-    final values = [...record.skills.values, ...record.overall.values];
-    return values.isEmpty ? 0 : values.reduce((a, b) => a + b) / values.length;
-  }
+  double _score(ScreeningRecord record) => record.averageScore;
 
   /// Resolves the applicant's real 2x2 photo (if any) as raw bytes plus its
   /// file extension, so the generated Word document can embed it instead of
@@ -2698,13 +2675,9 @@ Widget _form(AppState state) {
     }
 
     try {
-      final request = await html.HttpRequest.request(
-        avatarUrl,
-        responseType: 'arraybuffer',
-      );
-      final buffer = request.response as ByteBuffer?;
-      if (buffer == null) return null;
-      final bytes = buffer.asUint8List();
+      final response = await http.get(Uri.parse(avatarUrl));
+      if (response.statusCode != 200) return null;
+      final bytes = response.bodyBytes;
       if (bytes.isEmpty) return null;
       final extension = _extensionFromUrl(avatarUrl);
       return (bytes: bytes, extension: extension);
@@ -2761,14 +2734,8 @@ Widget _form(AppState state) {
     }
   }
 
-  void _triggerWebDownload(String fileName, Uint8List bytes) {
-    final blob = html.Blob([bytes]);
-    final url = html.Url.createObjectUrlFromBlob(blob);
-    html.AnchorElement(href: url)
-      ..setAttribute('download', fileName)
-      ..click();
-    html.Url.revokeObjectUrl(url);
-  }
+  void _triggerWebDownload(String fileName, Uint8List bytes) =>
+      web_download.WebDownloadUtils.downloadBytes(fileName, bytes);
 
   Future<void> _save() async {
     final state = context.read<AppState>();
@@ -2852,12 +2819,10 @@ Widget _form(AppState state) {
           : recommendation == 'Recommended with Reservations'
           ? 'Waitlisted'
           : 'Approved';
-      await state.updateApplicationStatus(
-        activeApplication!.id,
-        status,
-        remarks:
-            'Screening score: ${_score(record).toStringAsFixed(1)}/5. ${remarks.text}',
-      );
+      // The score and evaluator remarks stay in the screening record, which
+      // only the Head can read. An application's remarks are shown to the
+      // applicant, in their portal and in the decision notification.
+      await state.updateApplicationStatus(activeApplication!.id, status);
     }
     if (!mounted) return;
     activeRecord = record;

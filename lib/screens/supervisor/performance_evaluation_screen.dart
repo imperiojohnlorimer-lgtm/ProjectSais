@@ -212,8 +212,8 @@ class _PerformanceEvaluationScreenState
   );
 
   Widget _studentCard(BuildContext context, AppState state, Student student) {
-    final verifiedHours = state.verifiedDtrHoursForStudent(student.name);
-    final approvedReports = state.approvedReportsForStudent(student.name);
+    final verifiedHours = state.verifiedDtrHoursForStudent(student);
+    final approvedReports = state.approvedReportsForStudent(student);
     final existing = state.existingEvaluationFor(student.name, _term);
     final hasBasis = verifiedHours > 0 && approvedReports.isNotEmpty;
 

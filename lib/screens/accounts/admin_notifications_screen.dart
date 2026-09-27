@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
-import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/notification_tile.dart';
 import '../../widgets/shared_widgets.dart';
 
 Future<void> _confirmClearAll(BuildContext context, AppState state) async {
@@ -187,7 +187,7 @@ class AdminNotificationsScreen extends StatelessWidget {
                           const Text('No notifications yet',
                             style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate400)),
                           const SizedBox(height: 4),
-                          const Text('Admin updates and approvals will appear here.',
+                          const Text('New applications and requests will appear here.',
                             style: TextStyle(fontSize: 13, color: AppTheme.slate500),
                             textAlign: TextAlign.center),
                         ],
@@ -195,100 +195,22 @@ class AdminNotificationsScreen extends StatelessWidget {
                     ),
                   )
                 else
-                  ...notifs.map((n) => _NotifTile(notif: n, state: state)),
+                  ...notifs.map((n) {
+                    final tab = state.notificationTab(n);
+                    return NotificationTile(
+                      notif: n,
+                      opensScreen: tab != null,
+                      onTap: () {
+                        if (!n.isRead) state.markNotificationRead(n.id);
+                        if (tab != null) state.setTab(tab);
+                      },
+                    );
+                  }),
               ],
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-class _NotifTile extends StatelessWidget {
-  final AppNotification notif;
-  final AppState state;
-  const _NotifTile({required this.notif, required this.state});
-
-  IconData get _icon {
-    switch (notif.type) {
-      case 'announcement': return Icons.campaign_outlined;
-      case 'application': return Icons.assignment_outlined;
-      default: return Icons.info_outline;
-    }
-  }
-
-  Color get _iconColor {
-    switch (notif.type) {
-      case 'announcement': return AppTheme.maroon;
-      case 'application': return AppTheme.blue500;
-      default: return AppTheme.slate500;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: () { if (!notif.isRead) state.markNotificationRead(notif.id); },
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        margin: const EdgeInsets.only(bottom: 10),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: notif.isRead ? AppTheme.slate200 : AppTheme.maroon200,
-            width: notif.isRead ? 1 : 1.5,
-          ),
-          boxShadow: notif.isRead
-            ? [BoxShadow(color: Colors.black.withValues(alpha: 0.02), blurRadius: 4)]
-            : [BoxShadow(color: AppTheme.maroon.withValues(alpha: 0.07), blurRadius: 10, offset: const Offset(0, 3))],
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(9),
-              decoration: BoxDecoration(
-                color: notif.isRead ? AppTheme.slate100 : AppTheme.maroon50,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(_icon, size: 16, color: notif.isRead ? AppTheme.slate400 : _iconColor),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(notif.title,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
-                        color: notif.isRead ? AppTheme.slate600 : AppTheme.slate900,
-                      )),
-                  ),
-                  if (!notif.isRead)
-                    Container(
-                      width: 8, height: 8,
-                      decoration: const BoxDecoration(color: AppTheme.maroon, shape: BoxShape.circle),
-                    ),
-                ]),
-                const SizedBox(height: 4),
-                Text(notif.message,
-                  style: TextStyle(
-                    fontSize: 12,
-                    height: 1.5,
-                    color: notif.isRead ? AppTheme.slate400 : AppTheme.slate600,
-                  )),
-                const SizedBox(height: 6),
-                Text(notif.createdAt,
-                  style: const TextStyle(fontSize: 11, color: AppTheme.slate400, fontWeight: FontWeight.w500)),
-              ]),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

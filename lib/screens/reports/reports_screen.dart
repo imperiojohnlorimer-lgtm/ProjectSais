@@ -407,8 +407,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
   /// "• Title" / "• Title — description" line the same way
   /// [_composeAccomplishments] originally wrote it.
   Set<String> _titlesInApprovedReports(AppState state) {
-    final studentName = state.currentUser?.name ?? '';
-    final approved = state.approvedReportsForStudent(studentName);
+    // A student assistant's filteredReports are already just their own.
+    final approved = state.filteredReports.where(
+      (report) => report.status == 'Approved',
+    );
     final titles = <String>{};
     for (final report in approved) {
       for (final rawLine in report.content.split('\n')) {
@@ -443,6 +445,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final titleCtrl = TextEditingController();
     final contentCtrl = TextEditingController();
     final List<ReportAttachment> attachments = [];
+    // Set while the report saves, so a second tap can't submit it twice.
+    var submitting = false;
 
     final completedTasks = _completedTasksFor(state);
     final includedTaskIds = completedTasks.map((t) => t.id).toSet();
@@ -851,8 +855,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: () async {
+                        onPressed: submitting ? null : () async {
                           if (titleCtrl.text.trim().isEmpty) return;
+                          setState(() => submitting = true);
+                          final messenger = ScaffoldMessenger.of(context);
                           final now = DateTime.now();
                           final report = Report(
                             id: 'r_${now.millisecondsSinceEpoch}',
@@ -868,7 +874,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           final ok = await state.submitReport(report);
                           if (context.mounted) Navigator.pop(context);
                           if (ok) {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            messenger.showSnackBar(
                               SnackBar(
                                 content: Text('Report submitted successfully!'),
                                 backgroundColor: AppTheme.emerald500,
@@ -880,7 +886,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               ),
                             );
                           } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
+                            messenger.showSnackBar(
                               SnackBar(
                                 content: Text(
                                   'Failed to submit report. Please try again.',
@@ -904,9 +910,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             borderRadius: BorderRadius.circular(13),
                           ),
                         ),
-                        child: const Text(
-                          'Submit Report',
-                          style: TextStyle(
+                        child: Text(
+                          submitting ? 'Submitting...' : 'Submit Report',
+                          style: const TextStyle(
                             fontWeight: FontWeight.w800,
                             fontSize: 14.5,
                           ),

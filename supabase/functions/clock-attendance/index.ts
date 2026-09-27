@@ -45,12 +45,64 @@ const documentsRoot =
 // enough to clock in outside the allowed window.
 const TZ_OFFSET_MINUTES = 8 * 60;
 
+// #region session rules
+// sessions.test.ts runs this region on its own, so it must not use
+// anything from the rest of this file. (It stays in this file so the
+// function deploys as a single index.ts, as the dashboard editor needs.)
+
 // The two daily sessions, in minutes past midnight. These mirror the
 // windows in AppState — keep them in step.
-const MORNING_START = 7 * 60 + 30; // 7:30 AM
-const MORNING_END = 12 * 60; // 12:00 PM
-const AFTERNOON_START = 12 * 60 + 30; // 12:30 PM
-const AFTERNOON_END = 17 * 60; // 5:00 PM
+export const MORNING_START = 7 * 60 + 30; // 7:30 AM
+export const MORNING_END = 12 * 60; // 12:00 PM
+export const AFTERNOON_START = 12 * 60 + 30; // 12:30 PM
+export const AFTERNOON_END = 17 * 60; // 5:00 PM
+
+export type SessionHalf = "AM" | "PM";
+
+/** Minutes past midnight for a `2:36 PM`-style time, or null. */
+export function parseTimeMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((value ?? "").trim());
+  if (!match) return null;
+  let hour = parseInt(match[1], 10) % 12;
+  if (match[3].toUpperCase() === "PM") hour += 12;
+  return hour * 60 + parseInt(match[2], 10);
+}
+
+/** The session [minutes] past midnight falls in, or null outside both. */
+export function sessionHalf(minutes: number): SessionHalf | null {
+  if (minutes >= MORNING_START && minutes <= MORNING_END) return "AM";
+  if (minutes >= AFTERNOON_START && minutes <= AFTERNOON_END) return "PM";
+  return null;
+}
+
+export type OpenRecord = { timeIn: string; isInvalid: boolean };
+
+/**
+ * Sorts today's still-clocked-in records into the one a scan in [current]
+ * clocks out of, and the rest.
+ *
+ * Only a record clocked in during this same session may be closed. One
+ * left open from an earlier session is a missed time-out: closing it now
+ * would credit every hour in between — the lunch break, or the whole day
+ * for a 7:30 AM clock-in scanned out at 5 PM. Those come back as [stale],
+ * to be flagged for the supervisor, and the scan clocks in fresh. So does
+ * a record already flagged invalid, whichever session it's from.
+ */
+export function sortOpenRecords<T extends OpenRecord>(
+  open: T[],
+  current: SessionHalf,
+): { current: T | undefined; stale: T[] } {
+  const match = open.find((record) => {
+    if (record.isInvalid) return false;
+    const minutes = parseTimeMinutes(record.timeIn);
+    return minutes !== null && sessionHalf(minutes) === current;
+  });
+  return {
+    current: match,
+    stale: open.filter((record) => record !== match),
+  };
+}
+// #endregion session rules
 
 // The Admin's "Weekly Hours Cap" setting: at most this many hours are
 // credited per Monday–Sunday week. The settings screen promises 20.
@@ -127,14 +179,6 @@ function formattedTime(wc: WallClock) {
   const period = wc.hour < 12 ? "AM" : "PM";
   const hour = wc.hour % 12 === 0 ? 12 : wc.hour % 12;
   return `${hour}:${String(wc.minute).padStart(2, "0")} ${period}`;
-}
-
-function parseTimeMinutes(value: string): number | null {
-  const match = /^(\d{1,2}):(\d{2})\s*(AM|PM)$/i.exec((value ?? "").trim());
-  if (!match) return null;
-  let hour = parseInt(match[1], 10) % 12;
-  if (match[3].toUpperCase() === "PM") hour += 12;
-  return hour * 60 + parseInt(match[2], 10);
 }
 
 /**
@@ -394,20 +438,52 @@ Deno.serve(async (request) => {
       throw new Error(`Firestore query failed (${queryResponse.status}).`);
     }
 
+    type AttendanceDoc = {
+      name: string;
+      fields?: Record<string, { stringValue?: string; booleanValue?: boolean }>;
+    };
     const rows = await queryResponse.json();
-    const open = (Array.isArray(rows) ? rows : [])
-      .map((row: Record<string, unknown>) => row.document)
-      .filter(Boolean)
-      .find((doc: Record<string, never>) => {
-        const fields = (doc as Record<string, never>).fields ?? {};
-        const timeOut = (fields as Record<string, never>).timeOut as
-          | { stringValue?: string }
-          | undefined;
-        const archived = (fields as Record<string, never>).isArchived as
-          | { booleanValue?: boolean }
-          | undefined;
-        return !timeOut?.stringValue && archived?.booleanValue !== true;
-      }) as { name: string; fields: Record<string, never> } | undefined;
+    const openRecords = (Array.isArray(rows) ? rows : [])
+      .map((row: { document?: AttendanceDoc }) => row.document)
+      .filter((doc): doc is AttendanceDoc => Boolean(doc))
+      .filter((doc) =>
+        !doc.fields?.timeOut?.stringValue &&
+        doc.fields?.isArchived?.booleanValue !== true
+      )
+      .map((doc) => ({
+        doc,
+        timeIn: doc.fields?.timeIn?.stringValue ?? "",
+        isInvalid: doc.fields?.isInvalid?.booleanValue === true,
+      }));
+
+    // Only a record from this session can be clocked out of; one left open
+    // from an earlier session is a missed time-out (see sortOpenRecords).
+    const { current, stale } = sortOpenRecords(
+      openRecords,
+      sessionKey.endsWith("AM") ? "AM" : "PM",
+    );
+    for (const record of stale) {
+      if (record.isInvalid) continue;
+      const flagged = await fetch(
+        `https://firestore.googleapis.com/v1/${record.doc.name}` +
+          "?updateMask.fieldPaths=isInvalid",
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fields: { isInvalid: { booleanValue: true } },
+          }),
+        },
+      );
+      if (!flagged.ok) {
+        throw new Error(`Could not flag a missed time-out (${flagged.status}).`);
+      }
+    }
+    const missedTimeOut = stale.length > 0;
+    const open = current?.doc;
 
     const settings = await getDocument("meta/academic_year_settings", token);
     // Like the app, a cap setting that was never saved counts as on.
@@ -415,9 +491,7 @@ Deno.serve(async (request) => {
     const weekHours = capOn ? await hoursOn(userId, weekDates(wc), token) : 0;
 
     if (open) {
-      const timeIn =
-        (open.fields.timeIn as { stringValue?: string } | undefined)
-          ?.stringValue ?? "";
+      const timeIn = open.fields?.timeIn?.stringValue ?? "";
       const worked = hoursBetween(timeIn, now);
       // Credit no more than what's left of the week's cap. The time-in and
       // time-out stay as they happened; the full figure is kept alongside.
@@ -495,7 +569,15 @@ Deno.serve(async (request) => {
       throw new Error(`Could not save the clock-in (${created.status}).`);
     }
 
-    return json({ action: "in", time: now });
+    return json({
+      action: "in",
+      time: now,
+      ...(missedTimeOut && {
+        message: "Clocked in. You didn't clock out of your earlier " +
+          "session, so it wasn't counted — ask your supervisor to record " +
+          "your time-out.",
+      }),
+    });
   } catch (error) {
     console.error("clock-attendance failed:", error);
     return json(

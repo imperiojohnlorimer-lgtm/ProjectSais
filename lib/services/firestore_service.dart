@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../models/models.dart';
 import '../models/schedule_event.dart';
 import 'supabase_storage_service.dart';
@@ -92,7 +93,12 @@ class FirestoreService {
   /// Records missing `createdAt` sort last instead of disappearing.
   static List<Map<String, dynamic>> _newestFirst(QuerySnapshot snap) {
     final list = snap.docs
-        .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
+        .map(
+          (d) => withPendingTimestamp({
+            ...(d.data() as Map<String, dynamic>),
+            'id': d.id,
+          }, hasPendingWrites: d.metadata.hasPendingWrites),
+        )
         .toList();
     DateTime? created(Map<String, dynamic> m) {
       final value = m['createdAt'];
@@ -108,6 +114,22 @@ class FirestoreService {
       return cb.compareTo(ca);
     });
     return list;
+  }
+
+  /// A `createdAt` server timestamp this device is still writing reads as
+  /// null until Firestore confirms it. It means "now", so a record just sent
+  /// sorts first and shows a time, instead of sorting last with none.
+  @visibleForTesting
+  static Map<String, dynamic> withPendingTimestamp(
+    Map<String, dynamic> data, {
+    required bool hasPendingWrites,
+  }) {
+    if (!hasPendingWrites ||
+        !data.containsKey('createdAt') ||
+        data['createdAt'] != null) {
+      return data;
+    }
+    return {...data, 'createdAt': Timestamp.now()};
   }
 
   static List<Map<String, dynamic>> _withIds(QuerySnapshot snap) => snap.docs
@@ -793,21 +815,49 @@ class FirestoreService {
 
   /// Looks up a user profile by Student ID. Used to make sure a Student ID
   /// can't be claimed by more than one account during registration.
-  Future<User?> getUserProfileByStudentId(String studentId) async {
-    final normalized = studentId.trim();
-    if (normalized.isEmpty) return null;
+  // Student ID reservations: studentIds/{key} → {uid}. See the rules.
+  CollectionReference<Map<String, dynamic>> get _studentIds =>
+      _db.collection('studentIds');
 
-    final snapshot = await _users
-        .where('studentId', isEqualTo: normalized)
-        .limit(1)
-        .get();
-    if (snapshot.docs.isEmpty) return null;
-
-    final doc = snapshot.docs.first;
-    return User.fromJson({
-      ...(doc.data() as Map<String, dynamic>),
-      'id': doc.id,
+  /// Reserves the Student ID [key] for the account [uid], unless another
+  /// account holds it. Returns whether [uid] holds it now.
+  Future<bool> claimStudentId(String key, String uid) {
+    final doc = _studentIds.doc(key);
+    return _db.runTransaction((transaction) async {
+      final holder = (await transaction.get(doc)).data()?['uid'];
+      if (holder != null) return holder == uid;
+      transaction.set(doc, {'uid': uid});
+      return true;
     });
+  }
+
+  Future<void> releaseStudentId(String key) => _studentIds.doc(key).delete();
+
+  /// Every reservation, Student ID key → account id. Admin and Head only.
+  Future<Map<String, String>> getStudentIdClaims() async {
+    final snapshot = await _studentIds.get();
+    return {
+      for (final doc in snapshot.docs)
+        if (doc.data()['uid'] is String) doc.id: doc.data()['uid'] as String,
+    };
+  }
+
+  /// Sets (account id) or removes (null) each reservation in [changes].
+  Future<void> writeStudentIdClaims(Map<String, String?> changes) async {
+    final entries = changes.entries.toList();
+    for (var i = 0; i < entries.length; i += 500) {
+      final batch = _db.batch();
+      for (final entry in entries.skip(i).take(500)) {
+        final doc = _studentIds.doc(entry.key);
+        final uid = entry.value;
+        if (uid == null) {
+          batch.delete(doc);
+        } else {
+          batch.set(doc, {'uid': uid});
+        }
+      }
+      await batch.commit();
+    }
   }
 
   Future<List<User>> getAllUserProfiles() async {
@@ -1381,14 +1431,14 @@ class FirestoreService {
     String userId,
   ) async {
     final snap = await _notifications.where('userId', isEqualTo: userId).get();
-    return snap.docs
-        .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
-        .toList();
+    return _newestFirst(snap);
   }
 
   Future<void> addNotification(Map<String, dynamic> payload) async {
     final id = payload['id']?.toString();
-    final data = {...payload, 'createdAt': FieldValue.serverTimestamp()};
+    // The id names the document; it isn't stored as a field.
+    final data = {...payload, 'createdAt': FieldValue.serverTimestamp()}
+      ..remove('id');
     if (id != null && id.isNotEmpty) {
       await _notifications.doc(id).set(data);
     } else {
@@ -1406,11 +1456,28 @@ class FirestoreService {
 
   Future<void> deleteNotificationsForUser(String userId) async {
     final snap = await _notifications.where('userId', isEqualTo: userId).get();
-    final batch = _db.batch();
-    for (final doc in snap.docs) {
-      batch.delete(doc.reference);
+    // A batch holds at most 500 writes; past that Firestore rejects the
+    // whole commit and nothing is cleared.
+    for (var i = 0; i < snap.docs.length; i += 500) {
+      final batch = _db.batch();
+      for (final doc in snap.docs.skip(i).take(500)) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
     }
-    await batch.commit();
+  }
+
+  /// Account ids of the Heads, which staff sessions keep in meta/heads.
+  /// Students can't list user profiles, so this is how their app knows
+  /// whom to alert about a new application.
+  Future<List<String>> getHeadIds() async {
+    final doc = await _db.collection('meta').doc('heads').get();
+    final ids = doc.data()?['ids'] as List<dynamic>? ?? const [];
+    return [for (final id in ids) id.toString()];
+  }
+
+  Future<void> setHeadIds(List<String> ids) async {
+    await _db.collection('meta').doc('heads').set({'ids': ids});
   }
 
   // Documents
@@ -1449,22 +1516,35 @@ class FirestoreService {
   }
 
   // Attendance QR token (single doc) ------------------------------------------------
-  /// Stores the attendance QR token for a session (`yyyyMMdd-AM` /
-  /// `yyyyMMdd-PM`) with a server timestamp.
-  Future<void> setCurrentQrToken(String token, String sessionKey) async {
+  /// The attendance QR code for [sessionKey]: the one already saved for
+  /// that session, or else [candidate], saved now. Read and written in one
+  /// transaction, so two devices opening the session together settle on
+  /// one code instead of the second overwriting a code that's already
+  /// posted. [sessionOf] tells which session a saved code belongs to.
+  /// Returns the winning code's document.
+  Future<Map<String, dynamic>> claimSessionQrToken(
+    String candidate,
+    String sessionKey, {
+    required String? Function(Map<String, dynamic> doc) sessionOf,
+  }) {
     final doc = _db.collection('meta').doc('current_qr');
-    await doc.set({
-      'token': token,
-      'sessionKey': sessionKey,
-      'generatedAt': FieldValue.serverTimestamp(),
+    return _db.runTransaction((transaction) async {
+      final saved = (await transaction.get(doc)).data();
+      if (saved != null &&
+          saved['token'] is String &&
+          sessionOf(saved) == sessionKey) {
+        return saved;
+      }
+      final fresh = <String, dynamic>{
+        'token': candidate,
+        'sessionKey': sessionKey,
+      };
+      transaction.set(doc, {
+        ...fresh,
+        'generatedAt': FieldValue.serverTimestamp(),
+      });
+      return fresh;
     });
-  }
-
-  /// Returns the current attendance QR token doc, or null if missing.
-  Future<Map<String, dynamic>?> getCurrentQrToken() async {
-    final doc = await _db.collection('meta').doc('current_qr').get();
-    if (!doc.exists) return null;
-    return {...(doc.data() as Map<String, dynamic>), 'id': doc.id};
   }
 
   /// Updates an announcement (partial update).

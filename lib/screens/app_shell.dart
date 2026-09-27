@@ -555,15 +555,18 @@ class _AppShellState extends State<AppShell> {
                                 ],
                               ),
                             ),
-                            // Notification bell (SA + Supervisor)
+                            // Notification bell (Head, SA + Supervisor)
                             if (showNotificationBell)
                               Stack(
                                 clipBehavior: Clip.none,
                                 children: [
                                   GestureDetector(
-                                    onTap: () => context
-                                        .read<AppState>()
-                                        .setTab('sa_notifications'),
+                                    onTap: () =>
+                                        context.read<AppState>().setTab(
+                                          role == 'Head'
+                                              ? 'admin_notifications'
+                                              : 'sa_notifications',
+                                        ),
                                     child: Container(
                                       width: 36,
                                       height: 36,
@@ -582,23 +585,8 @@ class _AppShellState extends State<AppShell> {
                                     Positioned(
                                       top: -2,
                                       right: -2,
-                                      child: Container(
-                                        width: 14,
-                                        height: 14,
-                                        decoration: const BoxDecoration(
-                                          color: AppTheme.red500,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            '${state.unreadNotificationCount}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ),
+                                      child: UnreadBadge(
+                                        count: state.unreadNotificationCount,
                                       ),
                                     ),
                                 ],
@@ -708,23 +696,8 @@ class _AppShellState extends State<AppShell> {
                                     Positioned(
                                       top: 6,
                                       right: 6,
-                                      child: Container(
-                                        width: 14,
-                                        height: 14,
-                                        decoration: const BoxDecoration(
-                                          color: AppTheme.red500,
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: Center(
-                                          child: Text(
-                                            '${state.unreadNotificationCount}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 8,
-                                              fontWeight: FontWeight.w800,
-                                            ),
-                                          ),
-                                        ),
+                                      child: UnreadBadge(
+                                        count: state.unreadNotificationCount,
                                       ),
                                     ),
                                 ],
@@ -916,23 +889,8 @@ class _Sidebar extends StatelessWidget {
                                   Positioned(
                                     top: -4,
                                     right: -4,
-                                    child: Container(
-                                      width: 14,
-                                      height: 14,
-                                      decoration: const BoxDecoration(
-                                        color: AppTheme.red500,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          '${state.unreadNotificationCount}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ),
+                                    child: UnreadBadge(
+                                      count: state.unreadNotificationCount,
                                     ),
                                   ),
                               ],
@@ -1209,23 +1167,8 @@ class _Drawer extends StatelessWidget {
                                   Positioned(
                                     top: -4,
                                     right: -4,
-                                    child: Container(
-                                      width: 14,
-                                      height: 14,
-                                      decoration: const BoxDecoration(
-                                        color: AppTheme.red500,
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Center(
-                                        child: Text(
-                                          '${state.unreadNotificationCount}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 8,
-                                            fontWeight: FontWeight.w800,
-                                          ),
-                                        ),
-                                      ),
+                                    child: UnreadBadge(
+                                      count: state.unreadNotificationCount,
                                     ),
                                   ),
                               ],
