@@ -9,10 +9,12 @@ import 'payroll_sheet_editor.dart';
 /// Admin screen: approve and release payroll for a pay period — a whole
 /// semester, not a single month.
 ///
-/// For every active Student Assistant, the System retrieves and verifies
-/// their DTR (attendance) records and an approved accomplishment report
-/// before they can be approved — anyone missing either is left
-/// 'Incomplete'. The payable amount is computed from total hours rendered
+/// For every active Student Assistant — and anyone else with hours in the
+/// period, such as a student not rehired before payroll ran — the System
+/// retrieves and verifies their DTR (attendance) records and an approved
+/// accomplishment report before they can be approved. Anyone missing
+/// either, or already paid for some of these days under another period, is
+/// left 'Incomplete'. The payable amount is computed from total hours rendered
 /// at a flat ₱25.00/hour; since a semester spans several months, the
 /// 25.0–40.0 hour/month rule (see [PayrollRecord]) is applied one calendar
 /// month at a time and the capped monthly amounts are summed into the
@@ -54,47 +56,59 @@ class _PayrollScreenState extends State<PayrollScreen> {
   String _departmentFilter = 'All';
   String _officeFilter = 'All';
 
-  static const _semesters = ['1st Semester', '2nd Semester'];
+  static const _semesters = RehireRecord.terms;
 
   @override
   void initState() {
     super.initState();
     final state = context.read<AppState>();
-    // Payroll only runs for the two regular semesters; a Summer term in the
-    // settings would otherwise match no dropdown option and crash it.
+    // A term the dropdown doesn't list would crash it.
     _semester = _semesters.contains(state.academicSemester)
         ? state.academicSemester
         : _semesters.first;
     _academicYear = state.academicYear;
+    final year = DateTime.now().year;
+    _start = DateTime(year, 8, 1);
+    _end = DateTime(year, 12, 31);
     _applyDefaultRange();
   }
 
-  /// A reasonable default start/end for the chosen semester, parsed from
-  /// the "YYYY-YYYY" academic year setting — always editable afterward in
-  /// case the actual semester dates differ.
+  /// The chosen term's usual dates in the academic year — Aug–Dec, Jan–May,
+  /// or Jun–Jul for Summer — always editable afterward in case the actual
+  /// dates differ. Left alone until the year reads as one, so typing it
+  /// doesn't move the dates through year 2 on the way.
   void _applyDefaultRange() {
-    final years = _academicYear.split('-');
-    final y1 = int.tryParse(years.isNotEmpty ? years[0] : '') ?? DateTime.now().year;
-    final y2 = years.length > 1
-        ? (int.tryParse(years[1]) ?? y1 + 1)
-        : y1 + 1;
-    if (_semester == '1st Semester') {
-      _start = DateTime(y1, 8, 1);
-      _end = DateTime(y1, 12, 31);
-    } else {
-      _start = DateTime(y2, 1, 1);
-      _end = DateTime(y2, 5, 31);
+    final match = RegExp(r'^(\d{4})-(\d{4})$').firstMatch(_academicYear.trim());
+    if (match == null) return;
+    final y1 = int.parse(match.group(1)!);
+    final y2 = int.parse(match.group(2)!);
+    switch (_semester) {
+      case '1st Semester':
+        _start = DateTime(y1, 8, 1);
+        _end = DateTime(y1, 12, 31);
+      case '2nd Semester':
+        _start = DateTime(y2, 1, 1);
+        _end = DateTime(y2, 5, 31);
+      default:
+        _start = DateTime(y2, 6, 1);
+        _end = DateTime(y2, 7, 31);
     }
   }
 
   String get _periodLabel => '$_semester, AY $_academicYear';
 
   Future<void> _pickDate({required bool isStart}) async {
+    final current = isStart ? _start : _end;
+    // Wide enough to always include the date already set — the picker
+    // refuses an initial date outside its range.
+    final now = DateTime.now();
+    final first = DateTime(now.year - 3);
+    final last = DateTime(now.year + 3, 12, 31);
     final picked = await showDatePicker(
       context: context,
-      initialDate: isStart ? _start : _end,
-      firstDate: DateTime(DateTime.now().year - 3),
-      lastDate: DateTime(DateTime.now().year + 3),
+      initialDate: current,
+      firstDate: current.isBefore(first) ? current : first,
+      lastDate: current.isAfter(last) ? current : last,
     );
     if (picked == null) return;
     setState(() {
@@ -114,6 +128,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
     final ready = preview.where((p) => p.status == 'Ready').toList();
     if (ready.isEmpty) return;
     final total = ready.fold<double>(0, (sum, p) => sum + p.grossPay);
+    final incomplete = preview.where((p) => p.status == 'Incomplete').length;
 
     final confirmed = await showConfirmDialog(
       context,
@@ -122,9 +137,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
           'This will approve and record pay for ${ready.length} Student '
           'Assistant(s) for $_periodLabel, totaling '
           '${_peso(total)}. Payout is not released to students '
-          'until you separately click "Release".\n\n'
-          '${preview.length - ready.length} student(s) with incomplete '
-          'requirements will be skipped.',
+          'until you separately click "Release".'
+          '${incomplete == 0 ? '' : '\n\n$incomplete student(s) that '
+                    'can\'t be approved yet will be skipped.'}',
       confirmLabel: 'Approve',
       confirmColor: AppTheme.maroon,
     );
@@ -143,7 +158,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
           ),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -153,7 +170,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
           content: Text('Could not approve payroll: $e'),
           backgroundColor: AppTheme.red500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -186,10 +205,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
     setState(() => _busyAction = 'release');
     final messenger = ScaffoldMessenger.of(context);
     try {
-      final (count, releasedTotal) = await state.releasePayroll(
-        start: _start,
-        endInclusive: _end,
-      );
+      final (count, releasedTotal) = await state.releasePayroll(approved);
       if (!context.mounted) return;
       messenger.showSnackBar(
         SnackBar(
@@ -199,7 +215,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
           ),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -209,7 +227,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
           content: Text('Could not release payout: $e'),
           backgroundColor: AppTheme.red500,
           behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
           margin: const EdgeInsets.all(16),
         ),
       );
@@ -308,14 +328,16 @@ class _PayrollScreenState extends State<PayrollScreen> {
       }.toList()..sort(),
     ];
     if (!campusOptions.contains(_campusFilter)) _campusFilter = 'All';
-    if (!departmentOptions.contains(_departmentFilter)) _departmentFilter = 'All';
+    if (!departmentOptions.contains(_departmentFilter))
+      _departmentFilter = 'All';
     if (!officeOptions.contains(_officeFilter)) _officeFilter = 'All';
 
     final preview = allPreview.where((p) {
       if (_campusFilter != 'All' && (p.campus ?? '').trim() != _campusFilter) {
         return false;
       }
-      if (_departmentFilter != 'All' && (p.department ?? '').trim() != _departmentFilter) {
+      if (_departmentFilter != 'All' &&
+          (p.department ?? '').trim() != _departmentFilter) {
         return false;
       }
       if (_officeFilter != 'All' && p.office.trim() != _officeFilter) {
@@ -329,7 +351,10 @@ class _PayrollScreenState extends State<PayrollScreen> {
     final approved = preview.where((p) => p.status == 'Approved').toList();
     final released = preview.where((p) => p.status == 'Released').toList();
     final readyTotal = ready.fold<double>(0, (sum, p) => sum + p.grossPay);
-    final approvedTotal = approved.fold<double>(0, (sum, p) => sum + p.grossPay);
+    final approvedTotal = approved.fold<double>(
+      0,
+      (sum, p) => sum + p.grossPay,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -592,10 +617,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                       yearField,
                       startField,
                       endField,
-                    ].indexed) ...[
-                      if (i > 0) const SizedBox(height: gap),
-                      f,
-                    ],
+                    ].indexed) ...[if (i > 0) const SizedBox(height: gap), f],
                   ],
                 );
               }
@@ -707,8 +729,18 @@ class _PayrollScreenState extends State<PayrollScreen> {
 
   Widget _dateField(String label, DateTime date, {required bool isStart}) {
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return InkWell(
       onTap: () => _pickDate(isStart: isStart),
@@ -789,8 +821,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
 
     final approving = _busyAction == 'approve';
     final releasing = _busyAction == 'release';
+    // Until the saved payroll records load, the preview can't tell who's
+    // been paid already.
+    final loaded = state.payrollRecordsLoaded;
     final approveButton = ElevatedButton.icon(
-      onPressed: (_busyAction != null || ready.isEmpty)
+      onPressed: (_busyAction != null || ready.isEmpty || !loaded)
           ? null
           : () => _confirmApprove(context, state, preview),
       icon: approving
@@ -810,38 +845,34 @@ class _PayrollScreenState extends State<PayrollScreen> {
       style: filled(AppTheme.emerald500),
     );
 
-    Widget stage(
-      String label,
-      double amount,
-      String note,
-      Widget button,
-    ) => Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _cardLabel(label),
-        const SizedBox(height: 6),
-        FittedBox(
-          fit: BoxFit.scaleDown,
-          alignment: Alignment.centerLeft,
-          child: Text(
-            _peso(amount),
-            style: const TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              letterSpacing: -0.4,
+    Widget stage(String label, double amount, String note, Widget button) =>
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _cardLabel(label),
+            const SizedBox(height: 6),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                _peso(amount),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.slate900,
+                  letterSpacing: -0.4,
+                ),
+              ),
             ),
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          note,
-          style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
-        ),
-        const SizedBox(height: 12),
-        SizedBox(width: double.infinity, child: button),
-      ],
-    );
+            const SizedBox(height: 2),
+            Text(
+              note,
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(width: double.infinity, child: button),
+          ],
+        );
 
     Widget count(String label, int value, Color color) => Expanded(
       child: Container(
@@ -891,7 +922,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                   child: stage(
                     'To approve',
                     readyTotal,
-                    '${ready.length} ready',
+                    loaded ? '${ready.length} ready' : 'Loading payroll…',
                     approveButton,
                   ),
                 ),
@@ -1014,8 +1045,18 @@ class _PayrollRow extends StatelessWidget {
   const _PayrollRow({required this.record});
 
   static const _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
   ];
 
   @override
@@ -1086,7 +1127,9 @@ class _PayrollRow extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      record.office.isEmpty ? 'Unassigned office' : record.office,
+                      record.office.isEmpty
+                          ? 'Unassigned office'
+                          : record.office,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12,
@@ -1150,10 +1193,38 @@ class _PayrollRow extends StatelessWidget {
               ),
               _check(
                 record.reportVerified,
-                record.reportVerified ? 'Report verified' : 'No approved report',
+                record.reportVerified
+                    ? 'Report verified'
+                    : 'No approved report',
               ),
             ],
           ),
+          if (record.overlappingPayroll case final paid?) ...[
+            const SizedBox(height: 8),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.block_rounded,
+                  size: 14,
+                  color: AppTheme.red500,
+                ),
+                const SizedBox(width: 4),
+                Expanded(
+                  child: Text(
+                    'Already ${paid.status.toLowerCase()} for '
+                    '${_range(paid.periodStart, paid.periodEnd)}, which '
+                    'shares days with this period.',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.red500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           // ── Month by month ──
           if (record.monthlyBreakdown.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -1229,6 +1300,18 @@ class _PayrollRow extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  /// "Aug 1 – Dec 31, 2026" from two ISO dates.
+  static String _range(String isoStart, String isoEnd) {
+    final start = DateTime.tryParse(isoStart);
+    final end = DateTime.tryParse(isoEnd);
+    if (start == null || end == null) return '$isoStart – $isoEnd';
+    final from = '${_months[start.month - 1]} ${start.day}';
+    final to = '${_months[end.month - 1]} ${end.day}, ${end.year}';
+    return start.year == end.year
+        ? '$from – $to'
+        : '$from, ${start.year} – $to';
   }
 
   Widget _figure(String label, String value, String? note, Color color) =>

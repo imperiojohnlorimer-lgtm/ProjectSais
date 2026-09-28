@@ -202,13 +202,12 @@ class Program {
   /// `BSIT · Bachelor of Science in Information Technology`.
   String get label => name.isEmpty ? code : '$code · $name';
 
-  Program copyWith({String? code, String? name, String? department}) =>
-      Program(
-        id: id,
-        code: code ?? this.code,
-        name: name ?? this.name,
-        department: department ?? this.department,
-      );
+  Program copyWith({String? code, String? name, String? department}) => Program(
+    id: id,
+    code: code ?? this.code,
+    name: name ?? this.name,
+    department: department ?? this.department,
+  );
 
   factory Program.fromJson(Map<String, dynamic> json) => Program(
     id: json['id']?.toString() ?? '',
@@ -436,6 +435,9 @@ class AttendanceRecord {
   final double? totalHours;
   final String? academicYear;
   final bool isArchived;
+  // The academic year this record was archived along with, when archiving
+  // the year retired it — as opposed to staff archiving it by hand.
+  final String? archivedAcademicYear;
   // True once the student's session window (morning or afternoon) has
   // closed while they were still clocked in — they missed their time-out,
   // so the record no longer counts toward verified hours.
@@ -451,15 +453,24 @@ class AttendanceRecord {
     this.totalHours,
     this.academicYear,
     this.isArchived = false,
+    this.archivedAcademicYear,
     this.isInvalid = false,
   });
 
   bool get isActive => timeOut == null || timeOut!.isEmpty;
 
-  /// Whether this record's hours are credited — to payroll, the DTR and
-  /// every hours total: timed out, and neither archived nor flagged as a
-  /// missed time-out. The clock-attendance server counts the same way.
+  /// Whether this record's hours are credited to the DTR and every hours
+  /// total: timed out, and neither archived nor flagged as a missed
+  /// time-out. The clock-attendance server counts the same way. Payroll
+  /// goes by [countsTowardPay].
   bool get countsTowardHours => !isActive && !isArchived && !isInvalid;
+
+  /// Whether this record is paid for. Like [countsTowardHours], except a
+  /// record archived along with its academic year still counts: archiving
+  /// the year takes it out of the current totals, not out of the pay owed
+  /// for it. One staff archived by hand stays unpaid.
+  bool get countsTowardPay =>
+      !isActive && !isInvalid && (!isArchived || archivedAcademicYear != null);
 
   AttendanceRecord copyWith({
     String? timeOut,
@@ -476,6 +487,7 @@ class AttendanceRecord {
     totalHours: totalHours ?? this.totalHours,
     academicYear: academicYear,
     isArchived: isArchived ?? this.isArchived,
+    archivedAcademicYear: archivedAcademicYear,
     isInvalid: isInvalid ?? this.isInvalid,
   );
 
@@ -492,6 +504,7 @@ class AttendanceRecord {
         totalHours: (json['totalHours'] ?? 0).toDouble(),
         academicYear: json['academicYear']?.toString(),
         isArchived: json['isArchived'] == true,
+        archivedAcademicYear: json['archivedAcademicYear']?.toString(),
         isInvalid: json['isInvalid'] == true,
       );
 }
@@ -898,8 +911,20 @@ class Announcement {
     ).firstMatch(deadline?.trim() ?? '');
     if (match == null) return null;
     final name = match.group(1)!.toLowerCase();
-    const months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug',
-        'sep', 'oct', 'nov', 'dec'];
+    const months = [
+      'jan',
+      'feb',
+      'mar',
+      'apr',
+      'may',
+      'jun',
+      'jul',
+      'aug',
+      'sep',
+      'oct',
+      'nov',
+      'dec',
+    ];
     final month = months.indexWhere(
       (m) => name.length >= 3 && m == name.substring(0, 3),
     );
@@ -1888,8 +1913,7 @@ class RehireRecord {
     evaluationId: json['evaluationId']?.toString(),
     evaluationTerm: json['evaluationTerm']?.toString(),
     evaluationAcademicYear: json['evaluationAcademicYear']?.toString(),
-    evaluationOverallRating: (json['evaluationOverallRating'] as num?)
-        ?.toInt(),
+    evaluationOverallRating: (json['evaluationOverallRating'] as num?)?.toInt(),
     eligibleForRehire: json['eligibleForRehire'] as bool?,
     remarks: json['remarks']?.toString() ?? '',
     decidedById: json['decidedById']?.toString() ?? '',
@@ -2127,6 +2151,11 @@ class PayrollRecord {
   final String? releasedAt;
   final String? releasedBy;
 
+  /// Preview only, never saved: pay already approved or released for this
+  /// student under another period that shares days with this one. Those
+  /// days are paid, so this period can't be approved as it stands.
+  final PayrollRecord? overlappingPayroll;
+
   const PayrollRecord({
     required this.id,
     required this.studentId,
@@ -2146,7 +2175,13 @@ class PayrollRecord {
     this.approvedBy,
     this.releasedAt,
     this.releasedBy,
+    this.overlappingPayroll,
   });
+
+  /// One record per student per pay period, so approving the same period
+  /// twice — from two sessions, say — can't pay anyone twice.
+  static String idFor(String studentId, String periodStart, String periodEnd) =>
+      'payroll_${studentId}_${periodStart}_$periodEnd';
 
   // Derived from monthlyBreakdown rather than stored separately, so the
   // totals can never drift from the per-month figures they're built from.
@@ -2182,6 +2217,7 @@ class PayrollRecord {
     approvedBy: approvedBy ?? this.approvedBy,
     releasedAt: releasedAt ?? this.releasedAt,
     releasedBy: releasedBy ?? this.releasedBy,
+    overlappingPayroll: overlappingPayroll,
   );
 
   factory PayrollRecord.fromJson(Map<String, dynamic> json) => PayrollRecord(

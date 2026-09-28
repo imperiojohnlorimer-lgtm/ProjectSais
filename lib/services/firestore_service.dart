@@ -461,7 +461,8 @@ class FirestoreService {
     final records = attendanceSnapshot.docs.where((doc) {
       final data = doc.data() as Map<String, dynamic>;
       final year = data['academicYear'];
-      return data['isArchived'] != true && (year == null || year == academicYear);
+      return data['isArchived'] != true &&
+          (year == null || year == academicYear);
     }).toList();
     for (var offset = 0; offset < records.length; offset += 400) {
       final batch = _db.batch();
@@ -1329,9 +1330,15 @@ class FirestoreService {
     );
   }
 
-  Future<String> addPayrollRecord(PayrollRecord record) async {
-    final ref = await _payrollRecords.add(record.toJson());
-    return ref.id;
+  /// Saves [record] under its id unless a record is already there, in one
+  /// transaction. Returns whether it was saved.
+  Future<bool> createPayrollRecord(PayrollRecord record) {
+    final ref = _payrollRecords.doc(record.id);
+    return _db.runTransaction((transaction) async {
+      if ((await transaction.get(ref)).exists) return false;
+      transaction.set(ref, record.toJson());
+      return true;
+    });
   }
 
   Future<void> updatePayrollRecord(String id, Map<String, dynamic> data) async {

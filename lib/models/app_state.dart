@@ -232,6 +232,9 @@ class AppState extends ChangeNotifier {
   List<RehireRecord> rehireRecords = [];
   List<HeadForward> headForwards = [];
   List<PayrollRecord> payrollRecords = [];
+  // Until the first snapshot arrives, the preview can't tell who's already
+  // been paid, so payroll can't be approved.
+  bool payrollRecordsLoaded = false;
   List<PayrollSheet> payrollSheets = [];
   List<Announcement> announcements = [];
   List<Application> applications = [];
@@ -475,9 +478,11 @@ class AppState extends ChangeNotifier {
       // Admin: keep processed Payroll records in sync in real time.
       _payrollSub?.cancel();
       _payrollSheetsSub?.cancel();
+      payrollRecordsLoaded = false;
       if (role == 'Admin') {
         _payrollSub = _firestoreService!.payrollRecordsStream().listen((list) {
           payrollRecords = list.map((m) => PayrollRecord.fromJson(m)).toList();
+          payrollRecordsLoaded = true;
           notifyListeners();
         });
         _payrollSheetsSub = _firestoreService!.payrollSheetsStream().listen((
@@ -599,15 +604,14 @@ class AppState extends ChangeNotifier {
     );
     listen('Departments', fs.collectionStream('departments'), (list) {
       final named =
-          list
-              .where((d) => (d['name']?.toString() ?? '').isNotEmpty)
-              .toList()
+          list.where((d) => (d['name']?.toString() ?? '').isNotEmpty).toList()
             ..sort(
               (a, b) => a['name'].toString().compareTo(b['name'].toString()),
             );
       departments = [for (final d in named) d['name'].toString()];
       departmentCodes = {
-        for (final d in named) d['name'].toString(): d['code']?.toString() ?? '',
+        for (final d in named)
+          d['name'].toString(): d['code']?.toString() ?? '',
       };
     });
     listen('Programs', fs.collectionStream('programs'), (list) {
@@ -1533,9 +1537,7 @@ class AppState extends ChangeNotifier {
             (role == 'Head' || role == 'Supervisor' || role == 'Admin')
             ? await _firestoreService!.getAllReports()
             // By account only, never by name — see Tasks above.
-            : await _firestoreService!.getReportsForApplicant(
-                currentUser!.id,
-              );
+            : await _firestoreService!.getReportsForApplicant(currentUser!.id);
         reports = fsReports;
       } catch (_) {
         reports = [];
@@ -3342,9 +3344,10 @@ class AppState extends ChangeNotifier {
     final fs = _firestoreService;
     if (fs == null) return;
     final keyOf = {for (final u in users) u.id: studentIdKey(u.studentId)};
-    final signature = (keyOf.entries.map((e) => '${e.key}=${e.value}').toList()
-          ..sort())
-        .join(',');
+    final signature =
+        (keyOf.entries.map((e) => '${e.key}=${e.value}').toList()..sort()).join(
+          ',',
+        );
     if (signature == _syncedStudentIds) return;
     _syncedStudentIds = signature;
     try {
@@ -3608,6 +3611,7 @@ class AppState extends ChangeNotifier {
         totalHours: totalHours,
         academicYear: r.academicYear,
         isArchived: r.isArchived,
+        archivedAcademicYear: r.archivedAcademicYear,
         isInvalid: false,
       );
     }).toList();
@@ -3670,6 +3674,7 @@ class AppState extends ChangeNotifier {
         totalHours: fixed,
         academicYear: r.academicYear,
         isArchived: r.isArchived,
+        archivedAcademicYear: r.archivedAcademicYear,
         isInvalid: r.isInvalid,
       );
     }).toList();
@@ -3766,6 +3771,7 @@ class AppState extends ChangeNotifier {
         totalHours: r.totalHours,
         academicYear: r.academicYear,
         isArchived: r.isArchived,
+        archivedAcademicYear: r.archivedAcademicYear,
         isInvalid: true,
       );
     }).toList();
@@ -3789,14 +3795,34 @@ class AppState extends ChangeNotifier {
   /// the working log and stops counting toward verified hours, but it stays
   /// on file for the DTR and the payroll trail.
   Future<bool> setAttendanceArchived(String id, bool archived) async {
+    // Archived by hand, a record is no longer one archived with its year,
+    // which payroll would still pay for.
     attendance = attendance
-        .map((a) => a.id == id ? a.copyWith(isArchived: archived) : a)
+        .map(
+          (a) => a.id == id
+              ? AttendanceRecord(
+                  id: a.id,
+                  studentName: a.studentName,
+                  studentId: a.studentId,
+                  date: a.date,
+                  timeIn: a.timeIn,
+                  timeOut: a.timeOut,
+                  totalHours: a.totalHours,
+                  academicYear: a.academicYear,
+                  isArchived: archived,
+                  isInvalid: a.isInvalid,
+                )
+              : a,
+        )
         .toList();
     notifyListeners();
 
     try {
       _firestoreService ??= FirestoreService();
-      await _firestoreService!.updateAttendance(id, {'isArchived': archived});
+      await _firestoreService!.updateAttendance(id, {
+        'isArchived': archived,
+        'archivedAcademicYear': FieldValue.delete(),
+      });
       return true;
     } catch (error) {
       debugPrint('Could not archive attendance record: $error');
@@ -4450,7 +4476,8 @@ class AppState extends ChangeNotifier {
           currentSettings,
           // The finished year's own "Auto-archive Logs" setting, which the
           // app treats as on when it was never saved.
-          archiveAttendance: currentSettings['autoArchiveLogs'] as bool? ?? true,
+          archiveAttendance:
+              currentSettings['autoArchiveLogs'] as bool? ?? true,
         );
         // Newest first, like getAcademicYearArchives.
         academicYearArchives =
@@ -5169,8 +5196,7 @@ class AppState extends ChangeNotifier {
       if (recordId == student.id || recordId == student.userId) return true;
       if ((student.userId ?? '').isNotEmpty) return false;
     }
-    return recordName.trim().toLowerCase() ==
-        student.name.trim().toLowerCase();
+    return recordName.trim().toLowerCase() == student.name.trim().toLowerCase();
   }
 
   // ─── Payroll ───────────────────────────────────────────
@@ -5308,7 +5334,7 @@ class AppState extends ChangeNotifier {
       ? ids.contains(rowId)
       : names.contains(rowName.trim().toLowerCase());
 
-  /// Hours count only when [AttendanceRecord.countsTowardHours]: a record
+  /// Hours count only when [AttendanceRecord.countsTowardPay]: a record
   /// flagged as a missed time-out is never paid, even once it has a
   /// time-out on it.
   List<PayrollMonthBreakdown> monthlyHoursInPeriod(
@@ -5336,7 +5362,7 @@ class AppState extends ChangeNotifier {
       final hours = attendance
           .where(
             (a) =>
-                a.countsTowardHours &&
+                a.countsTowardPay &&
                 belongsToStudent(a) &&
                 _dateWithinRange(a.date, rangeStart, rangeEnd),
           )
@@ -5353,16 +5379,26 @@ class AppState extends ChangeNotifier {
     }).toList();
   }
 
+  /// How many days after a pay period ends its report may still be handed
+  /// in. Reports cover a whole semester, so they often come in once it's
+  /// over.
+  static const payrollReportGraceDays = 30;
+
   /// Whether an approved accomplishment report — standing in for the
   /// broader "payroll requirements" (the DTR/Accomplishment Report bundle
-  /// a supervisor forwards to the Head) — exists for this student anywhere
-  /// within the given period.
+  /// a supervisor forwards to the Head) — was handed in by this student
+  /// during the given period or within [payrollReportGraceDays] after it.
   bool hasApprovedReportInPeriod(
     Set<String> studentIds,
     Set<String> studentNameKeys,
     DateTime start,
     DateTime endInclusive,
   ) {
+    final dueBy = DateTime(
+      endInclusive.year,
+      endInclusive.month,
+      endInclusive.day + payrollReportGraceDays,
+    );
     return reports.any(
       (r) =>
           _payrollRowMatches(
@@ -5372,19 +5408,22 @@ class AppState extends ChangeNotifier {
             studentNameKeys,
           ) &&
           r.status == 'Approved' &&
-          _dateWithinRange(r.submittedAt, start, endInclusive),
+          _dateWithinRange(r.submittedAt, start, dueBy),
     );
   }
 
-  /// Builds a payroll preview for every active Student Assistant for the
-  /// pay period [start]..[endInclusive] (typically a whole semester, not a
-  /// single month) — purely computed for anyone not yet approved. Once a
-  /// student has a persisted [PayrollRecord] for this exact period (status
-  /// 'Approved' or 'Released'), that persisted record is returned as-is
-  /// instead of recomputing, so an approved amount stays fixed even if
-  /// attendance data changes afterward. Retrieves and verifies each
+  /// Builds a payroll preview for the pay period [start]..[endInclusive]
+  /// (typically a whole semester, not a single month): every active Student
+  /// Assistant, plus anyone else with paid hours in the period — a student
+  /// not rehired, or whose account was archived, before payroll ran is
+  /// still owed for them. Purely computed for anyone not yet approved. Once
+  /// a student has a persisted [PayrollRecord] for this exact period
+  /// (status 'Approved' or 'Released'), that persisted record is returned
+  /// as-is instead of recomputing, so an approved amount stays fixed even
+  /// if attendance data changes afterward. Retrieves and verifies each
   /// student's DTR records and accomplishment report before marking them
-  /// 'Ready' to approve; anyone missing either is 'Incomplete'.
+  /// 'Ready' to approve; anyone missing either, or already paid under
+  /// another period that shares days with this one, is 'Incomplete'.
   List<PayrollRecord> buildPayrollPreview({
     required DateTime start,
     required DateTime endInclusive,
@@ -5396,13 +5435,25 @@ class AppState extends ChangeNotifier {
       for (final p in payrollRecords)
         if (p.periodStart == isoStart && p.periodEnd == isoEnd) p.studentId: p,
     };
-
-    final assistants = users.where(
-      (u) => u.role == 'Student Assistant' && u.status == 'Active',
-    );
+    // Pay for other periods that share days with this one (ISO dates
+    // compare in date order).
+    final overlappingByStudent = {
+      for (final p in payrollRecords)
+        if ((p.periodStart != isoStart || p.periodEnd != isoEnd) &&
+            p.periodStart.compareTo(isoEnd) <= 0 &&
+            p.periodEnd.compareTo(isoStart) >= 0)
+          p.studentId: p,
+    };
+    final idsWithHours = {
+      for (final a in attendance)
+        if (a.countsTowardPay &&
+            (a.studentId ?? '').isNotEmpty &&
+            _dateWithinRange(a.date, start, endInclusive))
+          a.studentId!,
+    };
 
     // Built once for the whole preview rather than rescanning `students`
-    // per assistant inside `_payrollIdentityFor`.
+    // per user inside `_payrollIdentityFor`.
     final studentsByUserId = {
       for (final s in students)
         if (s.userId != null) s.userId!: s,
@@ -5411,15 +5462,26 @@ class AppState extends ChangeNotifier {
       for (final s in students) s.email.trim().toLowerCase(): s,
     };
 
-    return assistants.map((user) {
+    final rows = <PayrollRecord>[];
+    for (final user in users) {
       final existing = existingByStudent[user.id];
-      if (existing != null) return existing;
-
       final identity = _payrollIdentityFor(
         user,
         studentsByUserId: studentsByUserId,
         studentsByEmail: studentsByEmail,
       );
+      final isAssistant =
+          user.role == 'Student Assistant' && user.status == 'Active';
+      if (existing == null &&
+          !isAssistant &&
+          !identity.ids.any(idsWithHours.contains)) {
+        continue;
+      }
+      if (existing != null) {
+        rows.add(existing);
+        continue;
+      }
+
       final breakdown = monthlyHoursInPeriod(
         identity.ids,
         identity.names,
@@ -5438,23 +5500,37 @@ class AppState extends ChangeNotifier {
           ? assignedOffices.first.name
           : (user.department ?? '');
 
-      return PayrollRecord(
-        id: '',
-        studentId: user.id,
-        studentName: user.name,
-        saId: user.saId,
-        office: office,
-        campus: user.campus,
-        department: user.department,
-        periodStart: isoStart,
-        periodEnd: isoEnd,
-        periodLabel: periodLabel,
-        monthlyBreakdown: breakdown,
-        dtrVerified: dtrVerified,
-        reportVerified: reportVerified,
-        status: dtrVerified && reportVerified ? 'Ready' : 'Incomplete',
+      final overlapping = overlappingByStudent[user.id];
+
+      rows.add(
+        PayrollRecord(
+          id: '',
+          studentId: user.id,
+          studentName: user.name,
+          saId: user.saId,
+          office: office,
+          campus: user.campus,
+          department: user.department,
+          periodStart: isoStart,
+          periodEnd: isoEnd,
+          periodLabel: periodLabel,
+          monthlyBreakdown: breakdown,
+          dtrVerified: dtrVerified,
+          reportVerified: reportVerified,
+          status: dtrVerified && reportVerified && overlapping == null
+              ? 'Ready'
+              : 'Incomplete',
+          overlappingPayroll: overlapping,
+        ),
       );
-    }).toList();
+    }
+
+    // Pay on file for an account that's gone still belongs to the period.
+    final listed = {for (final row in rows) row.studentId};
+    rows.addAll(
+      existingByStudent.values.where((p) => !listed.contains(p.studentId)),
+    );
+    return rows;
   }
 
   String _isoDate(DateTime d) =>
@@ -5491,6 +5567,8 @@ class AppState extends ChangeNotifier {
   /// total hours rendered for every currently-'Ready' entry in [preview]
   /// and records it in the payroll records with status 'Approved' —
   /// skipping anything 'Incomplete', already 'Approved', or 'Released'.
+  /// Each is saved under [PayrollRecord.idFor] and only if nothing is there
+  /// yet, so a period approved elsewhere in the meantime isn't paid twice.
   /// Does not notify students yet; that happens on [releasePayroll].
   Future<(int count, double total)> approvePayroll(
     List<PayrollRecord> preview,
@@ -5503,12 +5581,20 @@ class AppState extends ChangeNotifier {
     for (final record in preview) {
       if (record.status != 'Ready') continue;
       final toSave = record.copyWith(
+        id: PayrollRecord.idFor(
+          record.studentId,
+          record.periodStart,
+          record.periodEnd,
+        ),
         status: 'Approved',
         approvedAt: today,
         approvedBy: currentUser?.name ?? 'Admin',
       );
-      final docId = await _firestoreService!.addPayrollRecord(toSave);
-      payrollRecords = [toSave.copyWith(id: docId), ...payrollRecords];
+      if (!await _firestoreService!.createPayrollRecord(toSave)) continue;
+      payrollRecords = [
+        toSave,
+        ...payrollRecords.where((p) => p.id != toSave.id),
+      ];
       count++;
       total += record.grossPay;
     }
@@ -5517,26 +5603,20 @@ class AppState extends ChangeNotifier {
     return (count, total);
   }
 
-  /// Administrators release payroll: marks every 'Approved' record for the
-  /// pay period [start]..[endInclusive] as 'Released' (the actual payout
-  /// moment) and notifies each Student Assistant that their pay has been
-  /// released.
-  Future<(int count, double total)> releasePayroll({
-    required DateTime start,
-    required DateTime endInclusive,
-  }) async {
+  /// Administrators release payroll: marks each 'Approved' record in
+  /// [approved] — what the Admin sees listed, filters and all — as
+  /// 'Released' (the actual payout moment) and notifies each Student
+  /// Assistant that their pay has been released.
+  Future<(int count, double total)> releasePayroll(
+    List<PayrollRecord> approved,
+  ) async {
     _firestoreService ??= FirestoreService();
     final today = _formattedToday();
     var count = 0;
     var total = 0.0;
-    final isoStart = _isoDate(start);
-    final isoEnd = _isoDate(endInclusive);
 
-    final toRelease = payrollRecords.where(
-      (p) =>
-          p.periodStart == isoStart &&
-          p.periodEnd == isoEnd &&
-          p.status == 'Approved',
+    final toRelease = approved.where(
+      (p) => p.status == 'Approved' && p.id.isNotEmpty,
     );
 
     for (final record in toRelease) {
@@ -5927,7 +6007,10 @@ class AppState extends ChangeNotifier {
         }
       }
       await _firestoreService!.setRehireRecord(record);
-      rehireRecords = [record, ...rehireRecords.where((r) => r.id != record.id)];
+      rehireRecords = [
+        record,
+        ...rehireRecords.where((r) => r.id != record.id),
+      ];
       if (rehireTermHasStarted(termYear, termSemester)) {
         await _applyRehireRecord(record);
       }
@@ -5959,11 +6042,10 @@ class AppState extends ChangeNotifier {
       ),
     );
     _notifyOfficeUsers(
-      {
-        ...currentOffices.expand((o) => o.headIds),
-        ...?office?.headIds,
-      },
-      title: rehire ? 'Student Assistant Rehired' : 'Student Assistant Not Rehired',
+      {...currentOffices.expand((o) => o.headIds), ...?office?.headIds},
+      title: rehire
+          ? 'Student Assistant Rehired'
+          : 'Student Assistant Not Rehired',
       message: rehire
           ? '${user.name} was rehired for ${record.termLabel}$officeLabel.'
           : '${user.name} will not be rehired for ${record.termLabel}.',

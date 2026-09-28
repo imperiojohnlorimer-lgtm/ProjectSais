@@ -69,6 +69,22 @@ class _FakeFirestore extends FirestoreService {
   @override
   Future<void> setUserProfile(User user) async => profiles[user.id] = user;
 
+  /// payrollRecords, by document id.
+  final payroll = <String, Map<String, dynamic>>{};
+
+  @override
+  Future<bool> createPayrollRecord(PayrollRecord record) async {
+    if (payroll.containsKey(record.id)) return false;
+    payroll[record.id] = record.toJson();
+    return true;
+  }
+
+  @override
+  Future<void> updatePayrollRecord(
+    String id,
+    Map<String, dynamic> data,
+  ) async => payroll[id] = {...?payroll[id], ...data};
+
   @override
   Future<void> deleteStudent(String id) async => deletedStudents.add(id);
 
@@ -198,9 +214,10 @@ void main() {
         periodLabel: 'September 2026',
       );
 
-      expect({
-        for (final p in preview) p.studentId: p.reportVerified,
-      }, {'sa1': true, 'sa2': false});
+      expect(
+        {for (final p in preview) p.studentId: p.reportVerified},
+        {'sa1': true, 'sa2': false},
+      );
     });
 
     test('still counts older records saved with only a name', () {
@@ -211,6 +228,178 @@ void main() {
         ];
 
       expect(hoursPaid()['sa3'], 2);
+    });
+
+    test('pays someone no longer an assistant for hours they worked', () {
+      state
+        ..users = [
+          // Not rehired before payroll ran: back to Student.
+          User(
+            id: 'sa1',
+            name: 'Ana Reyes',
+            email: 'sa1@example.com',
+            role: 'Student',
+          ),
+          User(
+            id: 'st2',
+            name: 'Ben Cruz',
+            email: 'st2@example.com',
+            role: 'Student',
+          ),
+        ]
+        ..attendance = [
+          _record('r1', studentId: 'sa1', studentName: 'Ana Reyes'),
+        ];
+
+      // A student who never worked isn't listed.
+      expect(hoursPaid(), {'sa1': 4});
+    });
+
+    test('pays hours archived with their year, not ones archived by hand', () {
+      AttendanceRecord archived(String id, {String? withYear}) =>
+          AttendanceRecord(
+            id: id,
+            studentId: 'sa1',
+            studentName: 'Ana Reyes',
+            date: 'Sep 10, 2026',
+            timeIn: '8:00 AM',
+            timeOut: '12:00 PM',
+            totalHours: 4,
+            isArchived: true,
+            archivedAcademicYear: withYear,
+          );
+      state
+        ..users = [_assistant('sa1', 'Ana Reyes')]
+        ..attendance = [archived('r1', withYear: '2026-2027'), archived('r2')];
+
+      expect(hoursPaid()['sa1'], 4);
+    });
+
+    test('a report handed in shortly after the period still counts', () {
+      bool verifiedWhenSubmitted(String submittedAt) {
+        state
+          ..users = [_assistant('sa1', 'Ana Reyes')]
+          ..reports = [
+            Report(
+              id: 'rep1',
+              applicantId: 'sa1',
+              title: '1st Semester report',
+              content: '',
+              studentName: 'Ana Reyes',
+              status: 'Approved',
+              submittedAt: submittedAt,
+            ),
+          ];
+        return state
+            .buildPayrollPreview(
+              start: DateTime(2026, 9, 1),
+              endInclusive: DateTime(2026, 9, 30),
+              periodLabel: 'September 2026',
+            )
+            .single
+            .reportVerified;
+      }
+
+      expect(verifiedWhenSubmitted('10/30/2026'), isTrue);
+      expect(verifiedWhenSubmitted('10/31/2026'), isFalse);
+    });
+
+    group('approving and releasing', () {
+      PayrollRecord approved(
+        String studentId, {
+        String start = '2026-09-01',
+        String end = '2026-09-30',
+      }) => PayrollRecord(
+        id: PayrollRecord.idFor(studentId, start, end),
+        studentId: studentId,
+        studentName: studentId,
+        office: '',
+        periodStart: start,
+        periodEnd: end,
+        periodLabel: 'September 2026',
+        dtrVerified: true,
+        reportVerified: true,
+        status: 'Approved',
+      );
+
+      setUp(() {
+        state
+          ..users = [_assistant('sa1', 'Ana Reyes')]
+          ..attendance = [
+            _record('r1', studentId: 'sa1', studentName: 'Ana Reyes'),
+            _record(
+              'r2',
+              studentId: 'sa1',
+              studentName: 'Ana Reyes',
+              date: 'Sep 20, 2026',
+            ),
+          ]
+          ..reports = [
+            Report(
+              id: 'rep1',
+              applicantId: 'sa1',
+              title: 'September',
+              content: '',
+              studentName: 'Ana Reyes',
+              status: 'Approved',
+              submittedAt: '9/20/2026',
+            ),
+          ];
+      });
+
+      List<PayrollRecord> preview({DateTime? start, DateTime? end}) =>
+          state.buildPayrollPreview(
+            start: start ?? DateTime(2026, 9, 1),
+            endInclusive: end ?? DateTime(2026, 9, 30),
+            periodLabel: 'September 2026',
+          );
+
+      test('days already paid under another period are held back', () {
+        state.payrollRecords = [approved('sa1', end: '2026-09-15')];
+
+        final row = preview().single;
+
+        expect(row.status, 'Incomplete');
+        expect(row.overlappingPayroll?.periodEnd, '2026-09-15');
+        // A period that doesn't share days is fine.
+        expect(
+          preview(
+            start: DateTime(2026, 9, 16),
+            end: DateTime(2026, 9, 30),
+          ).single.status,
+          'Ready',
+        );
+      });
+
+      test('approving a period twice saves it once', () async {
+        final rows = preview();
+
+        expect((await state.approvePayroll(rows)).$1, 1);
+        // As if another session approved it first, before this one's
+        // records caught up.
+        state.payrollRecords = [];
+        expect((await state.approvePayroll(rows)).$1, 0);
+        expect(fake.payroll.keys, [
+          PayrollRecord.idFor('sa1', '2026-09-01', '2026-09-30'),
+        ]);
+      });
+
+      test('release pays only the records it is given', () async {
+        final one = approved('sa1');
+        final other = approved('sa2');
+        state.payrollRecords = [one, other];
+
+        final (count, _) = await state.releasePayroll([one]);
+
+        expect(count, 1);
+        expect(fake.payroll.keys, [one.id]);
+        expect(fake.payroll[one.id]?['status'], 'Released');
+        expect(
+          state.payrollRecords.firstWhere((p) => p.id == other.id).status,
+          'Approved',
+        );
+        expect(fake.added.map((n) => n['userId']), ['sa1']);
+      });
     });
   });
 
@@ -279,11 +468,13 @@ void main() {
 
     test("a student isn't placed in a namesake's office", () {
       state.offices = [office];
-      expect(state.officesForUser(_assistant('sa1', 'Juan Dela Cruz')), isEmpty);
       expect(
-        state.officesForUser(_assistant('sa2', 'Juan Dela Cruz')),
-        [office],
+        state.officesForUser(_assistant('sa1', 'Juan Dela Cruz')),
+        isEmpty,
       );
+      expect(state.officesForUser(_assistant('sa2', 'Juan Dela Cruz')), [
+        office,
+      ]);
     });
   });
 
