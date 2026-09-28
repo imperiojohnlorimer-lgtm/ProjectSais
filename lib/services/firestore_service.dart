@@ -382,12 +382,62 @@ class FirestoreService {
     final archiveRef = _academicYearArchive(academicYear);
     if ((await archiveRef.get()).exists) return;
     await archiveRef.set({
-      ...settings,
+      // Without the undo bookkeeping, which is about the settings document.
+      ...Map.of(settings)..removeWhere(
+        (key, _) =>
+            key == 'previous' ||
+            key == 'termChangedAt' ||
+            key == 'undoneAcademicYear',
+      ),
       'academicYear': academicYear,
       'archivedAt': FieldValue.serverTimestamp(),
       'archiveAttendance': archiveAttendance,
       'dataArchived': false,
     });
+  }
+
+  /// Takes [academicYear] off the archive list again — for an undone move
+  /// to the next year — unless the Head's session has already copied its
+  /// records in.
+  Future<void> deleteUnprocessedAcademicYearArchive(String academicYear) async {
+    final archiveRef = _academicYearArchive(academicYear);
+    await _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(archiveRef);
+      if (snapshot.exists && snapshot.data()?['dataArchived'] == false) {
+        transaction.delete(archiveRef);
+      }
+    });
+  }
+
+  /// Collections whose records carry the academic year they were made in.
+  static const _yearStampedCollections = [
+    'attendance',
+    'reports',
+    'applications',
+    'tasks',
+    'announcements',
+    'schedule_events',
+    'classSchedules',
+    'evaluations',
+    'screeningRecords',
+  ];
+
+  /// Moves every record stamped [from] to [to]: the records made while a
+  /// year the Admin then undid was in effect.
+  Future<void> restampAcademicYear(String from, String to) async {
+    for (final name in _yearStampedCollections) {
+      final snapshot = await _db
+          .collection(name)
+          .where('academicYear', isEqualTo: from)
+          .get();
+      for (var offset = 0; offset < snapshot.docs.length; offset += 400) {
+        final batch = _db.batch();
+        for (final doc in snapshot.docs.skip(offset).take(400)) {
+          batch.update(doc.reference, {'academicYear': to});
+        }
+        await batch.commit();
+      }
+    }
   }
 
   /// Marks [academicYear]'s records as copied into its archive.
@@ -1117,6 +1167,38 @@ class FirestoreService {
     for (final task in snapshot.docs) {
       await archiveCollection.doc(task.id).set({
         ...(task.data() as Map<String, dynamic>),
+        'archivedAt': FieldValue.serverTimestamp(),
+      });
+    }
+  }
+
+  /// Supervisors' performance evaluations — what rehire decisions were
+  /// based on. A document an evaluation was sent to the Head with keeps its
+  /// link: it can be generated again from the evaluation itself.
+  Future<void> archiveEvaluationsForAcademicYear(String academicYear) =>
+      _copyIntoArchive(_evaluations, academicYear, 'evaluations');
+
+  /// Applicant screening results. The result document a screening produces
+  /// is filed with the application, which is archived with its documents.
+  Future<void> archiveScreeningRecordsForAcademicYear(String academicYear) =>
+      _copyIntoArchive(_screeningRecords, academicYear, 'screening_records');
+
+  /// Copies [source]'s records stamped [academicYear] into that year's
+  /// archive, under [archiveName].
+  Future<void> _copyIntoArchive(
+    CollectionReference source,
+    String academicYear,
+    String archiveName,
+  ) async {
+    final snapshot = await source
+        .where('academicYear', isEqualTo: academicYear)
+        .get();
+    final archiveCollection = _academicYearArchive(
+      academicYear,
+    ).collection(archiveName);
+    for (final record in snapshot.docs) {
+      await archiveCollection.doc(record.id).set({
+        ...(record.data() as Map<String, dynamic>),
         'archivedAt': FieldValue.serverTimestamp(),
       });
     }

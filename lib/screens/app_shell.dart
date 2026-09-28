@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_state.dart';
+import '../models/models.dart';
 import '../theme/app_theme.dart';
 import '../widgets/shared_widgets.dart';
 import './dashboard/dashboard_screen.dart';
@@ -376,11 +377,21 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  Widget _academicYearBadge(String academicYear, {bool compact = false}) {
+  /// "AY 2026-27 · 1st Sem", or in full "Academic Year 2026-2027 · 1st
+  /// Semester" — the semester decides payroll periods and when rehire
+  /// decisions apply, so everyone should see which one is current.
+  Widget _academicYearBadge(
+    String academicYear,
+    String semester, {
+    bool compact = false,
+  }) {
     final yearParts = academicYear.split('-');
-    final compactYear = yearParts.length == 2
-        ? 'AY ${yearParts.first}-${yearParts.last.substring(yearParts.last.length - 2)}'
-        : academicYear;
+    final compactYear = yearParts.length == 2 && yearParts.last.length == 4
+        ? 'AY ${yearParts.first}-${yearParts.last.substring(2)}'
+        : 'AY $academicYear';
+    final label = compact
+        ? '$compactYear · ${semester.replaceAll('Semester', 'Sem')}'
+        : 'Academic Year $academicYear · $semester';
     return Container(
       padding: EdgeInsets.symmetric(
         horizontal: compact ? 7 : 9,
@@ -402,14 +413,90 @@ class _AppShellState extends State<AppShell> {
             ),
           ),
           const SizedBox(width: 5),
-          Text(
-            compact ? compactYear : 'Academic Year $academicYear',
-            style: TextStyle(
-              fontSize: compact ? 9 : 11,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.maroon,
+          Flexible(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: compact ? 9 : 11,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.maroon,
+              ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  /// How many days ahead the Admin is reminded to start the next year.
+  static const _yearEndReminderDays = 14;
+
+  /// Reminds the Admin to start the next academic year. Records are filed
+  /// under the year in the settings, so any made after it ends land in a
+  /// year that has already been archived.
+  Widget _yearEndBanner(AppState state, {required bool onSettings}) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final days = state.daysUntilAcademicYearEnds;
+    final ended = days < 0;
+    final end = state.academicYearEnd;
+    final endLabel = '${months[end.month - 1]} ${end.day}';
+    final year = state.academicYear;
+    final nextYear = RehireRecord.shiftAcademicYear(year, 1);
+    final when = days == 0
+        ? 'today'
+        : days == 1
+        ? 'tomorrow'
+        : 'in $days days';
+    final message = ended
+        ? 'AY $year ended on $endLabel. New records are still being filed '
+              'under it until you start AY $nextYear.'
+        : 'AY $year ends $when ($endLabel). Start AY $nextYear by then so '
+              'new records are filed under the new year.';
+    final color = ended ? AppTheme.red500 : AppTheme.amber500;
+    final isMobile = MediaQuery.of(context).size.width < 900;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(isMobile ? 16 : 32, 8, isMobile ? 8 : 24, 8),
+      decoration: BoxDecoration(
+        color: ended ? AppTheme.red50 : AppTheme.amber50,
+        border: Border(bottom: BorderSide(color: color.withValues(alpha: 0.3))),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            ended ? Icons.error_outline : Icons.event_outlined,
+            size: 18,
+            color: color,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate700),
+            ),
+          ),
+          if (!onSettings) ...[
+            const SizedBox(width: 8),
+            TextButton(
+              onPressed: () => context.read<AppState>().setTab('settings'),
+              child: const Text('Open Settings'),
+            ),
+          ],
         ],
       ),
     );
@@ -549,6 +636,7 @@ class _AppShellState extends State<AppShell> {
                                   Flexible(
                                     child: _academicYearBadge(
                                       state.academicYear,
+                                      state.academicSemester,
                                       compact: true,
                                     ),
                                   ),
@@ -636,7 +724,10 @@ class _AppShellState extends State<AppShell> {
                                   ),
                                 ),
                                 const SizedBox(width: 10),
-                                _academicYearBadge(state.academicYear),
+                                _academicYearBadge(
+                                  state.academicYear,
+                                  state.academicSemester,
+                                ),
                               ],
                             ),
                             const Spacer(),
@@ -724,6 +815,9 @@ class _AppShellState extends State<AppShell> {
                           ],
                         ),
                 ),
+                if (role == 'Admin' &&
+                    state.daysUntilAcademicYearEnds <= _yearEndReminderDays)
+                  _yearEndBanner(state, onSettings: activeTab == 'settings'),
                 // Main content
                 Expanded(
                   child: AnimatedSwitcher(

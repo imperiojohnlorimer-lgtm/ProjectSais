@@ -253,6 +253,21 @@ class AppState extends ChangeNotifier {
   List<Map<String, dynamic>> academicMilestones = [];
   List<Map<String, dynamic>> academicYearArchives = [];
 
+  /// How long the Admin has to undo a change of academic year or semester.
+  /// Until then the Head's session holds off on what the change sets off
+  /// that can't be taken back: archiving the year left behind, and applying
+  /// rehire decisions for the new term.
+  static const termChangeUndoWindow = Duration(hours: 24);
+
+  // The year, semester and dates in effect before the last term change, and
+  // when that change was saved (see [undoTermChange]).
+  Map<String, dynamic>? _previousAcademicTerm;
+  DateTime? _termChangedAt;
+
+  // A year the Admin moved to and then undid. Records stamped with it were
+  // made while it showed, and the Head's session moves them back.
+  String? _undoneAcademicYear;
+
   /// Official Philippine regular & special (non-working) holidays for the
   /// current academic year. These are fixed by law/proclamation, so unlike
   /// a student's own weekly schedule they are never user-editable — any
@@ -554,8 +569,23 @@ class AppState extends ChangeNotifier {
       fs.docStream('meta', 'academic_year_settings'),
       (data) {
         if (data == null) return;
+        final previousYear = academicYear;
         final previousTerm = '$academicYear|$academicSemester';
         _applyAcademicSettings(data);
+        // The Admin archives the old year before saving the new one, so the
+        // list already includes it.
+        if (previousYear != academicYear) {
+          fs
+              .getAcademicYearArchives()
+              .then((archives) {
+                academicYearArchives = archives;
+                notifyListeners();
+              })
+              .catchError((Object error) {
+                debugPrint('Failed to reload academic year archives: $error');
+              });
+          _restampUndoneAcademicYear();
+        }
         // A new term is what puts pending rehire decisions into effect.
         if (isHead && previousTerm != '$academicYear|$academicSemester') {
           _applyDueRehireDecisions().then((_) => notifyListeners());
@@ -1464,6 +1494,7 @@ class AppState extends ChangeNotifier {
         classSchedules = [];
       }
       await _archiveFinishedAcademicYears(academicSettings);
+      await _restampUndoneAcademicYear();
 
       // Tasks
       try {
@@ -1601,6 +1632,47 @@ class AppState extends ChangeNotifier {
             .map((milestone) => Map<String, dynamic>.from(milestone))
             .toList() ??
         [];
+    final previous = settings['previous'];
+    _previousAcademicTerm = previous is Map
+        ? Map<String, dynamic>.from(previous)
+        : null;
+    _termChangedAt = DateTime.tryParse(
+      settings['termChangedAt']?.toString() ?? '',
+    );
+    _undoneAcademicYear = settings['undoneAcademicYear']?.toString();
+  }
+
+  /// When the last academic year or semester change stops being undoable,
+  /// or null if there's none to undo.
+  DateTime? get termChangeUndoDeadline =>
+      _previousAcademicTerm == null || _termChangedAt == null
+      ? null
+      : _termChangedAt!.toLocal().add(termChangeUndoWindow);
+
+  bool get canUndoTermChange =>
+      termChangeUndoDeadline?.isAfter(DateTime.now()) ?? false;
+
+  /// Days left until the academic year's last day — 0 on it, negative once
+  /// it has passed. Records are filed under the year in the settings, so
+  /// the Admin is reminded to start the next one before this runs out.
+  int get daysUntilAcademicYearEnds {
+    final now = DateTime.now();
+    final end = academicYearEnd;
+    return DateTime.utc(
+      end.year,
+      end.month,
+      end.day,
+    ).difference(DateTime.utc(now.year, now.month, now.day)).inDays;
+  }
+
+  /// "2nd Semester, AY 2026-2027" — the term [undoTermChange] goes back to.
+  String? get previousTermLabel {
+    final previous = _previousAcademicTerm;
+    if (previous == null) return null;
+    return RehireRecord.termLabelFor(
+      previous['academicYear']?.toString() ?? '',
+      previous['semester']?.toString() ?? '',
+    );
   }
 
   /// Dedupes only within the same applicant + academic year, so a
@@ -1696,7 +1768,12 @@ class AppState extends ChangeNotifier {
     if (role != 'Head') return;
     try {
       _firestoreService ??= FirestoreService();
-      if (settings != null && academicYearEnd.isBefore(DateTime.now())) {
+      // The end date is the year's last day, so it's over only once the
+      // day after it begins.
+      final end = academicYearEnd;
+      final dayAfterEnd = DateTime(end.year, end.month, end.day + 1);
+      final yearEnded = !DateTime.now().isBefore(dayAfterEnd);
+      if (settings != null && yearEnded) {
         await _firestoreService!.archiveAcademicYearSettings(
           academicYear,
           settings,
@@ -1707,11 +1784,20 @@ class AppState extends ChangeNotifier {
       for (final archive in archives) {
         if (archive['dataArchived'] != false) continue;
         final year = archive['id'].toString();
+        // A year's records stay live while the Admin can still undo moving
+        // on from it, and while it's back in effect after an undo.
+        if (year == academicYear && !yearEnded) continue;
+        if (canUndoTermChange &&
+            year == _previousAcademicTerm?['academicYear']?.toString()) {
+          continue;
+        }
         await _firestoreService!.archiveReportsForAcademicYear(year);
         await _firestoreService!.archiveApplicationsForAcademicYear(year);
         await _firestoreService!.archiveTasksForAcademicYear(year);
         await _firestoreService!.archiveAnnouncementsForAcademicYear(year);
         await _firestoreService!.archiveCalendarEventsForAcademicYear(year);
+        await _firestoreService!.archiveEvaluationsForAcademicYear(year);
+        await _firestoreService!.archiveScreeningRecordsForAcademicYear(year);
         if (archive['archiveAttendance'] == true) {
           await _firestoreService!.archiveAttendanceForAcademicYear(year);
         }
@@ -1722,6 +1808,21 @@ class AppState extends ChangeNotifier {
       // Firebase availability errors should not prevent the app from
       // loading; an unfinished year is picked up again next time.
       debugPrint('Failed to archive academic years: $error');
+    }
+  }
+
+  /// Moves records stamped with a year the Admin moved to and then undid
+  /// (see [undoTermChange]) back to the year in effect. Only the Head can
+  /// update them all, so this runs in the Head's session.
+  Future<void> _restampUndoneAcademicYear() async {
+    final undone = _undoneAcademicYear;
+    if (role != 'Head' || undone == null || undone == academicYear) return;
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.restampAcademicYear(undone, academicYear);
+    } catch (error) {
+      // Picked up again next time.
+      debugPrint('Failed to move records back from AY $undone: $error');
     }
   }
 
@@ -4351,16 +4452,26 @@ class AppState extends ChangeNotifier {
           // app treats as on when it was never saved.
           archiveAttendance: currentSettings['autoArchiveLogs'] as bool? ?? true,
         );
-        academicYearArchives = [
-          ...academicYearArchives.where(
-            (archive) =>
-                archive['academicYear'] != currentSettings['academicYear'],
-          ),
-          {...currentSettings, 'academicYear': currentSettings['academicYear']},
-        ];
+        // Newest first, like getAcademicYearArchives.
+        academicYearArchives =
+            [
+              ...academicYearArchives.where(
+                (archive) =>
+                    archive['academicYear'] != currentSettings['academicYear'],
+              ),
+              {
+                ...currentSettings,
+                'academicYear': currentSettings['academicYear'],
+              },
+            ]..sort(
+              (a, b) => b['academicYear'].toString().compareTo(
+                a['academicYear'].toString(),
+              ),
+            );
       }
     }
-    await _firestoreService!.saveAcademicYearSettings({
+    final termChanged = academicYear != year || academicSemester != semester;
+    final settings = <String, dynamic>{
       'academicYear': year,
       'semester': semester,
       'startDate': startDate.toIso8601String(),
@@ -4370,15 +4481,76 @@ class AppState extends ChangeNotifier {
       'autoArchiveLogs': autoArchiveLogs,
       'milestones': milestones,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
-    academicYear = year;
-    academicSemester = semester;
-    academicYearStart = startDate;
-    academicYearEnd = endDate;
-    allowAcademicApplications = allowApplications;
-    enforceAssistantHourCap = enforceHourCap;
-    autoArchiveAttendanceLogs = autoArchiveLogs;
-    academicMilestones = milestones;
+      // What undoTermChange goes back to. Saving other settings keeps the
+      // term change undoable.
+      if (termChanged) ...{
+        'previous': {
+          'academicYear': academicYear,
+          'semester': academicSemester,
+          'startDate': academicYearStart.toIso8601String(),
+          'endDate': academicYearEnd.toIso8601String(),
+          // A new year drops the old year's milestones; undoing brings
+          // them back.
+          'milestones': academicMilestones,
+        },
+        'termChangedAt': DateTime.now().toUtc().toIso8601String(),
+      } else if (_previousAcademicTerm != null && _termChangedAt != null) ...{
+        'previous': _previousAcademicTerm,
+        'termChangedAt': _termChangedAt!.toUtc().toIso8601String(),
+      },
+      // Until the Head's session has moved its records back — and dropped
+      // once that year is legitimately reached.
+      if (_undoneAcademicYear != null && _undoneAcademicYear != year)
+        'undoneAcademicYear': _undoneAcademicYear,
+    };
+    await _firestoreService!.saveAcademicYearSettings(settings);
+    _applyAcademicSettings(settings);
+    notifyListeners();
+  }
+
+  /// Undoes the last academic year or semester change, within
+  /// [termChangeUndoWindow]: the year, semester and dates go back to what
+  /// they were (with the old year's milestones, when the year changed), and
+  /// a year that change marked as finished comes off the archive list
+  /// again. Other settings stay as they are. Records made in
+  /// the meantime carry the undone year, so the Head's session moves them
+  /// back (see [_restampUndoneAcademicYear]).
+  Future<void> undoTermChange() async {
+    _firestoreService ??= FirestoreService();
+    // Fresh, in case another Admin session changed the settings meanwhile.
+    final current = await _firestoreService!.getAcademicYearSettings();
+    if (current == null) throw StateError('No academic year settings saved.');
+    _applyAcademicSettings(current);
+    final previous = _previousAcademicTerm;
+    if (!canUndoTermChange || previous == null) {
+      notifyListeners();
+      throw StateError('The last term change can no longer be undone.');
+    }
+    final previousYear = previous['academicYear'].toString();
+    final undoneYear = academicYear;
+    if (previousYear != undoneYear) {
+      await _firestoreService!.deleteUnprocessedAcademicYearArchive(
+        previousYear,
+      );
+    }
+    final restored = <String, dynamic>{
+      ...current,
+      'academicYear': previousYear,
+      'semester': previous['semester'],
+      'startDate': previous['startDate'],
+      'endDate': previous['endDate'],
+      'updatedAt': FieldValue.serverTimestamp(),
+      if (previousYear != undoneYear) ...{
+        'undoneAcademicYear': undoneYear,
+        if (previous['milestones'] is List)
+          'milestones': previous['milestones'],
+      },
+    }..removeWhere((key, _) => key == 'previous' || key == 'termChangedAt');
+    await _firestoreService!.saveAcademicYearSettings(restored);
+    _applyAcademicSettings(restored);
+    try {
+      academicYearArchives = await _firestoreService!.getAcademicYearArchives();
+    } catch (_) {}
     notifyListeners();
   }
 
@@ -5587,10 +5759,20 @@ class AppState extends ChangeNotifier {
   }
 
   /// Whether decisions for a term should already be in effect, i.e. the
-  /// academic year settings have reached that term.
+  /// academic year settings have reached that term. While a term change can
+  /// still be undone, only terms reached before it count: applying a
+  /// decision can't be taken back.
   bool rehireTermHasStarted(String termYear, String termSemester) {
     final target = RehireRecord.termOrder(termYear, termSemester);
-    final current = RehireRecord.termOrder(academicYear, academicSemester);
+    var current = RehireRecord.termOrder(academicYear, academicSemester);
+    final previous = _previousAcademicTerm;
+    if (canUndoTermChange && previous != null && current != null) {
+      final before = RehireRecord.termOrder(
+        previous['academicYear']?.toString() ?? '',
+        previous['semester']?.toString() ?? '',
+      );
+      if (before != null && before < current) current = before;
+    }
     // A term that can't be placed on the calendar shouldn't hold the
     // decision back forever.
     if (target == null || current == null) return true;
@@ -6232,10 +6414,9 @@ class AppState extends ChangeNotifier {
   /// School years shown on the campus growth chart: the current year (with
   /// real enrollment counts) followed by upcoming years left empty until
   /// that data exists.
-  List<String> get growthYears => const [
-    'AY 2025-2026',
-    'AY 2026-2027',
-    'AY 2027-2028',
+  List<String> get growthYears => [
+    for (var i = 0; i < 3; i++)
+      'AY ${RehireRecord.shiftAcademicYear(academicYear, i)}',
   ];
 
   /// Student-assistant headcount per campus for [growthYears]. Only the

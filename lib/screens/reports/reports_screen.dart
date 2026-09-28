@@ -180,53 +180,62 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   /// Academic-year picker, sized to sit in the header toolbar beside the
-  /// other controls.
-  Widget _yearFilter(AppState state) => Container(
-    height: 40,
-    constraints: const BoxConstraints(minWidth: 200),
-    padding: const EdgeInsets.symmetric(horizontal: 12),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(10),
-      border: Border.all(color: AppTheme.slate200),
-    ),
-    child: DropdownButtonHideUnderline(
-      child: DropdownButton<String?>(
-        value: _reportYear,
-        isDense: true,
-        isExpanded: true,
-        borderRadius: BorderRadius.circular(12),
-        icon: const Icon(
-          Icons.expand_more_rounded,
-          size: 18,
-          color: AppTheme.slate400,
-        ),
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.slate700,
-        ),
-        items: [
-          const DropdownMenuItem<String?>(
-            value: null,
-            child: Text('All academic years'),
-          ),
-          DropdownMenuItem<String?>(
-            value: state.academicYear,
-            child: Text('Active: ${state.academicYear}'),
-          ),
-          ...state.academicYearArchives.map((archive) {
-            final year = archive['academicYear']?.toString();
-            return DropdownMenuItem<String?>(
-              value: year,
-              child: Text('Archived: $year'),
-            );
-          }),
-        ],
-        onChanged: (value) => setState(() => _reportYear = value),
+  /// other controls. Each year is listed once, even while the active year
+  /// also has an archive, and the selected year stays listed after the
+  /// Admin moves the settings on — a dropdown whose value matches no item,
+  /// or two, throws.
+  Widget _yearFilter(AppState state) {
+    final years = <String>{
+      state.academicYear,
+      for (final archive in state.academicYearArchives)
+        if (archive['academicYear'] != null) archive['academicYear'].toString(),
+      ?_reportYear,
+    };
+    return Container(
+      height: 40,
+      constraints: const BoxConstraints(minWidth: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.slate200),
       ),
-    ),
-  );
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String?>(
+          value: _reportYear,
+          isDense: true,
+          isExpanded: true,
+          borderRadius: BorderRadius.circular(12),
+          icon: const Icon(
+            Icons.expand_more_rounded,
+            size: 18,
+            color: AppTheme.slate400,
+          ),
+          style: const TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.slate700,
+          ),
+          items: [
+            const DropdownMenuItem<String?>(
+              value: null,
+              child: Text('All academic years'),
+            ),
+            for (final year in years)
+              DropdownMenuItem<String?>(
+                value: year,
+                child: Text(
+                  year == state.academicYear
+                      ? 'Active: $year'
+                      : 'Archived: $year',
+                ),
+              ),
+          ],
+          onChanged: (value) => setState(() => _reportYear = value),
+        ),
+      ),
+    );
+  }
 
   /// Status filter row. The selected chip carries its own status colour —
   /// amber, emerald or red — so the active filter reads at a glance instead

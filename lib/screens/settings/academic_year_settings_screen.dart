@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
+import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -24,11 +25,21 @@ class _AcademicYearSettingsScreenState
   late List<_MilestoneDraft> _milestones;
   bool _saving = false;
 
+  /// The year the dates were last set for, so typing only moves them when
+  /// the year itself changes — not on every keystroke.
+  late String _datedYear;
+
   @override
   void initState() {
     super.initState();
-    final state = context.read<AppState>();
-    _yearController = TextEditingController(text: state.academicYear);
+    _yearController = TextEditingController();
+    _loadSaved(context.read<AppState>());
+  }
+
+  /// Fills the form with the settings in effect.
+  void _loadSaved(AppState state) {
+    _yearController.text = state.academicYear;
+    _datedYear = state.academicYear;
     _semester = state.academicSemester;
     _startDate = state.academicYearStart;
     _endDate = state.academicYearEnd;
@@ -68,47 +79,143 @@ class _AcademicYearSettingsScreenState
     });
   }
 
+  /// The first year of [year] ("2026-2027" -> 2026), or null unless it's
+  /// two consecutive years in YYYY-YYYY form.
+  static int? _firstYearOf(String year) {
+    final match = RegExp(r'^(\d{4})-(\d{4})$').firstMatch(year.trim());
+    if (match == null) return null;
+    final first = int.parse(match.group(1)!);
+    return int.parse(match.group(2)!) == first + 1 ? first : null;
+  }
+
+  /// The year in effect and the one after it — the only years [_save] lets
+  /// the settings move to.
+  static List<String> _yearChoices(String currentYear) =>
+      {currentYear, RehireRecord.shiftAcademicYear(currentYear, 1)}.toList();
+
+  /// The months each term covers — the ones Payroll's pay period, the
+  /// evaluation form's "Period Covered" and rehire contracts use.
+  String _termMonths() {
+    final firstYear = _firstYearOf(_yearController.text);
+    String year(int offset) =>
+        firstYear == null ? '' : ' ${firstYear + offset}';
+    return '1st Semester: Aug – Dec${year(0)} · '
+        '2nd Semester: Jan – May${year(1)} · '
+        'Summer: Jun – Jul${year(1)}';
+  }
+
   void _selectYear(String year) {
-    final firstYear = int.tryParse(year.substring(0, 4));
-    if (firstYear == null) return;
     setState(() {
       _yearController.text = year;
+      _applyYearDates(year);
+    });
+  }
+
+  /// Points the dates at [year] when it differs from the year they were set
+  /// for: the saved dates for the year in effect, otherwise Aug 1 – Jul 31.
+  /// Typed years go through here too, so a new year never keeps the
+  /// previous year's dates.
+  void _applyYearDates(String year) {
+    if (year == _datedYear) return;
+    final state = context.read<AppState>();
+    if (year == state.academicYear) {
+      _startDate = state.academicYearStart;
+      _endDate = state.academicYearEnd;
+    } else {
+      final firstYear = _firstYearOf(year);
+      if (firstYear == null) return;
       _startDate = DateTime(firstYear, 8, 1);
       _endDate = DateTime(firstYear + 1, 7, 31);
-    });
+    }
+    _datedYear = year;
   }
 
   Future<void> _save() async {
     final year = _yearController.text.trim();
-    if (!RegExp(r'^\d{4}-\d{4}$').hasMatch(year)) {
-      _showMessage('Enter the academic year in YYYY-YYYY format.', true);
+    final firstYear = _firstYearOf(year);
+    if (firstYear == null) {
+      _showMessage(
+        'Enter the academic year as two consecutive years, e.g. 2026-2027.',
+        true,
+      );
       return;
     }
     if (!_endDate.isAfter(_startDate)) {
       _showMessage('The end date must be after the start date.', true);
       return;
     }
+    // The end date decides when the year is archived, so it has to belong
+    // to the year being saved.
+    if (_startDate.year != firstYear || _endDate.year != firstYear + 1) {
+      _showMessage(
+        'AY $year must start in $firstYear and end in ${firstYear + 1}.',
+        true,
+      );
+      return;
+    }
+
+    final state = context.read<AppState>();
+    final yearChanged = year != state.academicYear;
+    // Leaving a year archives it, and an archived year is never archived
+    // again — so going back would strand the rest of its records. A
+    // mistaken move is taken back with "Undo change" instead.
+    if (yearChanged) {
+      final currentFirstYear = _firstYearOf(state.academicYear);
+      if (currentFirstYear != null && firstYear < currentFirstYear) {
+        _showMessage(
+          'AY $year is before the current AY ${state.academicYear}. The '
+          'academic year can only move forward'
+          '${state.canUndoTermChange ? ' — use Undo change to go back.' : '.'}',
+          true,
+        );
+        return;
+      }
+      if (state.academicYearArchives.any(
+        (archive) => archive['academicYear']?.toString() == year,
+      )) {
+        _showMessage('AY $year has already been archived.', true);
+        return;
+      }
+    }
 
     // Moving to a new academic year archives the old one, and a new term
     // is what puts pending rehire decisions into effect — neither is
     // something to do by accident.
-    final state = context.read<AppState>();
-    final yearChanged = year != state.academicYear;
     final semesterChanged = _semester != state.academicSemester;
+
+    // A new year's timeline doesn't carry the old year's dates over.
+    DateTime day(DateTime date) => DateTime(date.year, date.month, date.day);
+    final milestones = yearChanged
+        ? _milestones
+              .where(
+                (milestone) =>
+                    !day(milestone.date).isBefore(day(_startDate)) &&
+                    !day(milestone.date).isAfter(day(_endDate)),
+              )
+              .toList()
+        : _milestones;
+    final dropped = _milestones.length - milestones.length;
+
     if (yearChanged || semesterChanged) {
+      final undoHours = AppState.termChangeUndoWindow.inHours;
+      final droppedNote = dropped == 0
+          ? ''
+          : ' $dropped milestone${dropped == 1 ? '' : 's'} dated outside '
+                'AY $year will be removed.';
       final confirmed = await showConfirmDialog(
         context,
         title: yearChanged
             ? 'Start academic year $year?'
             : 'Switch to $_semester?',
         message: yearChanged
-            ? 'AY ${state.academicYear}\'s reports, applications, tasks, '
-                  'announcements and calendar events will be archived, and '
-                  'everyone will be moved to AY $year, $_semester. Rehire '
-                  'decisions made for this term will take effect. This '
-                  'can\'t be undone from here.'
-            : 'Everyone will see $_semester, AY $year as the current term, '
-                  'and rehire decisions made for it will take effect.',
+            ? 'Everyone will be moved to AY $year, $_semester. After '
+                  '$undoHours hours, AY ${state.academicYear}\'s records '
+                  'will be archived and rehire decisions for the new term '
+                  'will take effect. Until then you can undo this here.'
+                  '$droppedNote'
+            : 'Everyone will see $_semester, AY $year as the current term. '
+                  'Rehire decisions made for it will take effect after '
+                  '$undoHours hours; until then you can undo this here.',
         confirmLabel: yearChanged ? 'Start new year' : 'Switch term',
         confirmColor: AppTheme.maroon,
       );
@@ -125,11 +232,39 @@ class _AcademicYearSettingsScreenState
         allowApplications: _allowApplications,
         enforceHourCap: _enforceHourCap,
         autoArchiveLogs: _autoArchiveLogs,
-        milestones: _milestones.map((milestone) => milestone.toMap()).toList(),
+        milestones: milestones.map((milestone) => milestone.toMap()).toList(),
       );
+      if (mounted) setState(() => _milestones = milestones);
       if (mounted) _showMessage('Academic year settings saved.');
     } catch (error) {
       if (mounted) _showMessage('Could not save settings: $error', true);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  Future<void> _undoTermChange() async {
+    final state = context.read<AppState>();
+    final previous = state.previousTermLabel;
+    final confirmed = await showConfirmDialog(
+      context,
+      title: 'Go back to $previous?',
+      message:
+          'Everyone will be moved back to $previous, and anything made '
+          'since the change will be moved back to it too. Your other '
+          'settings stay as they are.',
+      confirmLabel: 'Undo change',
+      confirmColor: AppTheme.maroon,
+    );
+    if (!confirmed || !mounted) return;
+    setState(() => _saving = true);
+    try {
+      await state.undoTermChange();
+      if (!mounted) return;
+      setState(() => _loadSaved(state));
+      _showMessage('Moved back to $previous.');
+    } catch (error) {
+      if (mounted) _showMessage('Could not undo the change: $error', true);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -141,8 +276,11 @@ class _AcademicYearSettingsScreenState
           content: Text(text),
           backgroundColor: error ? AppTheme.red500 : AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
 
   @override
@@ -155,6 +293,10 @@ class _AcademicYearSettingsScreenState
         .length;
     final content = <Widget>[
       _header(),
+      if (state.canUndoTermChange) ...[
+        const SizedBox(height: 16),
+        _undoNotice(state),
+      ],
       const SizedBox(height: 22),
       Wrap(
         spacing: 12,
@@ -192,7 +334,7 @@ class _AcademicYearSettingsScreenState
       mobile
           ? Column(
               children: [
-                _settingsPanel(mobile),
+                _settingsPanel(mobile, state),
                 const SizedBox(height: 16),
                 _sidePanel(),
               ],
@@ -200,7 +342,7 @@ class _AcademicYearSettingsScreenState
           : Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Expanded(flex: 2, child: _settingsPanel(mobile)),
+                Expanded(flex: 2, child: _settingsPanel(mobile, state)),
                 const SizedBox(width: 18),
                 Expanded(child: _sidePanel()),
               ],
@@ -256,6 +398,40 @@ class _AcademicYearSettingsScreenState
       ),
     ],
   );
+  Widget _undoNotice(AppState state) {
+    final deadline = state.termChangeUndoDeadline!;
+    final hour = deadline.hour % 12 == 0 ? 12 : deadline.hour % 12;
+    final minute = deadline.minute.toString().padLeft(2, '0');
+    final period = deadline.hour < 12 ? 'AM' : 'PM';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+      decoration: BoxDecoration(
+        color: AppTheme.amber50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.amber500.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.history, size: 20, color: AppTheme.amber500),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              'Changed from ${state.previousTermLabel} by mistake? You can '
+              'undo it until ${_dateLabel(deadline)}, $hour:$minute $period.',
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate700),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: _saving ? null : _undoTermChange,
+            icon: const Icon(Icons.undo, size: 17),
+            label: const Text('Undo change'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _badge() => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
     decoration: BoxDecoration(
@@ -340,7 +516,7 @@ class _AcademicYearSettingsScreenState
       ),
     ),
   );
-  Widget _settingsPanel(bool mobile) => _panel(
+  Widget _settingsPanel(bool mobile, AppState state) => _panel(
     Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -352,7 +528,7 @@ class _AcademicYearSettingsScreenState
         const SizedBox(height: 18),
         Wrap(
           spacing: 6,
-          children: ['2025-2026', '2026-2027', '2027-2028']
+          children: _yearChoices(state.academicYear)
               .map(
                 (year) => ChoiceChip(
                   label: Text(year),
@@ -372,6 +548,7 @@ class _AcademicYearSettingsScreenState
         const SizedBox(height: 16),
         TextField(
           controller: _yearController,
+          onChanged: (value) => setState(() => _applyYearDates(value.trim())),
           decoration: const InputDecoration(
             labelText: 'Academic Year',
             hintText: 'e.g. 2026-2027',
@@ -384,9 +561,11 @@ class _AcademicYearSettingsScreenState
               ['1st Semester', '2nd Semester', 'Summer'].contains(_semester)
               ? _semester
               : '1st Semester',
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             labelText: 'Semester / Academic Term',
-            prefixIcon: Icon(Icons.school_outlined),
+            prefixIcon: const Icon(Icons.school_outlined),
+            helperText: _termMonths(),
+            helperMaxLines: 3,
           ),
           items: const ['1st Semester', '2nd Semester', 'Summer']
               .map(
@@ -764,19 +943,7 @@ class _AcademicYearSettingsScreenState
       confirmLabel: 'Discard',
     );
     if (!confirmed || !mounted) return;
-    final state = context.read<AppState>();
-    setState(() {
-      _yearController.text = state.academicYear;
-      _semester = state.academicSemester;
-      _startDate = state.academicYearStart;
-      _endDate = state.academicYearEnd;
-      _allowApplications = state.allowAcademicApplications;
-      _enforceHourCap = state.enforceAssistantHourCap;
-      _autoArchiveLogs = state.autoArchiveAttendanceLogs;
-      _milestones = state.academicMilestones
-          .map(_MilestoneDraft.fromMap)
-          .toList();
-    });
+    setState(() => _loadSaved(context.read<AppState>()));
   }
 }
 

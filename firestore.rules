@@ -151,6 +151,14 @@ service cloud.firestore {
       return sameOr(field, null);
     }
 
+    // The Head's session moving a record made under an academic year the
+    // Admin then undid back to the restored year: nothing else changes.
+    function headMovesAcademicYear() {
+      return isHead()
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['academicYear']);
+    }
+
     // "Sep 3, 2026" — the Philippine calendar date [days] days from now, in
     // the shape the app stamps on completed tasks.
     function phDate(days) {
@@ -339,8 +347,11 @@ service cloud.firestore {
         && request.resource.data.get('sentToHeadAt', null) == null
         && request.resource.data.get('headAttachments', []).size() == 0;
 
-      allow update: if isSupervisorOf(resource.data.applicantId)
-        && unchanged('applicantId');
+      allow update: if (
+          isSupervisorOf(resource.data.applicantId)
+          && unchanged('applicantId')
+        )
+        || headMovesAcademicYear();
 
       allow delete: if isSupervisorOf(resource.data.applicantId);
     }
@@ -549,8 +560,11 @@ service cloud.firestore {
 
       allow create: if isSupervisorOfStudent(request.resource.data.studentId);
 
-      allow update: if isSupervisorOfStudent(resource.data.studentId)
-        && unchanged('studentId');
+      allow update: if (
+          isSupervisorOfStudent(resource.data.studentId)
+          && unchanged('studentId')
+        )
+        || headMovesAcademicYear();
 
       allow delete: if isSupervisorOfStudent(resource.data.studentId);
     }
@@ -670,9 +684,9 @@ service cloud.firestore {
 
     // Finished academic years: one summary per year, which the Reports
     // screen offers everyone as a filter. The Admin records a year when
-    // moving the settings on; the Head's session records one whose end date
-    // has passed and copies each year's records into it — only the Head can
-    // read them all.
+    // moving the settings on, and removes it again when undoing that; the
+    // Head's session records one whose end date has passed and copies each
+    // year's records into it — only the Head can read them all.
     match /meta/academic_year_archives/years/{year} {
       allow read: if signedIn();
       allow write: if isAdmin() || isHead();
