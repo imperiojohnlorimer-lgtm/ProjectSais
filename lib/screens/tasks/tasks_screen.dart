@@ -334,12 +334,19 @@ class _TasksScreenState extends State<TasksScreen> {
                         confirmLabel: 'Delete',
                       );
                       if (ok) {
-                        setState(() => _pendingIds.add(tasks[i].id));
-                        await state.deleteTask(tasks[i].id);
+                        final taskId = tasks[i].id;
+                        setState(() => _pendingIds.add(taskId));
+                        final deleted = await state.deleteTask(taskId);
                         if (!context.mounted) return;
+                        setState(() => _pendingIds.remove(taskId));
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: const Text('Task deleted successfully'),
+                            content: Text(
+                              deleted
+                                  ? 'Task deleted successfully'
+                                  : "Couldn't delete the task. Check your "
+                                        'connection and try again.',
+                            ),
                             backgroundColor: AppTheme.red500,
                             duration: const Duration(seconds: 2),
                             behavior: SnackBarBehavior.floating,
@@ -368,21 +375,27 @@ class _TasksScreenState extends State<TasksScreen> {
                                   : AppTheme.emerald500,
                             );
                             if (!ok) return;
-                            setState(() => _pendingIds.add(tasks[i].id));
-                            await state.setTaskArchived(
-                              tasks[i].id,
+                            final taskId = tasks[i].id;
+                            setState(() => _pendingIds.add(taskId));
+                            final saved = await state.setTaskArchived(
+                              taskId,
                               willArchive,
                             );
                             if (!context.mounted) return;
-                            setState(() => _pendingIds.remove(tasks[i].id));
+                            setState(() => _pendingIds.remove(taskId));
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                  willArchive
+                                  !saved
+                                      ? "Couldn't update the task. Check "
+                                            'your connection and try again.'
+                                      : willArchive
                                       ? 'Task archived'
                                       : 'Task restored',
                                 ),
-                                backgroundColor: willArchive
+                                backgroundColor: !saved
+                                    ? AppTheme.red500
+                                    : willArchive
                                     ? AppTheme.slate600
                                     : AppTheme.emerald500,
                                 duration: const Duration(seconds: 2),
@@ -769,46 +782,68 @@ class _TasksScreenState extends State<TasksScreen> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: saving ? null : () async {
-                          if (titleCtrl.text.trim().isEmpty) return;
-                          setSt(() => saving = true);
-                          final navigator = Navigator.of(context);
-                          final messenger = ScaffoldMessenger.of(context);
-                          final student = assignedTo != null
-                              ? students.firstWhere(
-                                  (s) => s.id == assignedTo,
-                                  orElse: () => students.first,
-                                )
-                              : null;
-                          final task = Task(
-                            id: 't_${DateTime.now().millisecondsSinceEpoch}',
-                            title: titleCtrl.text.trim(),
-                            description: descCtrl.text.trim(),
-                            status: 'Not Started',
-                            priority: priority,
-                            dueDate: _formatDueDate(dueDate),
-                            assignedTo: student?.id,
-                            assignedToName: student?.name,
-                            category: category,
-                            checklistItems: checklistItems,
-                          );
-                          await state.addTask(task);
-                          navigator.pop();
-                          messenger.showSnackBar(
-                            SnackBar(
-                              content: const Text(
-                                'Task assigned successfully!',
-                              ),
-                              backgroundColor: AppTheme.emerald500,
-                              duration: const Duration(seconds: 2),
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              margin: const EdgeInsets.all(16),
-                            ),
-                          );
-                        },
+                        onPressed: saving
+                            ? null
+                            : () async {
+                                if (titleCtrl.text.trim().isEmpty) return;
+                                setSt(() => saving = true);
+                                final navigator = Navigator.of(context);
+                                final messenger = ScaffoldMessenger.of(context);
+                                final student = assignedTo != null
+                                    ? students.firstWhere(
+                                        (s) => s.id == assignedTo,
+                                        orElse: () => students.first,
+                                      )
+                                    : null;
+                                final task = Task(
+                                  id: 't_${DateTime.now().millisecondsSinceEpoch}',
+                                  title: titleCtrl.text.trim(),
+                                  description: descCtrl.text.trim(),
+                                  status: 'Not Started',
+                                  priority: priority,
+                                  dueDate: _formatDueDate(dueDate),
+                                  assignedTo: student?.id,
+                                  assignedToName: student?.name,
+                                  category: category,
+                                  checklistItems: checklistItems,
+                                );
+                                final saved = await state.addTask(task);
+                                if (!saved) {
+                                  // Keep the dialog open so nothing typed is lost.
+                                  if (ctx.mounted) setSt(() => saving = false);
+                                  messenger.showSnackBar(
+                                    SnackBar(
+                                      content: const Text(
+                                        "Couldn't assign the task. Check your "
+                                        'connection and try again.',
+                                      ),
+                                      backgroundColor: AppTheme.red500,
+                                      duration: const Duration(seconds: 2),
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      margin: const EdgeInsets.all(16),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                navigator.pop();
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: const Text(
+                                      'Task assigned successfully!',
+                                    ),
+                                    backgroundColor: AppTheme.emerald500,
+                                    duration: const Duration(seconds: 2),
+                                    behavior: SnackBarBehavior.floating,
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    margin: const EdgeInsets.all(16),
+                                  ),
+                                );
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.maroon,
                           foregroundColor: Colors.white,
@@ -977,18 +1012,28 @@ class _TasksScreenState extends State<TasksScreen> {
                         ),
                         const SizedBox(width: 10),
                         GestureDetector(
-                          onTap: () {
+                          onTap: () async {
                             final value = controller.text.trim();
                             if (value.isNotEmpty) {
-                              state.addTaskCategory(value);
+                              final saved = await state.addTaskCategory(value);
+                              if (!ctx.mounted || !context.mounted) return;
                               controller.clear();
                               Navigator.pop(ctx);
                               showDialog(
                                 context: context,
                                 builder: (dialogContext) => AlertDialog(
-                                  title: const Text('Category Added'),
+                                  title: Text(
+                                    saved
+                                        ? 'Category Added'
+                                        : 'Category Not Added',
+                                  ),
                                   content: Text(
-                                    '"$value" has been added to task categories.',
+                                    saved
+                                        ? '"$value" has been added to task categories.'
+                                        : state.taskCategories.contains(value)
+                                        ? '"$value" is already a task category.'
+                                        : "Couldn't save \"$value\". Check your "
+                                              'connection and try again.',
                                   ),
                                   actions: [
                                     TextButton(

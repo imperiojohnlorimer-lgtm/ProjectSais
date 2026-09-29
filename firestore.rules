@@ -192,13 +192,15 @@ service cloud.firestore {
             == request.auth.token.email.lower()
         );
 
-      // Role/status changes (Accounts screen) stay Admin-only, with two
+      // Role/status changes (Accounts screen) stay Admin-only, with three
       // Head exceptions: approving an application (Applications screen)
       // promotes the applicant from Student to Student Assistant and records
-      // their SA ID and skills, and a rehire decision (Rehiring screen)
-      // either keeps a Student Assistant on or returns them to Student. A
-      // Head may only move a profile between those two roles, and may not
-      // change status or email.
+      // their SA ID and skills, a rehire decision (Rehiring screen) either
+      // keeps a Student Assistant on or returns them to Student, and
+      // archiving or restoring a student (Students screen) deactivates or
+      // reactivates their sign-in. A Head may only move a profile between
+      // those two roles and between Active and Archived, may not change its
+      // email, and may not touch a deleted account.
       //
       // Users editing their own profile may change their contact details,
       // photo, skills and year level — never their name, email, IDs or
@@ -226,8 +228,10 @@ service cloud.firestore {
           isHead()
           && resource.data.role in ['Student', 'Student Assistant']
           && request.resource.data.role in ['Student', 'Student Assistant']
-          && request.resource.data.status == resource.data.status
+          && request.resource.data.get('status', 'Active')
+            in ['Active', 'Archived']
           && request.resource.data.email == resource.data.email
+          && resource.data.get('deleted', false) == false
           && sameOr('deleted', false)
         );
 

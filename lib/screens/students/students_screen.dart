@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -22,8 +23,9 @@ class _StudentsScreenState extends State<StudentsScreen> {
     final state = context.watch<AppState>();
 
     // Use effectiveStudents so fallback Student Assistant users without a
-    // precise student document still appear in the student list.
-    final roleScoped = state.filteredStudents;
+    // precise student document still appear in the student list. Archived
+    // students are off that roster, so the archived view adds them back.
+    final roleScoped = [...state.filteredStudents, ...state.archivedStudents];
     final officeOptions = [
       'All Offices',
       ...state.currentUserOffices.map((office) => office.name),
@@ -470,6 +472,32 @@ class _StudentRow extends StatefulWidget {
 class _StudentRowState extends State<_StudentRow> {
   bool _hovered = false;
 
+  String _archiveWarning(Student s) =>
+      "Archive ${s.name}? They'll be signed out and won't be able to log in, "
+      "clock in, or do anything else, and they'll be removed from their "
+      'office. Their records are kept, and they can be restored later from '
+      'the archived list.';
+
+  /// Archives or restores [s], then says how it went: the roster only
+  /// changes once the save goes through.
+  Future<void> _setArchived(Student s, {required bool archive}) async {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final error = archive
+        ? await widget.state.archiveStudent(s.id)
+        : await widget.state.restoreStudent(s.id);
+    AppSnackBar.showWithMessenger(
+      messenger,
+      error ??
+          (archive
+              ? '${s.name} was archived and can no longer sign in.'
+              : '${s.name} was restored and can sign in again. Assign them '
+                    'an office from the Offices screen.'),
+      type: error == null ? SnackType.success : SnackType.error,
+      duration: const Duration(seconds: 5),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = widget.student;
@@ -593,15 +621,14 @@ class _StudentRowState extends State<_StudentRow> {
                   final ok = await showConfirmDialog(
                     context,
                     title: 'Archive Student',
-                    message:
-                        'Archive ${s.name}? They can be restored later from the archived list.',
+                    message: _archiveWarning(s),
                     confirmLabel: 'Archive',
                     confirmColor: AppTheme.amber500,
                   );
-                  if (ok) widget.state.archiveStudent(s.id);
+                  if (ok) await _setArchived(s, archive: true);
                 }
                 if (action == 'restore') {
-                  widget.state.restoreStudent(s.id);
+                  await _setArchived(s, archive: false);
                 }
               },
             ),
@@ -778,15 +805,14 @@ class _StudentRowState extends State<_StudentRow> {
                       final ok = await showConfirmDialog(
                         context,
                         title: 'Archive Student',
-                        message:
-                            'Archive ${s.name}? They can be restored later from the archived list.',
+                        message: _archiveWarning(s),
                         confirmLabel: 'Archive',
                         confirmColor: AppTheme.amber500,
                       );
-                      if (ok) widget.state.archiveStudent(s.id);
+                      if (ok) await _setArchived(s, archive: true);
                     }
                     if (action == 'restore') {
-                      widget.state.restoreStudent(s.id);
+                      await _setArchived(s, archive: false);
                     }
                   },
                 ),
@@ -1175,8 +1201,8 @@ class _StudentRowState extends State<_StudentRow> {
                             child: s.status == 'Archived'
                                 ? OutlinedButton.icon(
                                     onPressed: () {
-                                      widget.state.restoreStudent(s.id);
                                       Navigator.pop(context);
+                                      _setArchived(s, archive: false);
                                     },
                                     icon: const Icon(
                                       Icons.unarchive_outlined,
@@ -1210,12 +1236,12 @@ class _StudentRowState extends State<_StudentRow> {
                                       final ok = await showConfirmDialog(
                                         context,
                                         title: 'Archive Student',
-                                        message:
-                                            'Archive ${s.name}? Their records are kept and they can be restored later.',
+                                        message: _archiveWarning(s),
                                         confirmLabel: 'Archive',
                                         confirmColor: AppTheme.amber500,
                                       );
-                                      if (ok) widget.state.archiveStudent(s.id);
+                                      if (ok)
+                                        await _setArchived(s, archive: true);
                                     },
                                     icon: const Icon(
                                       Icons.archive_outlined,
@@ -1644,9 +1670,20 @@ class _StudentRowState extends State<_StudentRow> {
                     const SizedBox(width: 12),
                     Expanded(
                       child: ElevatedButton(
-                        onPressed: () {
-                          state.updateStudentDepartment(s.id, selected);
+                        onPressed: () async {
+                          final messenger = ScaffoldMessenger.of(context);
                           Navigator.pop(dialogContext);
+                          final error = await state.updateStudentDepartment(
+                            s.id,
+                            selected,
+                          );
+                          AppSnackBar.showWithMessenger(
+                            messenger,
+                            error ?? '${s.name} was moved to $selected.',
+                            type: error == null
+                                ? SnackType.success
+                                : SnackType.error,
+                          );
                         },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.maroon,

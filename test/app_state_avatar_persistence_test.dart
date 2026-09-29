@@ -23,6 +23,20 @@ class _ProfileStore extends FirestoreService {
   Future<List<User>> getAllUserProfiles() async => profiles.values.toList();
 }
 
+/// Records the task category lists the app saves.
+class _CategoryStore extends FirestoreService {
+  _CategoryStore({this.fail = false});
+
+  final bool fail;
+  final saved = <List<String>>[];
+
+  @override
+  Future<void> setTaskCategories(List<String> names) async {
+    if (fail) throw Exception('offline');
+    saved.add(names);
+  }
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -128,13 +142,38 @@ void main() {
   });
 
   group('task categories and checklist items', () {
-    test('addTaskCategory adds a new category to the available options', () {
-      final state = AppState();
+    test(
+      'addTaskCategory saves a new category to the available options',
+      () async {
+        final store = _CategoryStore();
+        final state = AppState(firestoreService: store);
 
-      state.addTaskCategory('Fieldwork');
+        expect(await state.addTaskCategory('Inventory'), isTrue);
 
-      expect(state.taskCategories, contains('Fieldwork'));
+        expect(state.taskCategories, contains('Inventory'));
+        expect(store.saved.single, contains('Inventory'));
+      },
+    );
+
+    test('addTaskCategory refuses a category that is already listed', () async {
+      final store = _CategoryStore();
+      final state = AppState(firestoreService: store);
+
+      expect(await state.addTaskCategory('Fieldwork'), isFalse);
+
+      expect(store.saved, isEmpty);
     });
+
+    test(
+      'addTaskCategory keeps the list unchanged when the save fails',
+      () async {
+        final state = AppState(firestoreService: _CategoryStore(fail: true));
+
+        expect(await state.addTaskCategory('Inventory'), isFalse);
+
+        expect(state.taskCategories, isNot(contains('Inventory')));
+      },
+    );
 
     test('tasks store category and checklist items', () {
       final task = Task(
@@ -171,10 +210,7 @@ void main() {
 
       expect(state.currentUser?.yearLevel, '4th Year');
       expect(store.profiles['u-year-level']?.yearLevel, '4th Year');
-      expect(
-        User.fromJson({'yearLevel': '2nd Year'}).yearLevel,
-        '2nd Year',
-      );
+      expect(User.fromJson({'yearLevel': '2nd Year'}).yearLevel, '2nd Year');
     });
   });
 

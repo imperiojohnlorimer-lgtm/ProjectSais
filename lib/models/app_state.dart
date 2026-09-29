@@ -660,6 +660,16 @@ class AppState extends ChangeNotifier {
         (list) =>
             classSchedules = list.map(ClassScheduleEntry.fromJson).toList(),
       );
+      // The built-in list applies until the Head first adds a category.
+      listen('Task categories', fs.docStream('meta', 'task_categories'), (
+        data,
+      ) {
+        final names = [
+          for (final name in data?['names'] as List<dynamic>? ?? const [])
+            if (name.toString().trim().isNotEmpty) name.toString(),
+        ];
+        if (names.isNotEmpty) taskCategories = names;
+      });
     }
 
     if (isHead) {
@@ -2183,27 +2193,22 @@ class AppState extends ChangeNotifier {
       announcements.where((a) => a.postedBy == currentUser?.name).toList();
 
   // ─── Students ────────────────────────────────────────
-  void updateStudentDepartment(String studentId, String newDepartment) {
-    students = students.map((s) {
-      if (s.id == studentId) {
-        return s.copyWith(department: newDepartment);
-      }
-      return s;
-    }).toList();
-    // Keep the linked user account's department in sync too, if any.
-    final student = students.firstWhere(
-      (s) => s.id == studentId,
-      orElse: () => Student(id: '', name: '', email: '', department: ''),
+  /// Moves a student to [newDepartment], on their students record and on
+  /// their linked account, saved together so the two never disagree.
+  /// Returns an error message, or null once it's saved; a refused save is
+  /// undone here.
+  Future<String?> updateStudentDepartment(
+    String studentId,
+    String newDepartment,
+  ) async {
+    final saved = await _saveStudentRecord(
+      studentId,
+      (s) => s.copyWith(department: newDepartment),
+      accountChange: (u) => u.copyWith(department: newDepartment),
     );
-    if (student.userId != null) {
-      users = users.map((u) {
-        if (u.id == student.userId) {
-          return u.copyWith(department: newDepartment);
-        }
-        return u;
-      }).toList();
-    }
-    notifyListeners();
+    return saved
+        ? null
+        : "Couldn't change the student's department. Please try again.";
   }
 
   // ─── Departments ───────────────────────────────────
@@ -2432,12 +2437,25 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  void addTaskCategory(String name) {
+  /// Adds a task category and saves the list, so it's there for every
+  /// Supervisor and after a reload. Returns whether it saved; a blank or
+  /// duplicate name is refused.
+  Future<bool> addTaskCategory(String name) async {
     final normalized = name.trim();
-    if (normalized.isNotEmpty && !taskCategories.contains(normalized)) {
-      taskCategories = [...taskCategories, normalized];
-      notifyListeners();
+    if (normalized.isEmpty || taskCategories.contains(normalized)) {
+      return false;
     }
+    final updated = [...taskCategories, normalized];
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTaskCategories(updated);
+    } catch (error) {
+      debugPrint('Failed to save task categories: $error');
+      return false;
+    }
+    taskCategories = updated;
+    notifyListeners();
+    return true;
   }
 
   Future<bool> addSkill(String name) async {
@@ -3488,19 +3506,248 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  void archiveStudent(String id) {
-    students = students
-        .map((s) => s.id == id ? s.copyWith(status: 'Archived') : s)
-        .toList();
-    notifyListeners();
+  /// Archives a student by deactivating their account — the same switch
+  /// the Admin's Accounts screen uses — so they're signed out and can't log
+  /// in, clock in, or change anything until restored. That alone takes
+  /// them off every roster (Students, Tasks, Schedule, DTR, evaluations)
+  /// and onto the Students screen's archived list; see [archivedStudents].
+  /// They're also taken off their office, whose supervisors are told.
+  /// Their records are kept. Returns an error message, or null once it's
+  /// done.
+  Future<String?> archiveStudent(String id) async {
+    const failed = "Couldn't archive the student. Please try again.";
+    final base = _studentRecordFor(id).base;
+    if (base == null) return failed;
+    final account = _accountForStudent(base);
+    if (account == null) {
+      // An old roster entry with no account: only the record can go.
+      final saved = await _saveStudentRecord(
+        id,
+        (s) => s.copyWith(status: 'Archived'),
+      );
+      return saved ? null : failed;
+    }
+    final memberOf = [
+      for (final office in offices)
+        if (office.hasAssistant(account.id, account.name)) office,
+    ];
+
+    if (!await _setAccountStatus(account, 'Archived')) return failed;
+    if (memberOf.isEmpty) return null;
+
+    try {
+      await _setAssistantOffice(account, null);
+    } catch (error) {
+      debugPrint('Failed to take ${account.id} off their office: $error');
+      return "${account.name} was archived, but couldn't be removed from "
+          '${memberOf.map((o) => o.name).join(', ')}. Remove them from the '
+          'Offices screen.';
+    }
+    for (final office in memberOf) {
+      _notifyOfficeUsers(
+        office.headIds,
+        title: 'Student Assistant Archived',
+        message:
+            '${account.name} was archived and removed from ${office.name}.',
+      );
+    }
+    return null;
   }
 
-  void restoreStudent(String id) {
-    students = students
-        .map((s) => s.id == id ? s.copyWith(status: 'Active') : s)
-        .toList();
-    notifyListeners();
+  /// Reactivates an archived student's account, which puts them back on
+  /// the roster and lets them sign in again — whether the Head or the
+  /// Admin archived them. Their office isn't restored; the Head assigns one
+  /// from the Offices screen. Only a Student Assistant comes back this way:
+  /// someone who wasn't rehired is a Student again, and returns through
+  /// the Rehiring screen or a new application instead. Returns an error
+  /// message, or null once it's saved.
+  Future<String?> restoreStudent(String id) async {
+    const failed = "Couldn't restore the student. Please try again.";
+    final record = students.where((s) => s.id == id).firstOrNull;
+    // Someone archived with no record is listed under their account id.
+    final account = record != null
+        ? _accountForStudent(record)
+        : users.where((u) => u.id == id).firstOrNull;
+    if (account != null && account.role != 'Student Assistant') {
+      return '${account.name} is no longer a Student Assistant. Rehire them '
+          'from the Rehiring screen instead.';
+    }
+    if (record != null && record.status == 'Archived') {
+      // Older data can have the record itself archived; it comes back too.
+      final saved = await _saveStudentRecord(
+        id,
+        (s) => s.copyWith(status: 'Active'),
+        accountChange: account?.status == 'Archived'
+            ? (u) => u.copyWith(status: 'Active')
+            : null,
+      );
+      return saved ? null : failed;
+    }
+    if (account == null) return failed;
+    return await _setAccountStatus(account, 'Active') ? null : failed;
   }
+
+  /// Saves [account] with [status]. Shown straight away; a save the
+  /// Firestore rules or the connection refuse is undone here and reported
+  /// as false.
+  Future<bool> _setAccountStatus(User account, String status) async {
+    final updated = account.copyWith(status: status);
+    final previousUsers = users;
+    users = [for (final u in users) u.id == account.id ? updated : u];
+    notifyListeners();
+    try {
+      await _saveUserProfile(updated);
+      return true;
+    } catch (error) {
+      debugPrint('Failed to set account ${account.id} to $status: $error');
+      users = previousUsers;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// The account a students record belongs to, by its userId or email.
+  User? _accountForStudent(Student s) => _accountLookup()(s);
+
+  /// Finds the account a students record belongs to, by its userId or
+  /// email. Build it once to look up a whole roster.
+  User? Function(Student) _accountLookup() {
+    final byId = {for (final u in users) u.id: u};
+    final byEmail = {for (final u in users) u.email.trim().toLowerCase(): u};
+    return (s) {
+      final byUserId = s.userId == null ? null : byId[s.userId];
+      if (byUserId != null) return byUserId;
+      final email = s.email.trim().toLowerCase();
+      return email.isEmpty ? null : byEmail[email];
+    };
+  }
+
+  /// The students record [id] as stored, or — for a Student Assistant
+  /// listed only from their account (see [effectiveStudents]) — the listing
+  /// to create one from. Null when there is neither.
+  ({Student? stored, Student? base}) _studentRecordFor(String id) {
+    final stored = students.where((s) => s.id == id).firstOrNull;
+    return (
+      stored: stored,
+      base: stored ?? effectiveStudents.where((s) => s.id == id).firstOrNull,
+    );
+  }
+
+  /// Applies [change] to the students record [id] — and [accountChange],
+  /// when given, to the account it belongs to — and saves both in one
+  /// write, so the two never disagree. Shown straight away; a save the
+  /// Firestore rules or the connection refuse is undone here and reported
+  /// as false, so the roster never shows a change that isn't on file.
+  Future<bool> _saveStudentRecord(
+    String id,
+    Student Function(Student) change, {
+    User Function(User)? accountChange,
+  }) async {
+    final (:stored, :base) = _studentRecordFor(id);
+    if (base == null) return false;
+    final updated = change(base);
+    final account = accountChange == null ? null : _accountForStudent(updated);
+    final updatedAccount = account == null ? null : accountChange!(account);
+
+    final previousStudents = students;
+    final previousUsers = users;
+    students = stored == null
+        ? [...students, updated]
+        : [for (final s in students) s.id == id ? updated : s];
+    if (updatedAccount != null) {
+      users = [
+        for (final u in users) u.id == updatedAccount.id ? updatedAccount : u,
+      ];
+    }
+    notifyListeners();
+
+    try {
+      _firestoreService ??= FirestoreService();
+      if (updatedAccount == null) {
+        await _firestoreService!.setStudent(updated);
+      } else {
+        await _firestoreService!.setStudentWithProfile(updated, updatedAccount);
+      }
+      return true;
+    } catch (error) {
+      debugPrint('Failed to save students record $id: $error');
+      students = previousStudents;
+      users = previousUsers;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Students who are archived — their account deactivated by the Head or
+  /// the Admin, or their record archived because they weren't rehired —
+  /// scoped like [filteredStudents]. They're left off every other roster;
+  /// the Students screen lists them separately.
+  List<Student> get archivedStudents => switch (role) {
+    'Head' => _archivedStudentRecords(),
+    'Supervisor' =>
+      _archivedStudentRecords().where(_studentBelongsToCurrentOffice).toList(),
+    _ => const [],
+  };
+
+  /// Everyone off the roster for being archived, one entry each, filled in
+  /// from their account and marked Archived. Someone with an active record
+  /// and account is on the roster instead.
+  List<Student> _archivedStudentRecords() {
+    final accountOf = _accountLookup();
+    final onRoster = <String>{};
+    final archived = <Student>[];
+    for (final s in students) {
+      final account = accountOf(s);
+      if (s.status != 'Archived' && account?.status != 'Archived') {
+        onRoster.addAll([s.id, ?s.userId, ?account?.id]);
+      } else {
+        archived.add(
+          _withAccountDetails(s, account).copyWith(status: 'Archived'),
+        );
+      }
+    }
+    final listed = <String>{};
+    final result = [
+      for (final s in archived)
+        if (!onRoster.contains(s.id) &&
+            !onRoster.contains(s.userId) &&
+            listed.add(s.userId ?? s.id))
+          s,
+    ];
+    // An archived Student Assistant who never had a record.
+    for (final u in users) {
+      if (u.role != 'Student Assistant' ||
+          u.status != 'Archived' ||
+          onRoster.contains(u.id) ||
+          !listed.add(u.id)) {
+        continue;
+      }
+      result.add(
+        Student(
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          department: u.department ?? '',
+          campus: u.campus,
+          status: 'Archived',
+          phone: u.phone,
+          address: u.address,
+          avatar: u.avatar,
+          userId: u.id,
+        ),
+      );
+    }
+    return result;
+  }
+
+  Student _withAccountDetails(Student s, User? account) => s.copyWith(
+    name: account?.name,
+    email: account?.email,
+    department: s.department.isNotEmpty ? null : account?.department,
+    campus: s.campus ?? account?.campus,
+    avatar: s.avatar ?? account?.avatar,
+    userId: s.userId ?? account?.id,
+  );
 
   void deleteStudent(String id) {
     students = students.where((s) => s.id != id).toList();
@@ -3847,7 +4094,10 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Tasks CRUD ────────────────────────────────────
-  Future<void> addTask(Task task) async {
+  /// Assigns a task. Shown straight away, then saved; a save the Firestore
+  /// rules or the connection refuse is undone here and reported as false,
+  /// and only a saved task notifies the student.
+  Future<bool> addTask(Task task) async {
     task = Task(
       id: task.id,
       title: task.title,
@@ -3867,8 +4117,20 @@ class AppState extends ChangeNotifier {
           ? (task.completedAt ?? _formattedToday())
           : null,
     );
-    // Optimistically update local state for immediate UI feedback.
+    final previousTasks = tasks;
     tasks = [task, ...tasks];
+    notifyListeners();
+
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTask(task);
+    } catch (error) {
+      debugPrint('Failed to save task: $error');
+      tasks = previousTasks;
+      notifyListeners();
+      return false;
+    }
+
     if (task.assignedTo != null) {
       // assignedTo is a roster id; older roster entries keep the student's
       // account id in userId instead, and notifications go by account.
@@ -3888,15 +4150,9 @@ class AppState extends ChangeNotifier {
           createdAt: _formattedToday(),
         ),
       );
+      notifyListeners();
     }
-    notifyListeners();
-
-    try {
-      _firestoreService ??= FirestoreService();
-      await _firestoreService!.setTask(task);
-    } catch (_) {
-      // Firestore not available — keep local state.
-    }
+    return true;
   }
 
   /// Changes a task's status. Shown straight away, then saved; a save the
@@ -3989,19 +4245,30 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  Future<void> deleteTask(String id) async {
+  /// Deletes a task. Returns whether it was deleted; a refused delete is
+  /// undone here, so the task doesn't vanish only to come back on reload.
+  Future<bool> deleteTask(String id) async {
+    final previousTasks = tasks;
     tasks = tasks.where((t) => t.id != id).toList();
     notifyListeners();
 
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.deleteTask(id);
-    } catch (_) {}
+      return true;
+    } catch (error) {
+      debugPrint('Failed to delete task: $error');
+      tasks = previousTasks;
+      notifyListeners();
+      return false;
+    }
   }
 
-  Future<void> setTaskArchived(String id, bool isArchived) async {
+  /// Archives or restores a task. Returns whether it saved; a refused save
+  /// is undone here.
+  Future<bool> setTaskArchived(String id, bool isArchived) async {
     final index = tasks.indexWhere((task) => task.id == id);
-    if (index < 0) return;
+    if (index < 0) return false;
     final task = tasks[index];
     final updated = Task(
       id: task.id,
@@ -4019,12 +4286,19 @@ class AppState extends ChangeNotifier {
       academicYear: task.academicYear,
       completedAt: task.completedAt,
     );
+    final previousTasks = tasks;
     tasks = [...tasks]..[index] = updated;
     notifyListeners();
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.setTask(updated);
-    } catch (_) {}
+      return true;
+    } catch (error) {
+      debugPrint('Failed to archive task: $error');
+      tasks = previousTasks;
+      notifyListeners();
+      return false;
+    }
   }
 
   // ─── Reports CRUD ──────────────────────────────────
@@ -4902,7 +5176,6 @@ class AppState extends ChangeNotifier {
       .toList();
 
   List<Student> get effectiveStudents {
-    final userById = {for (final u in users) u.id: u};
     double hoursFor(Set<String> ids, Set<String> names) {
       final normalizedNames = names
           .where((name) => name.trim().isNotEmpty)
@@ -4923,47 +5196,56 @@ class AppState extends ChangeNotifier {
           .fold<double>(0, (sum, record) => sum + (record.totalHours ?? 0));
     }
 
-    final activeStudents = students.where((s) => s.status != 'Archived').map((
-      s,
-    ) {
-      User? user = s.userId == null ? null : userById[s.userId];
-      user ??= users.cast<User?>().firstWhere(
-        (candidate) =>
-            candidate?.email.trim().toLowerCase() ==
-            s.email.trim().toLowerCase(),
-        orElse: () => null,
-      );
-      final identityIds = {
-        s.id,
-        if (s.userId != null) s.userId!,
-        if (user != null) user.id,
-      };
-      final hours = hoursFor(identityIds, {
-        s.name,
-        if (user != null) user.name,
-      });
-      return s.copyWith(
-        name: user?.name,
-        email: user?.email,
-        department: s.department.isNotEmpty ? s.department : user?.department,
-        campus: s.campus ?? user?.campus,
-        totalHours: hours > 0 ? hours : s.totalHours,
-        phone: s.phone ?? user?.phone,
-        address: s.address ?? user?.address,
-        avatar: s.avatar ?? user?.avatar,
-        userId: s.userId ?? user?.id,
-      );
-    }).toList();
+    // An archived account keeps its owner off the roster whatever their
+    // record says: they're on [archivedStudents] instead.
+    final accountOf = _accountLookup();
+    final activeStudents = students
+        .where(
+          (s) => s.status != 'Archived' && accountOf(s)?.status != 'Archived',
+        )
+        .map((s) {
+          final user = accountOf(s);
+          final identityIds = {
+            s.id,
+            if (s.userId != null) s.userId!,
+            if (user != null) user.id,
+          };
+          final hours = hoursFor(identityIds, {
+            s.name,
+            if (user != null) user.name,
+          });
+          return s.copyWith(
+            name: user?.name,
+            email: user?.email,
+            department: s.department.isNotEmpty
+                ? s.department
+                : user?.department,
+            campus: s.campus ?? user?.campus,
+            totalHours: hours > 0 ? hours : s.totalHours,
+            phone: s.phone ?? user?.phone,
+            address: s.address ?? user?.address,
+            avatar: s.avatar ?? user?.avatar,
+            userId: s.userId ?? user?.id,
+          );
+        })
+        .toList();
 
     final existingStudentIds = {
       for (final s in activeStudents) s.userId ?? s.id,
+    };
+    // Archived students stay off the roster — they're on [archivedStudents]
+    // — rather than coming back below as active.
+    final archivedRecords = _archivedStudentRecords();
+    final archivedIds = {
+      for (final s in archivedRecords) ...[s.id, ?s.userId],
     };
 
     final fallback = users
         .where((u) => u.role == 'Student Assistant' && u.status != 'Archived')
         .where((u) {
           final key = u.id;
-          return !existingStudentIds.contains(key);
+          return !existingStudentIds.contains(key) &&
+              !archivedIds.contains(key);
         })
         .map((u) {
           return Student(
@@ -4985,8 +5267,11 @@ class AppState extends ChangeNotifier {
         .toList();
 
     final combined = [...activeStudents, ...fallback];
+    // Archived students count as known, so an office that still lists one
+    // doesn't bring them back below.
     final knownNames = {
-      for (final student in combined) student.name.trim().toLowerCase(),
+      for (final student in [...combined, ...archivedRecords])
+        student.name.trim().toLowerCase(),
     };
     for (final office in _supervisedOffices) {
       for (var index = 0; index < office.assistantIds.length; index++) {
@@ -5002,6 +5287,7 @@ class AppState extends ChangeNotifier {
                   assistantName.trim().toLowerCase(),
           orElse: () => null,
         );
+        if (linkedUser?.status == 'Archived') continue;
         combined.add(
           Student(
             id: assistantId,
@@ -5027,6 +5313,7 @@ class AppState extends ChangeNotifier {
               assistantName.trim().toLowerCase(),
           orElse: () => null,
         );
+        if (linkedUser?.status == 'Archived') continue;
         combined.add(
           Student(
             id: linkedUser?.id ?? assistantName,

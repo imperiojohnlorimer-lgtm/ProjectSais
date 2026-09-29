@@ -943,24 +943,36 @@ class FirestoreService {
     return snap.docs.map((doc) => doc.id).toList();
   }
 
+  Map<String, dynamic> _studentData(Student s) => {
+    'name': s.name,
+    'email': s.email,
+    'department': s.department,
+    'campus': s.campus,
+    'status': s.status,
+    'totalHours': s.totalHours,
+    'phone': s.phone,
+    'address': s.address,
+    'avatar': s.avatar,
+    'userId': s.userId,
+  }..removeWhere((k, v) => v == null);
+
   Future<void> setStudent(Student s) async {
-    final data = {
-      'name': s.name,
-      'email': s.email,
-      'department': s.department,
-      'campus': s.campus,
-      'status': s.status,
-      'totalHours': s.totalHours,
-      'phone': s.phone,
-      'address': s.address,
-      'avatar': s.avatar,
-      'userId': s.userId,
-    }..removeWhere((k, v) => v == null);
+    final data = _studentData(s);
     if (s.id.isNotEmpty) {
       await _students.doc(s.id).set(data);
     } else {
       await _students.add(data);
     }
+  }
+
+  /// Saves a students record and its account's profile in one write, so a
+  /// change to both (a student moved to another department) never lands on
+  /// only one of them.
+  Future<void> setStudentWithProfile(Student s, User profile) async {
+    final batch = _db.batch();
+    batch.set(_students.doc(s.id), _studentData(s));
+    batch.set(_users.doc(profile.id), profile.toJson());
+    await batch.commit();
   }
 
   Future<void> deleteStudent(String id) async {
@@ -1567,6 +1579,11 @@ class FirestoreService {
 
   Future<void> setHeadIds(List<String> ids) async {
     await _db.collection('meta').doc('heads').set({'ids': ids});
+  }
+
+  /// The task categories the Head manages, in meta/task_categories.
+  Future<void> setTaskCategories(List<String> names) async {
+    await _db.collection('meta').doc('task_categories').set({'names': names});
   }
 
   // Documents
