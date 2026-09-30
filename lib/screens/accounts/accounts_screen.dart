@@ -1279,6 +1279,18 @@ class _AccountsScreenState extends State<AccountsScreen>
     );
   }
 
+  /// Two dialog fields side by side, or stacked on a phone.
+  Widget _dialogPair(bool isMobile, Widget left, Widget right) => isMobile
+      ? Column(children: [left, const SizedBox(height: 12), right])
+      : Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: left),
+            const SizedBox(width: 12),
+            Expanded(child: right),
+          ],
+        );
+
   Widget _dialogField(
     String label,
     TextEditingController ctrl,
@@ -1323,7 +1335,12 @@ class _AccountsScreenState extends State<AccountsScreen>
   }) async {
     final isEditing = user != null;
     final isMobile = MediaQuery.of(context).size.width < 600;
-    final nameCtrl = TextEditingController(text: user?.name ?? '');
+    // An account made before names were split starts from a guess.
+    final nameParts = user?.nameParts ?? PersonName();
+    final firstNameCtrl = TextEditingController(text: nameParts.first);
+    final middleNameCtrl = TextEditingController(text: nameParts.middle);
+    final lastNameCtrl = TextEditingController(text: nameParts.last);
+    var suffix = nameParts.suffix;
     final emailCtrl = TextEditingController(text: user?.email ?? '');
     final passwordCtrl = TextEditingController();
     final phoneCtrl = TextEditingController(text: user?.phone ?? '');
@@ -1356,7 +1373,44 @@ class _AccountsScreenState extends State<AccountsScreen>
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  _dialogField('Full name *', nameCtrl, Icons.person_outline),
+                  if (user != null && !user.hasNameParts) ...[
+                    _NameGuessNote(name: user.name),
+                    const SizedBox(height: 12),
+                  ],
+                  _dialogPair(
+                    isMobile,
+                    _dialogField(
+                      'First name *',
+                      firstNameCtrl,
+                      Icons.person_outline,
+                      formatter: nameFormatter,
+                    ),
+                    _dialogField(
+                      'Middle name',
+                      middleNameCtrl,
+                      Icons.person_outline,
+                      formatter: nameFormatter,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _dialogPair(
+                    isMobile,
+                    _dialogField(
+                      'Last name *',
+                      lastNameCtrl,
+                      Icons.person_outline,
+                      formatter: nameFormatter,
+                    ),
+                    _accountDropdown(
+                      'Suffix',
+                      suffix.isEmpty ? 'None' : suffix,
+                      ['None', ...PersonName.suffixes],
+                      (value) => setDialogState(
+                        () => suffix = value == 'None' ? '' : value,
+                      ),
+                      Icons.person_add_alt_outlined,
+                    ),
+                  ),
                   const SizedBox(height: 12),
                   _dialogField(
                     'Email *',
@@ -1474,22 +1528,29 @@ class _AccountsScreenState extends State<AccountsScreen>
             ),
             ElevatedButton(
               onPressed: () async {
-                if (nameCtrl.text.trim().isEmpty ||
-                    emailCtrl.text.trim().isEmpty ||
-                    (!isEditing && passwordCtrl.text.length < 6))
-                  return;
+                final name = PersonName(
+                  first: firstNameCtrl.text,
+                  middle: middleNameCtrl.text,
+                  last: lastNameCtrl.text,
+                  suffix: suffix,
+                );
                 final phone = phoneCtrl.text.trim();
                 final studentId = studentIdCtrl.text.trim().toUpperCase();
-                final formatError = phone.isNotEmpty &&
-                        !isValidPhoneNumber(phone)
+                final problem = !name.isComplete
+                    ? 'Enter the first and last name.'
+                    : emailCtrl.text.trim().isEmpty
+                    ? 'Enter the email address.'
+                    : !isEditing && passwordCtrl.text.length < 6
+                    ? 'The temporary password needs at least 6 characters.'
+                    : phone.isNotEmpty && !isValidPhoneNumber(phone)
                     ? 'Enter a valid phone number, e.g. 09XX XXX XXXX.'
                     : studentId.isNotEmpty && !isValidStudentId(studentId)
                     ? 'Enter a valid Student ID, e.g. 23B0626.'
                     : null;
-                if (formatError != null) {
+                if (problem != null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text(formatError),
+                      content: Text(problem),
                       backgroundColor: AppTheme.red500,
                       behavior: SnackBarBehavior.floating,
                       shape: RoundedRectangleBorder(
@@ -1503,7 +1564,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                 final managedUser =
                     (user ?? User(id: '', name: '', email: '', role: role))
                         .copyWith(
-                          name: nameCtrl.text.trim(),
+                          nameParts: name,
                           role: role,
                           department: department,
                           campus: campus,
@@ -1520,7 +1581,11 @@ class _AccountsScreenState extends State<AccountsScreen>
                   error = await state.createManagedUser(
                     User(
                       id: '',
-                      name: nameCtrl.text.trim(),
+                      name: name.display,
+                      firstName: name.first,
+                      middleName: name.middle,
+                      lastName: name.last,
+                      suffix: name.suffix,
                       email: emailCtrl.text.trim().toLowerCase(),
                       role: role,
                       department: department,
@@ -1558,7 +1623,9 @@ class _AccountsScreenState extends State<AccountsScreen>
         ),
       ),
     );
-    nameCtrl.dispose();
+    firstNameCtrl.dispose();
+    middleNameCtrl.dispose();
+    lastNameCtrl.dispose();
     emailCtrl.dispose();
     passwordCtrl.dispose();
     phoneCtrl.dispose();
@@ -2098,6 +2165,59 @@ class _ColHeader extends StatelessWidget {
   );
 }
 
+/// Marks an account whose name is still one line, from before names were
+/// split into parts: the payroll can't print it surname first until the
+/// Admin fills in the parts.
+class _SplitNameTag extends StatelessWidget {
+  const _SplitNameTag();
+
+  @override
+  Widget build(BuildContext context) => Tooltip(
+    message:
+        "This name isn't split into first, middle and last name yet. "
+        'Edit the account to fill them in.',
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppTheme.blue50,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: const Text(
+        'Split name',
+        style: TextStyle(
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          color: AppTheme.blue500,
+        ),
+      ),
+    ),
+  );
+}
+
+/// Above the name fields when editing an account that had only a full
+/// name: the parts were guessed from it and need checking.
+class _NameGuessNote extends StatelessWidget {
+  final String name;
+
+  const _NameGuessNote({required this.name});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.all(12),
+    decoration: BoxDecoration(
+      color: AppTheme.blue50,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Text(
+      'This account was saved with one full name, "$name". The parts below '
+      'are a guess from it: check them, and type the whole middle name if '
+      'only its initial is there.',
+      style: const TextStyle(fontSize: 12, color: AppTheme.slate700),
+    ),
+  );
+}
+
 // ΓöÇΓöÇ Account row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 class _AccountRow extends StatefulWidget {
   final User user;
@@ -2282,12 +2402,15 @@ class _AccountRowState extends State<_AccountRow> {
                 children: [
                   Row(
                     children: [
-                      Text(
-                        u.name,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14,
-                          color: AppTheme.slate900,
+                      Flexible(
+                        child: Text(
+                          u.name,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14,
+                            color: AppTheme.slate900,
+                          ),
                         ),
                       ),
                       if (isSelf) ...[
@@ -2310,6 +2433,10 @@ class _AccountRowState extends State<_AccountRow> {
                             ),
                           ),
                         ),
+                      ],
+                      if (!u.hasNameParts) ...[
+                        const SizedBox(width: 6),
+                        const _SplitNameTag(),
                       ],
                       if (u.status == 'Archived') ...[
                         const SizedBox(width: 6),
@@ -2627,6 +2754,11 @@ class _AccountRowState extends State<_AccountRow> {
                         color: AppTheme.slate500,
                       ),
                     ),
+                    // On its own line: a phone has no room beside the name.
+                    if (!u.hasNameParts) ...[
+                      const SizedBox(height: 4),
+                      const _SplitNameTag(),
+                    ],
                   ],
                 ),
               ),

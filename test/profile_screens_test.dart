@@ -48,19 +48,24 @@ void main() {
   }
 
   // The breakpoints the profile layout switches on, plus the extremes.
-  const widths = [320.0, 390.0, 519.0, 520.0, 640.0, 899.0, 900.0, 1280.0,
-      1920.0];
+  const widths = [
+    320.0,
+    390.0,
+    519.0,
+    520.0,
+    640.0,
+    899.0,
+    900.0,
+    1280.0,
+    1920.0,
+  ];
 
   group('ProfileScreen', () {
     for (final width in widths) {
       testWidgets('lays out without overflow at ${width.toInt()}px', (
         tester,
       ) async {
-        await pumpScreen(
-          tester,
-          const ProfileScreen(),
-          Size(width, 1400),
-        );
+        await pumpScreen(tester, const ProfileScreen(), Size(width, 1400));
         expect(tester.takeException(), isNull);
         expect(find.textContaining("Juan dela Cruz's Profile"), findsOneWidget);
       });
@@ -144,12 +149,40 @@ void main() {
       );
       await tester.tap(find.text('Edit profile'));
       await tester.pumpAndSettle();
-      expect(find.byType(ProfileTextField), findsNWidgets(3));
-      expect(find.text('FULL NAME'), findsOneWidget);
+      // First, middle and last name, phone and address, and a suffix.
+      expect(find.byType(ProfileTextField), findsNWidgets(5));
+      expect(find.byType(ProfileDropdownField), findsOneWidget);
+      expect(find.text('FIRST NAME'), findsOneWidget);
+      expect(find.text('LAST NAME'), findsOneWidget);
       expect(
         find.text('To change your name, ask an administrator.'),
         findsNothing,
       );
+    });
+
+    testWidgets("an unsplit name starts from a guess at its parts", (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        const ProfileScreen(),
+        const Size(1280, 1400),
+        user: _user(role: 'Admin'),
+      );
+      await tester.tap(find.text('Edit profile'));
+      await tester.pumpAndSettle();
+      String textOf(String label) => tester
+          .widget<TextField>(
+            find.descendant(
+              of: find.widgetWithText(ProfileTextField, label),
+              matching: find.byType(TextField),
+            ),
+          )
+          .controller!
+          .text;
+      expect(textOf('FIRST NAME'), 'Juan');
+      expect(textOf('MIDDLE NAME'), '');
+      expect(textOf('LAST NAME'), 'dela Cruz');
     });
 
     testWidgets('the avatar carries a change-photo control', (tester) async {
@@ -166,9 +199,7 @@ void main() {
       await tester.pumpWidget(
         ChangeNotifierProvider<AppState>(
           create: (_) => AppState(),
-          child: const MaterialApp(
-            home: Scaffold(body: ProfileScreen()),
-          ),
+          child: const MaterialApp(home: Scaffold(body: ProfileScreen())),
         ),
       );
       await tester.pumpAndSettle();
@@ -210,9 +241,7 @@ void main() {
       return () => taps;
     }
 
-    testWidgets('tapping the picture itself asks to change it', (
-      tester,
-    ) async {
+    testWidgets('tapping the picture itself asks to change it', (tester) async {
       final taps = await pumpCard(tester);
       await tester.tap(find.byType(UserAvatar));
       await tester.pumpAndSettle();
@@ -230,9 +259,7 @@ void main() {
       expect(taps(), 1);
     });
 
-    testWidgets('shows a spinner over the avatar while saving', (
-      tester,
-    ) async {
+    testWidgets('shows a spinner over the avatar while saving', (tester) async {
       await pumpCard(tester, uploading: true);
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
       expect(find.byIcon(Icons.hourglass_top_rounded), findsOneWidget);

@@ -244,13 +244,19 @@ class _PayrollScreenState extends State<PayrollScreen> {
   /// Rows for the printed payroll, straight from the system: every student
   /// in the period who can be paid (Ready, Approved or Released), across all
   /// campuses. Incomplete students can't be paid, so they're left off.
+  /// Names are surname first, "Dela Cruz, Juan S.", from each account's
+  /// name parts; an account whose name isn't split yet, or that's gone,
+  /// keeps its name as saved.
   List<PayrollSheetEntry> _systemEntries(AppState state) {
     final start = _isoDate(_start);
     final end = _isoDate(_end);
+    final usersById = {for (final u in state.users) u.id: u};
     return PayrollSheet.fromRecords(
       periodStart: start,
       periodEnd: end,
       periodLabel: _periodLabel,
+      nameOf: (record) =>
+          usersById[record.studentId]?.surnameFirstName ?? record.studentName,
       records: state
           .buildPayrollPreview(
             start: _start,

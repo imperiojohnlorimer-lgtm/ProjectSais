@@ -54,12 +54,13 @@ class PayrollSheetEntry {
   });
 
   /// Hours are the payable ones (capped at 40 a month), so hours × rate
-  /// always matches the amount the system approved.
-  factory PayrollSheetEntry.fromRecord(PayrollRecord record) =>
+  /// always matches the amount the system approved. [name] replaces the
+  /// record's own, which is the name as the app shows it.
+  factory PayrollSheetEntry.fromRecord(PayrollRecord record, {String? name}) =>
       PayrollSheetEntry(
         studentId: record.studentId,
         campus: (record.campus ?? '').trim(),
-        name: record.studentName,
+        name: name ?? record.studentName,
         hoursWorked: record.payableHours,
         remarks: monthsWorkedLabel(record.monthlyBreakdown),
       );
@@ -184,12 +185,15 @@ class PayrollSheet {
   /// entity name, fund cluster and signatories rarely change, so they carry
   /// over from [previous] (the last sheet the Admin saved) when there is one.
   /// The payroll number is unique to each payroll, so it always starts blank.
+  /// [nameOf] gives each row's name as printed (surname first); without it
+  /// rows keep the records' names.
   factory PayrollSheet.fromRecords({
     required String periodStart,
     required String periodEnd,
     required String periodLabel,
     required List<PayrollRecord> records,
     PayrollSheet? previous,
+    String Function(PayrollRecord record)? nameOf,
   }) => PayrollSheet(
     id: idForPeriod(periodStart, periodEnd),
     periodStart: periodStart,
@@ -197,12 +201,15 @@ class PayrollSheet {
     periodLabel: periodLabel,
     entityName: previous?.entityName ?? defaultEntityName,
     fundCluster: previous?.fundCluster ?? '',
-    entries: records.map(PayrollSheetEntry.fromRecord).toList()
-      ..sort(
-        (a, b) => a.campus != b.campus
-            ? a.campus.compareTo(b.campus)
-            : a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      ),
+    entries:
+        [
+          for (final record in records)
+            PayrollSheetEntry.fromRecord(record, name: nameOf?.call(record)),
+        ]..sort(
+          (a, b) => a.campus != b.campus
+              ? a.campus.compareTo(b.campus)
+              : a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        ),
     signatories: previous?.signatories ?? defaultSignatories,
   );
 

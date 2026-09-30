@@ -635,6 +635,7 @@ class ProfileTextField extends StatelessWidget {
   final IconData icon;
   final TextInputType? keyboardType;
   final List<TextInputFormatter>? inputFormatters;
+  final TextCapitalization textCapitalization;
 
   const ProfileTextField({
     super.key,
@@ -643,7 +644,102 @@ class ProfileTextField extends StatelessWidget {
     required this.icon,
     this.keyboardType,
     this.inputFormatters,
+    this.textCapitalization = TextCapitalization.none,
   });
+
+  @override
+  Widget build(BuildContext context) {
+    return _ProfileEditField(
+      label: label,
+      child: TextField(
+        controller: controller,
+        keyboardType: keyboardType,
+        inputFormatters: inputFormatters,
+        textCapitalization: textCapitalization,
+        style: _profileEditStyle,
+        decoration: _profileEditDecoration(icon),
+      ),
+    );
+  }
+}
+
+/// A choice from [options], styled like [ProfileTextField]. Each option is
+/// shown as [labelOf] gives it.
+class ProfileDropdownField extends StatelessWidget {
+  final String label;
+  final String value;
+  final List<String> options;
+  final String Function(String option) labelOf;
+  final ValueChanged<String> onChanged;
+  final IconData icon;
+
+  const ProfileDropdownField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+    required this.icon,
+    this.labelOf = _asIs,
+  });
+
+  static String _asIs(String option) => option;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ProfileEditField(
+      label: label,
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        isExpanded: true,
+        isDense: true,
+        style: _profileEditStyle,
+        decoration: _profileEditDecoration(icon),
+        items: [
+          for (final option in options)
+            DropdownMenuItem(value: option, child: Text(labelOf(option))),
+        ],
+        onChanged: (next) {
+          if (next != null) onChanged(next);
+        },
+      ),
+    );
+  }
+}
+
+const _profileEditStyle = TextStyle(
+  fontSize: 13,
+  color: AppTheme.slate800,
+  fontWeight: FontWeight.w500,
+);
+
+InputDecoration _profileEditDecoration(IconData icon) => InputDecoration(
+  isDense: true,
+  prefixIcon: Icon(icon, color: AppTheme.maroon, size: 17),
+  prefixIconConstraints: const BoxConstraints(minWidth: 38),
+  border: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(10),
+    borderSide: const BorderSide(color: AppTheme.slate200),
+  ),
+  enabledBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(10),
+    borderSide: const BorderSide(color: AppTheme.slate200),
+  ),
+  focusedBorder: OutlineInputBorder(
+    borderRadius: BorderRadius.circular(10),
+    borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
+  ),
+  filled: true,
+  fillColor: Colors.white,
+  contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+);
+
+/// A small upper-case label over an editable profile field.
+class _ProfileEditField extends StatelessWidget {
+  final String label;
+  final Widget child;
+
+  const _ProfileEditField({required this.label, required this.child});
 
   @override
   Widget build(BuildContext context) {
@@ -661,39 +757,7 @@ class ProfileTextField extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          keyboardType: keyboardType,
-          inputFormatters: inputFormatters,
-          style: const TextStyle(
-            fontSize: 13,
-            color: AppTheme.slate800,
-            fontWeight: FontWeight.w500,
-          ),
-          decoration: InputDecoration(
-            isDense: true,
-            prefixIcon: Icon(icon, color: AppTheme.maroon, size: 17),
-            prefixIconConstraints: const BoxConstraints(minWidth: 38),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppTheme.slate200),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppTheme.slate200),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(10),
-              borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
-            ),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 13,
-            ),
-          ),
-        ),
+        child,
       ],
     );
   }

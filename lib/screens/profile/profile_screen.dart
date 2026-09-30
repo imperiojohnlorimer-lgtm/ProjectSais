@@ -18,7 +18,11 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isEditing = false;
   bool _isUploadingPhoto = false;
-  late TextEditingController _nameCtrl;
+  late TextEditingController _firstNameCtrl;
+  late TextEditingController _middleNameCtrl;
+  late TextEditingController _lastNameCtrl;
+  // Empty for none.
+  String _suffix = '';
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
   bool _hasInitializedControllers = false;
@@ -26,7 +30,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _nameCtrl = TextEditingController();
+    _firstNameCtrl = TextEditingController();
+    _middleNameCtrl = TextEditingController();
+    _lastNameCtrl = TextEditingController();
     _phoneCtrl = TextEditingController();
     _addressCtrl = TextEditingController();
   }
@@ -37,7 +43,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!_hasInitializedControllers) {
       final user = context.watch<AppState>().currentUser;
       if (user != null) {
-        _nameCtrl.text = user.name;
+        // A name saved before names were split starts from a guess.
+        final name = user.nameParts;
+        _firstNameCtrl.text = name.first;
+        _middleNameCtrl.text = name.middle;
+        _lastNameCtrl.text = name.last;
+        _suffix = name.suffix;
         _phoneCtrl.text = user.phone ?? '';
         _addressCtrl.text = user.address ?? '';
         _hasInitializedControllers = true;
@@ -47,7 +58,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _middleNameCtrl.dispose();
+    _lastNameCtrl.dispose();
     _phoneCtrl.dispose();
     _addressCtrl.dispose();
     super.dispose();
@@ -115,28 +128,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
   /// rules refuse a self-chosen name from anyone else.
   bool _canEditName(AppState state) => state.role == 'Admin';
 
+  void _showProblem(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.red500,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
   void _toggleEditing() {
     if (_isEditing) {
-      final phone = _phoneCtrl.text.trim();
-      if (phone.isNotEmpty && !isValidPhoneNumber(phone)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text(
-              'Enter a valid phone number, e.g. 09XX XXX XXXX.',
-            ),
-            backgroundColor: AppTheme.red500,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
+      final state = context.read<AppState>();
+      final name = PersonName(
+        first: _firstNameCtrl.text,
+        middle: _middleNameCtrl.text,
+        last: _lastNameCtrl.text,
+        suffix: _suffix,
+      );
+      if (_canEditName(state) && !name.isComplete) {
+        _showProblem('Enter your first and last name.');
         return;
       }
-      final state = context.read<AppState>();
+      final phone = _phoneCtrl.text.trim();
+      if (phone.isNotEmpty && !isValidPhoneNumber(phone)) {
+        _showProblem('Enter a valid phone number, e.g. 09XX XXX XXXX.');
+        return;
+      }
       state.updateProfile(
-        name: _canEditName(state) ? _nameCtrl.text.trim() : null,
+        nameParts: _canEditName(state) ? name : null,
         phone: _phoneCtrl.text.trim(),
         address: _addressCtrl.text.trim(),
         yearLevel: state.currentUser?.yearLevel,
@@ -325,10 +348,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (canEditName) ...[
-          ProfileTextField(
-            label: 'Full name',
-            controller: _nameCtrl,
-            icon: Icons.person_outline,
+          _nameField('First name', _firstNameCtrl),
+          const SizedBox(height: 16),
+          _nameField('Middle name', _middleNameCtrl),
+          const SizedBox(height: 16),
+          _nameField('Last name', _lastNameCtrl),
+          const SizedBox(height: 16),
+          ProfileDropdownField(
+            label: 'Suffix',
+            value: _suffix,
+            options: const ['', ...PersonName.suffixes],
+            labelOf: (s) => s.isEmpty ? 'None' : s,
+            onChanged: (s) => setState(() => _suffix = s),
+            icon: Icons.person_add_alt_outlined,
           ),
           const SizedBox(height: 16),
         ] else ...[
@@ -354,6 +386,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ],
     );
   }
+
+  Widget _nameField(String label, TextEditingController controller) =>
+      ProfileTextField(
+        label: label,
+        controller: controller,
+        icon: Icons.person_outline,
+        textCapitalization: TextCapitalization.words,
+        inputFormatters: [nameFormatter],
+      );
 
   /// Skills and the Google link are about the account rather than the person,
   /// so they sit in their own card instead of trailing the details.

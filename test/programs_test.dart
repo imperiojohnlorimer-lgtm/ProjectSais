@@ -260,11 +260,13 @@ void main() {
         const Size(1440, 1200),
       );
       final fields = find.byType(TextFormField);
-      await tester.enterText(fields.at(0), 'Juan dela Cruz');
-      await tester.enterText(fields.at(1), 'juan@marsu.edu.ph');
-      await tester.enterText(fields.at(2), 'Str0ng!Pass');
-      await tester.enterText(fields.at(3), '09171234567');
+      await tester.enterText(fields.at(0), 'Juan');
+      await tester.enterText(fields.at(2), 'Dela Cruz');
+      await tester.enterText(fields.at(3), 'juan@marsu.edu.ph');
+      await tester.enterText(fields.at(4), 'Str0ng!Pass');
+      await tester.enterText(fields.at(5), '09171234567');
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Create Account'));
       await tester.tap(find.text('Create Account'));
       await tester.pumpAndSettle();
       expect(find.text('Choose your course/program.'), findsOneWidget);

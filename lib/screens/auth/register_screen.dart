@@ -21,7 +21,11 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
-  final _nameCtrl = TextEditingController();
+  final _firstNameCtrl = TextEditingController();
+  final _middleNameCtrl = TextEditingController();
+  final _lastNameCtrl = TextEditingController();
+  // Empty for none.
+  String _suffix = '';
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
@@ -62,7 +66,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _handleRegister() async {
-    if (_nameCtrl.text.trim().isEmpty ||
+    final nameParts = PersonName(
+      first: _firstNameCtrl.text,
+      middle: _middleNameCtrl.text,
+      last: _lastNameCtrl.text,
+      suffix: _suffix,
+    );
+    if (!nameParts.isComplete ||
         _emailCtrl.text.trim().isEmpty ||
         _passwordCtrl.text.isEmpty ||
         _phoneCtrl.text.trim().isEmpty) {
@@ -121,7 +131,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!mounted) return;
     final user = User(
       id: 'u_${DateTime.now().millisecondsSinceEpoch}',
-      name: _nameCtrl.text.trim(),
+      name: nameParts.display,
+      firstName: nameParts.first,
+      middleName: nameParts.middle,
+      lastName: nameParts.last,
+      suffix: nameParts.suffix,
       email: email,
       role: _role,
       department: department,
@@ -169,7 +183,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   void dispose() {
-    _nameCtrl.dispose();
+    _firstNameCtrl.dispose();
+    _middleNameCtrl.dispose();
+    _lastNameCtrl.dispose();
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _phoneCtrl.dispose();
@@ -222,18 +238,32 @@ class _RegisterScreenState extends State<RegisterScreen> {
       const AuthSectionHeading(label: 'Your account'),
       const SizedBox(height: 18),
 
-      AuthField(
-        label: 'Full name',
-        child: TextFormField(
-          controller: _nameCtrl,
-          onChanged: _clearError,
-          decoration: const InputDecoration(
-            hintText: 'Juan dela Cruz',
-            prefixIcon: Icon(
-              Icons.person_outline_rounded,
-              color: AppTheme.maroon,
-              size: 20,
+      AuthFieldPair(
+        left: _nameField('First name', _firstNameCtrl, 'Juan'),
+        right: _nameField('Middle name', _middleNameCtrl, 'Optional'),
+      ),
+      const SizedBox(height: 18),
+
+      AuthFieldPair(
+        left: _nameField('Last name', _lastNameCtrl, 'Dela Cruz'),
+        right: AuthField(
+          label: 'Suffix',
+          child: DropdownButtonFormField<String>(
+            initialValue: _suffix,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              prefixIcon: Icon(
+                Icons.person_add_alt_outlined,
+                color: AppTheme.maroon,
+                size: 20,
+              ),
             ),
+            items: [
+              const DropdownMenuItem(value: '', child: Text('None')),
+              for (final s in PersonName.suffixes)
+                DropdownMenuItem(value: s, child: Text(s)),
+            ],
+            onChanged: (v) => setState(() => _suffix = v ?? ''),
           ),
         ),
       ),
@@ -491,6 +521,30 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onTap: widget.onBackToLogin,
       ),
     ];
+  }
+
+  Widget _nameField(
+    String label,
+    TextEditingController controller,
+    String hint,
+  ) {
+    return AuthField(
+      label: label,
+      child: TextFormField(
+        controller: controller,
+        textCapitalization: TextCapitalization.words,
+        inputFormatters: [nameFormatter],
+        onChanged: _clearError,
+        decoration: InputDecoration(
+          hintText: hint,
+          prefixIcon: const Icon(
+            Icons.person_outline_rounded,
+            color: AppTheme.maroon,
+            size: 20,
+          ),
+        ),
+      ),
+    );
   }
 
   void _clearError(String _) {

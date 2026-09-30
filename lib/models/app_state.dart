@@ -4673,7 +4673,7 @@ class AppState extends ChangeNotifier {
 
   // ─── Profile Update ────────────────────────────────
   Future<void> updateProfile({
-    String? name,
+    PersonName? nameParts,
     String? phone,
     String? address,
     String? avatar,
@@ -4682,7 +4682,7 @@ class AppState extends ChangeNotifier {
   }) async {
     if (currentUser != null) {
       currentUser = currentUser!.copyWith(
-        name: name,
+        nameParts: nameParts,
         phone: phone,
         address: address,
         avatar: avatar,

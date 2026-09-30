@@ -10,6 +10,12 @@ bool isValidPhoneNumber(String phone) =>
 bool isValidStudentId(String id) =>
     RegExp(r'^\d{2}[A-Z]\d{4}$').hasMatch(id.trim().toUpperCase());
 
+/// Keeps a name field to what names are made of: letters (ñ and accented
+/// ones included), spaces, periods, hyphens and apostrophes.
+final nameFormatter = FilteringTextInputFormatter.allow(
+  RegExp(r"[\p{L}\p{M} .'\-]", unicode: true),
+);
+
 /// Keeps a phone field to a Philippine mobile number as it's typed: digits
 /// only, starting with "09", at most 11, spaced as "09XX XXX XXXX". A pasted
 /// +63 number turns into its 09 form. A keystroke that can't lead to such a

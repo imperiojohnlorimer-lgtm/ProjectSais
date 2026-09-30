@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'person_name.dart';
 export 'dtr_accomplishment_report.dart';
 export 'payroll_sheet.dart';
+export 'person_name.dart';
 
 String _formatNotificationDate(dynamic value) {
   DateTime? date;
@@ -226,7 +228,17 @@ class Program {
 // models/user.dart
 class User {
   final String id;
+
+  /// The name as the app shows it. For an account whose name is split into
+  /// parts it's [PersonName.display] of them; an older account has only
+  /// this until the Admin splits it.
   final String name;
+
+  /// The parts of [name], empty on accounts made before names were split.
+  final String firstName;
+  final String middleName;
+  final String lastName;
+  final String suffix;
   final String email;
   final String
   role; // 'Admin', 'Head', 'Supervisor', 'Student Assistant', 'Student'
@@ -254,6 +266,10 @@ class User {
   User({
     required this.id,
     required this.name,
+    this.firstName = '',
+    this.middleName = '',
+    this.lastName = '',
+    this.suffix = '',
     required this.email,
     required this.role,
     this.department,
@@ -274,6 +290,7 @@ class User {
     String? id,
     String? name,
     String? phone,
+    PersonName? nameParts,
     String? address,
     String? avatar,
     List<String>? skills,
@@ -288,7 +305,11 @@ class User {
     bool? isDeleted,
   }) => User(
     id: id ?? this.id,
-    name: name ?? this.name,
+    name: name ?? nameParts?.display ?? this.name,
+    firstName: nameParts?.first ?? firstName,
+    middleName: nameParts?.middle ?? middleName,
+    lastName: nameParts?.last ?? lastName,
+    suffix: nameParts?.suffix ?? suffix,
     email: email,
     role: role ?? this.role,
     department: department ?? this.department,
@@ -308,6 +329,10 @@ class User {
   factory User.fromJson(Map<String, dynamic> json) => User(
     id: json['_id'] ?? json['id'] ?? '',
     name: json['name'] ?? '',
+    firstName: json['firstName'] ?? '',
+    middleName: json['middleName'] ?? '',
+    lastName: json['lastName'] ?? '',
+    suffix: json['suffix'] ?? '',
     email: json['email'] ?? '',
     role: json['role'] ?? 'Student',
     department: json['department'],
@@ -329,6 +354,14 @@ class User {
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
+    // Left off until the name is split, so an older account's profile
+    // saves exactly as it was.
+    if (hasNameParts) ...{
+      'firstName': firstName,
+      'middleName': middleName,
+      'lastName': lastName,
+      'suffix': suffix,
+    },
     'email': email,
     'role': role,
     'department': department,
@@ -344,6 +377,25 @@ class User {
     'saId': saId,
     if (isDeleted) 'deleted': true,
   };
+
+  /// Whether the name has been split into parts. Older accounts have only
+  /// [name] until the Admin splits it on the Accounts screen.
+  bool get hasNameParts => firstName.isNotEmpty && lastName.isNotEmpty;
+
+  /// The name in parts: the saved ones, or a guess from [name] for an
+  /// account that has none yet (see [PersonName.guess]).
+  PersonName get nameParts => hasNameParts
+      ? PersonName(
+          first: firstName,
+          middle: middleName,
+          last: lastName,
+          suffix: suffix,
+        )
+      : PersonName.guess(name);
+
+  /// Surname first, as on the payroll: "Dela Cruz, Juan S.". An account
+  /// whose name isn't split yet gives [name] as saved rather than a guess.
+  String get surnameFirstName => hasNameParts ? nameParts.surnameFirst : name;
 
   String get initials {
     final parts = name.trim().split(' ');

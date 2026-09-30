@@ -203,10 +203,10 @@ service cloud.firestore {
       // email, and may not touch a deleted account.
       //
       // Users editing their own profile may change their contact details,
-      // photo, skills and year level — never their name, email, IDs or
-      // department. Names matter: payroll and several screens match records
-      // to people by name, so a self-chosen name could claim someone
-      // else's records.
+      // photo, skills and year level — never their name (or its parts),
+      // email, IDs or department. Names matter: payroll and several screens
+      // match records to people by name, so a self-chosen name could claim
+      // someone else's records, and the payroll prints the name's parts.
       //
       // Only the Admin deletes accounts, which marks them `deleted`.
       allow update: if isAdmin()
@@ -216,6 +216,10 @@ service cloud.firestore {
           && unchanged('role')
           && unchanged('status')
           && unchanged('name')
+          && unchanged('firstName')
+          && unchanged('middleName')
+          && unchanged('lastName')
+          && unchanged('suffix')
           && unchanged('email')
           && unchanged('studentId')
           && unchanged('saId')

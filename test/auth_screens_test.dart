@@ -152,7 +152,10 @@ void main() {
       expect(find.text('YOUR ACCOUNT'), findsOneWidget);
       expect(find.text('STUDENT DETAILS'), findsOneWidget);
       for (final label in [
-        'Full name',
+        'First name',
+        'Middle name',
+        'Last name',
+        'Suffix',
         'Email address',
         'Password',
         'Phone number',
@@ -177,7 +180,7 @@ void main() {
       expect(find.text('Password requirements'), findsNothing);
 
       await tester.enterText(
-        find.byType(TextFormField).at(2),
+        find.byType(TextFormField).at(4),
         'Str0ng!Pass',
       );
       await tester.pumpAndSettle();
@@ -191,6 +194,7 @@ void main() {
         RegisterScreen(onBackToLogin: () {}),
         const Size(1440, 1000),
       );
+      await tester.ensureVisible(find.text('Create Account'));
       await tester.tap(find.text('Create Account'));
       await tester.pumpAndSettle();
       expect(find.text('Please fill in all required fields.'), findsOneWidget);
@@ -208,15 +212,54 @@ void main() {
       String textOf(int i) =>
           tester.widget<TextFormField>(fields.at(i)).controller!.text;
 
-      await tester.enterText(fields.at(3), '12345678912');
-      await tester.enterText(fields.at(4), 'ABC123');
-      expect(textOf(3), '');
-      expect(textOf(4), '');
+      await tester.enterText(fields.at(5), '12345678912');
+      await tester.enterText(fields.at(6), 'ABC123');
+      expect(textOf(5), '');
+      expect(textOf(6), '');
 
-      await tester.enterText(fields.at(3), '09171234567');
-      await tester.enterText(fields.at(4), '23b0626');
-      expect(textOf(3), '0917 123 4567');
-      expect(textOf(4), '23B0626');
+      await tester.enterText(fields.at(5), '09171234567');
+      await tester.enterText(fields.at(6), '23b0626');
+      expect(textOf(5), '0917 123 4567');
+      expect(textOf(6), '23B0626');
+    });
+
+    testWidgets('asks for a first and a last name', (tester) async {
+      await pumpScreen(
+        tester,
+        RegisterScreen(onBackToLogin: () {}),
+        const Size(1440, 1200),
+      );
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'Juan');
+      await tester.enterText(fields.at(3), 'juan@marsu.edu.ph');
+      await tester.enterText(fields.at(4), 'Str0ng!Pass');
+      await tester.enterText(fields.at(5), '09171234567');
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Create Account'));
+      await tester.tap(find.text('Create Account'));
+      await tester.pumpAndSettle();
+      expect(find.text('Please fill in all required fields.'), findsOneWidget);
+    });
+
+    testWidgets('names take only letters and name punctuation', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        RegisterScreen(onBackToLogin: () {}),
+        const Size(1440, 1000),
+      );
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'Ma. Niña2!');
+      await tester.enterText(fields.at(2), "O'Brien-Dela Cruz#");
+      expect(
+        tester.widget<TextFormField>(fields.at(0)).controller!.text,
+        'Ma. Niña',
+      );
+      expect(
+        tester.widget<TextFormField>(fields.at(2)).controller!.text,
+        "O'Brien-Dela Cruz",
+      );
     });
 
     testWidgets('an unfinished Student ID is refused', (tester) async {
@@ -226,12 +269,14 @@ void main() {
         const Size(1440, 1200),
       );
       final fields = find.byType(TextFormField);
-      await tester.enterText(fields.at(0), 'Juan dela Cruz');
-      await tester.enterText(fields.at(1), 'juan@marsu.edu.ph');
-      await tester.enterText(fields.at(2), 'Str0ng!Pass');
-      await tester.enterText(fields.at(3), '09171234567');
-      await tester.enterText(fields.at(4), '23B06');
+      await tester.enterText(fields.at(0), 'Juan');
+      await tester.enterText(fields.at(2), 'Dela Cruz');
+      await tester.enterText(fields.at(3), 'juan@marsu.edu.ph');
+      await tester.enterText(fields.at(4), 'Str0ng!Pass');
+      await tester.enterText(fields.at(5), '09171234567');
+      await tester.enterText(fields.at(6), '23B06');
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Create Account'));
       await tester.tap(find.text('Create Account'));
       await tester.pumpAndSettle();
       expect(
