@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/input_formats.dart';
 import '../../widgets/avatar_editor.dart';
 import '../../widgets/profile_widgets.dart';
 
@@ -116,6 +117,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _toggleEditing() {
     if (_isEditing) {
+      final phone = _phoneCtrl.text.trim();
+      if (phone.isNotEmpty && !isValidPhoneNumber(phone)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Enter a valid phone number, e.g. 09XX XXX XXXX.',
+            ),
+            backgroundColor: AppTheme.red500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+        return;
+      }
       final state = context.read<AppState>();
       state.updateProfile(
         name: _canEditName(state) ? _nameCtrl.text.trim() : null,
@@ -324,6 +342,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           label: 'Phone number',
           controller: _phoneCtrl,
           icon: Icons.phone_outlined,
+          keyboardType: TextInputType.phone,
+          inputFormatters: [PhoneNumberFormatter()],
         ),
         const SizedBox(height: 16),
         ProfileTextField(

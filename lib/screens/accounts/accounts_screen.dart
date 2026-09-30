@@ -2,11 +2,13 @@ import 'dart:convert' show base64Encode;
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/input_formats.dart';
 import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
@@ -1282,10 +1284,12 @@ class _AccountsScreenState extends State<AccountsScreen>
     TextEditingController ctrl,
     IconData icon, {
     TextInputType? type,
+    TextInputFormatter? formatter,
   }) {
     return TextField(
       controller: ctrl,
       keyboardType: type,
+      inputFormatters: formatter == null ? null : [formatter],
       style: const TextStyle(fontSize: 13),
       decoration: InputDecoration(
         labelText: label,
@@ -1435,12 +1439,14 @@ class _AccountsScreenState extends State<AccountsScreen>
                     phoneCtrl,
                     Icons.phone_outlined,
                     type: TextInputType.phone,
+                    formatter: PhoneNumberFormatter(),
                   ),
                   const SizedBox(height: 12),
                   _dialogField(
                     'Student ID (optional)',
                     studentIdCtrl,
                     Icons.badge_outlined,
+                    formatter: StudentIdFormatter(),
                   ),
                   const SizedBox(height: 12),
                   _programDropdown(
@@ -1472,6 +1478,28 @@ class _AccountsScreenState extends State<AccountsScreen>
                     emailCtrl.text.trim().isEmpty ||
                     (!isEditing && passwordCtrl.text.length < 6))
                   return;
+                final phone = phoneCtrl.text.trim();
+                final studentId = studentIdCtrl.text.trim().toUpperCase();
+                final formatError = phone.isNotEmpty &&
+                        !isValidPhoneNumber(phone)
+                    ? 'Enter a valid phone number, e.g. 09XX XXX XXXX.'
+                    : studentId.isNotEmpty && !isValidStudentId(studentId)
+                    ? 'Enter a valid Student ID, e.g. 23B0626.'
+                    : null;
+                if (formatError != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(formatError),
+                      backgroundColor: AppTheme.red500,
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      margin: const EdgeInsets.all(16),
+                    ),
+                  );
+                  return;
+                }
                 final managedUser =
                     (user ?? User(id: '', name: '', email: '', role: role))
                         .copyWith(
@@ -1479,12 +1507,8 @@ class _AccountsScreenState extends State<AccountsScreen>
                           role: role,
                           department: department,
                           campus: campus,
-                          phone: phoneCtrl.text.trim().isEmpty
-                              ? null
-                              : phoneCtrl.text.trim(),
-                          studentId: studentIdCtrl.text.trim().isEmpty
-                              ? null
-                              : studentIdCtrl.text.trim(),
+                          phone: phone.isEmpty ? null : phone,
+                          studentId: studentId.isEmpty ? null : studentId,
                           courseProgram: courseProgram,
                           yearLevel: yearLevel,
                           skills: selectedSkills.toList(),
@@ -1501,12 +1525,8 @@ class _AccountsScreenState extends State<AccountsScreen>
                       role: role,
                       department: department,
                       campus: campus,
-                      phone: phoneCtrl.text.trim().isEmpty
-                          ? null
-                          : phoneCtrl.text.trim(),
-                      studentId: studentIdCtrl.text.trim().isEmpty
-                          ? null
-                          : studentIdCtrl.text.trim(),
+                      phone: phone.isEmpty ? null : phone,
+                      studentId: studentId.isEmpty ? null : studentId,
                       courseProgram: courseProgram,
                       yearLevel: yearLevel,
                       skills: selectedSkills.toList(),

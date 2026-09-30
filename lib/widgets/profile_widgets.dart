@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../theme/app_theme.dart';
 import 'shared_widgets.dart';
 
@@ -632,12 +633,16 @@ class ProfileTextField extends StatelessWidget {
   final String label;
   final TextEditingController controller;
   final IconData icon;
+  final TextInputType? keyboardType;
+  final List<TextInputFormatter>? inputFormatters;
 
   const ProfileTextField({
     super.key,
     required this.label,
     required this.controller,
     required this.icon,
+    this.keyboardType,
+    this.inputFormatters,
   });
 
   @override
@@ -658,6 +663,8 @@ class ProfileTextField extends StatelessWidget {
         const SizedBox(height: 6),
         TextField(
           controller: controller,
+          keyboardType: keyboardType,
+          inputFormatters: inputFormatters,
           style: const TextStyle(
             fontSize: 13,
             color: AppTheme.slate800,

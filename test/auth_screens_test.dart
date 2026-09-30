@@ -195,5 +195,49 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Please fill in all required fields.'), findsOneWidget);
     });
+
+    testWidgets('phone and Student ID only take their own shape', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        RegisterScreen(onBackToLogin: () {}),
+        const Size(1440, 1000),
+      );
+      final fields = find.byType(TextFormField);
+      String textOf(int i) =>
+          tester.widget<TextFormField>(fields.at(i)).controller!.text;
+
+      await tester.enterText(fields.at(3), '12345678912');
+      await tester.enterText(fields.at(4), 'ABC123');
+      expect(textOf(3), '');
+      expect(textOf(4), '');
+
+      await tester.enterText(fields.at(3), '09171234567');
+      await tester.enterText(fields.at(4), '23b0626');
+      expect(textOf(3), '0917 123 4567');
+      expect(textOf(4), '23B0626');
+    });
+
+    testWidgets('an unfinished Student ID is refused', (tester) async {
+      await pumpScreen(
+        tester,
+        RegisterScreen(onBackToLogin: () {}),
+        const Size(1440, 1200),
+      );
+      final fields = find.byType(TextFormField);
+      await tester.enterText(fields.at(0), 'Juan dela Cruz');
+      await tester.enterText(fields.at(1), 'juan@marsu.edu.ph');
+      await tester.enterText(fields.at(2), 'Str0ng!Pass');
+      await tester.enterText(fields.at(3), '09171234567');
+      await tester.enterText(fields.at(4), '23B06');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Create Account'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Enter a valid Student ID, e.g. 23B0626.'),
+        findsOneWidget,
+      );
+    });
   });
 }

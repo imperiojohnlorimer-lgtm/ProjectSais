@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/input_formats.dart';
 import '../../widgets/avatar_editor.dart';
 import '../../widgets/profile_widgets.dart';
 
@@ -94,6 +95,23 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
 
   void _toggleEditing(AppState state) {
     if (_isEditing) {
+      final phone = _phoneCtrl.text.trim();
+      if (phone.isNotEmpty && !isValidPhoneNumber(phone)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'Enter a valid phone number, e.g. 09XX XXX XXXX.',
+            ),
+            backgroundColor: AppTheme.red500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
+        );
+        return;
+      }
       // No name here: only an Admin may rename an account, since payroll
       // and several screens match records to people by name.
       state.updateProfile(
@@ -278,6 +296,8 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
           label: 'Phone number',
           controller: _phoneCtrl,
           icon: Icons.phone_outlined,
+          keyboardType: TextInputType.phone,
+          inputFormatters: [PhoneNumberFormatter()],
         ),
         const SizedBox(height: 16),
         ProfileTextField(

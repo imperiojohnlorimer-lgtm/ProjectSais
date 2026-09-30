@@ -1,44 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/input_formats.dart';
 import '../../utils/password_validator.dart';
 import 'auth_scaffold.dart';
-
-/// Formats digits as the user types into "09XX XXX XXXX" and caps the
-/// input at 11 digits (the length of a PH mobile number).
-class _PhilippineMobileNumberFormatter extends TextInputFormatter {
-  @override
-  TextEditingValue formatEditUpdate(
-    TextEditingValue oldValue,
-    TextEditingValue newValue,
-  ) {
-    final digits = newValue.text
-        .replaceAll(RegExp(r'\D'), '')
-        .substring(
-          0,
-          newValue.text.replaceAll(RegExp(r'\D'), '').length > 11
-              ? 11
-              : newValue.text.replaceAll(RegExp(r'\D'), '').length,
-        );
-
-    final buffer = StringBuffer();
-    for (var i = 0; i < digits.length; i++) {
-      buffer.write(digits[i]);
-      if (i == 3 || i == 6) {
-        if (i != digits.length - 1) buffer.write(' ');
-      }
-    }
-
-    final formatted = buffer.toString();
-    return TextEditingValue(
-      text: formatted,
-      selection: TextSelection.collapsed(offset: formatted.length),
-    );
-  }
-}
 
 class RegisterScreen extends StatefulWidget {
   final VoidCallback onBackToLogin;
@@ -94,12 +61,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ).hasMatch(email);
   }
 
-  bool _isValidPhoneNumber(String phone) {
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
-    // PH mobile numbers are 11 digits starting with "09" (e.g. 09171234567).
-    return RegExp(r'^09\d{9}$').hasMatch(digits);
-  }
-
   void _handleRegister() async {
     if (_nameCtrl.text.trim().isEmpty ||
         _emailCtrl.text.trim().isEmpty ||
@@ -118,10 +79,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    if (!_isValidPhoneNumber(_phoneCtrl.text)) {
+    if (!isValidPhoneNumber(_phoneCtrl.text)) {
       setState(
         () => _error = 'Enter a valid phone number, e.g. 09XX XXX XXXX.',
       );
+      return;
+    }
+
+    // Optional, but it must be a whole ID when given.
+    final studentId = _studentIdCtrl.text.trim().toUpperCase();
+    if (studentId.isNotEmpty && !isValidStudentId(studentId)) {
+      setState(() => _error = 'Enter a valid Student ID, e.g. 23B0626.');
       return;
     }
 
@@ -159,9 +127,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       department: department,
       campus: _campus,
       phone: _phoneCtrl.text.trim(),
-      studentId: _studentIdCtrl.text.trim().isEmpty
-          ? null
-          : _studentIdCtrl.text.trim(),
+      studentId: studentId.isEmpty ? null : studentId,
       courseProgram: program,
       yearLevel: _yearLevel,
     );
@@ -339,7 +305,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: TextFormField(
             controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
-            inputFormatters: [_PhilippineMobileNumberFormatter()],
+            inputFormatters: [PhoneNumberFormatter()],
             onChanged: _clearError,
             decoration: const InputDecoration(
               hintText: '09XX XXX XXXX',
@@ -355,6 +321,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           label: 'Student ID',
           child: TextFormField(
             controller: _studentIdCtrl,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: [StudentIdFormatter()],
             onChanged: _clearError,
             decoration: const InputDecoration(
               hintText: 'e.g. 23B0626',
