@@ -1092,15 +1092,6 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
 
   String _label(String c) => c == _allCampuses ? c : c.replaceAll(' Campus', '');
 
-  static const _deptColors = [
-    AppTheme.maroon,
-    AppTheme.gold400,
-    AppTheme.blue500,
-    AppTheme.emerald500,
-    AppTheme.amber500,
-    AppTheme.maroonLight,
-  ];
-
   @override
   Widget build(BuildContext context) {
     final state = widget.state;
@@ -1252,13 +1243,11 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
                   child: EmptyState(icon: Icons.business_outlined, message: 'No student assistants in this campus yet'),
                 )
               else
-                ...deptCounts.entries.toList().asMap().entries.map((entry) {
-                  final index = entry.key;
-                  final dept = entry.value.key;
-                  final count = entry.value.value;
+                ...deptCounts.entries.map((entry) {
+                  final dept = entry.key;
+                  final count = entry.value;
                   final maxCount = deptCounts.values.reduce((a, b) => a > b ? a : b);
                   final fraction = maxCount == 0 ? 0.0 : count / maxCount;
-                  final color = _deptColors[index % _deptColors.length];
 
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -1281,7 +1270,10 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
                               value: fraction.clamp(0.03, 1.0),
                               minHeight: 10,
                               backgroundColor: AppTheme.slate100,
-                              valueColor: AlwaysStoppedAnimation(color),
+                              // One series, one colour: the department names
+                              // carry identity, and cycling hues implied
+                              // categories that mean nothing.
+                              valueColor: const AlwaysStoppedAnimation(ChartPalette.series),
                             ),
                           ),
                         ),
@@ -1381,12 +1373,66 @@ class _ChartHeader extends StatelessWidget {
 String _studentAssistants(int count) =>
     count == 1 ? '1 student assistant' : '$count student assistants';
 
+/// Hairline gridlines at [ys], the last one (the baseline) a step darker.
+void _paintGrid(Canvas canvas, double left, double right, List<double> ys) {
+  for (var i = 0; i < ys.length; i++) {
+    canvas.drawLine(
+      Offset(left, ys[i]),
+      Offset(right, ys[i]),
+      Paint()
+        ..color = i == ys.length - 1 ? AppTheme.slate200 : AppTheme.slate100
+        ..strokeWidth = 1,
+    );
+  }
+}
+
+/// A lollipop's stem: a solid 3px stem from [head] down to [baseline], in
+/// front of a soft maroon glow that fades toward the baseline.
+void _paintStem(Canvas canvas, Offset head, double baseline) {
+  if (baseline - head.dy < 1) return;
+  final glow = Rect.fromLTRB(head.dx - 14, head.dy, head.dx + 14, baseline);
+  canvas.drawRRect(
+    RRect.fromRectAndCorners(
+      glow,
+      topLeft: const Radius.circular(14),
+      topRight: const Radius.circular(14),
+    ),
+    Paint()
+      ..shader = LinearGradient(
+        begin: Alignment.topCenter,
+        end: Alignment.bottomCenter,
+        colors: [
+          ChartPalette.series.withValues(alpha: 0.22),
+          ChartPalette.series.withValues(alpha: 0.0),
+        ],
+      ).createShader(glow),
+  );
+  canvas.drawLine(
+    head,
+    Offset(head.dx, baseline),
+    Paint()
+      ..color = ChartPalette.series
+      ..strokeWidth = 3,
+  );
+}
+
+/// A marker with a white ring, so it stays legible on a line or a stem.
+void _paintDot(
+  Canvas canvas,
+  Offset center, {
+  double radius = 5.5,
+  Color color = ChartPalette.series,
+}) {
+  canvas.drawCircle(center, radius + 2, Paint()..color = Colors.white);
+  canvas.drawCircle(center, radius, Paint()..color = color);
+}
+
 /// Headcount across every campus, shown when "All Campuses" is selected.
 ///
-/// Columns, not a line: the campuses are separate places, and a line
-/// between them would suggest a trend from one to the next. Headcount is
-/// one series, so every column is the same colour; the campus names on the
-/// axis carry identity.
+/// A lollipop per campus: the campuses are separate places, so each gets
+/// its own stem from the baseline instead of a line joining it to the next.
+/// Headcount is one series, so every stem is the same colour; the campus
+/// names on the axis carry identity.
 class _CampusEnrollmentChart extends StatelessWidget {
   final Map<String, int> counts;
   final bool isMobileScreen;
@@ -1396,14 +1442,15 @@ class _CampusEnrollmentChart extends StatelessWidget {
     required this.isMobileScreen,
   });
 
-  // A column's value label and the gap above the column.
-  static const _labelHeight = 28.0;
+  // Room above the tallest dot for its count, and below the baseline for a
+  // dot that sits on it.
+  static const _headroom = 30.0;
+  static const _footroom = 8.0;
 
   @override
   Widget build(BuildContext context) {
     final total = counts.values.fold<int>(0, (a, b) => a + b);
     final maxCount = counts.values.fold<int>(0, (a, b) => a > b ? a : b);
-    final plotHeight = isMobileScreen ? 150.0 : 190.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1415,73 +1462,83 @@ class _CampusEnrollmentChart extends StatelessWidget {
           isMobileScreen: isMobileScreen,
         ),
         const SizedBox(height: 18),
-        if (total == 0)
-          SizedBox(
-            height: plotHeight,
-            child: const Center(
-              child: Text(
-                'No enrollment data yet',
-                style: TextStyle(color: AppTheme.slate400),
-              ),
-            ),
-          )
-        else ...[
-          SizedBox(
-            height: plotHeight,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                for (final entry in counts.entries)
-                  Expanded(
-                    child: Tooltip(
-                      message:
-                          '${entry.key.replaceAll(' Campus', '')}: '
-                          '${_studentAssistants(entry.value)}',
-                      // Transparent but hit-testable, so hovering anywhere in
-                      // the campus's band shows its tooltip.
-                      child: ColoredBox(
-                        color: Colors.transparent,
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            Text(
-                              '${entry.value}',
+        SizedBox(
+          height: isMobileScreen ? 150 : 190,
+          child: total == 0
+              ? const Center(
+                  child: Text(
+                    'No enrollment data yet',
+                    style: TextStyle(color: AppTheme.slate400),
+                  ),
+                )
+              : LayoutBuilder(
+                  builder: (context, constraints) {
+                    final entries = counts.entries.toList();
+                    final colWidth = constraints.maxWidth / entries.length;
+                    final baseline = constraints.maxHeight - _footroom;
+                    final heads = [
+                      for (var i = 0; i < entries.length; i++)
+                        Offset(
+                          colWidth * (i + 0.5),
+                          baseline -
+                              entries[i].value /
+                                  maxCount *
+                                  (baseline - _headroom),
+                        ),
+                    ];
+
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: CustomPaint(
+                            painter: _CampusLollipopPainter(
+                              heads: heads,
+                              counts: [for (final e in entries) e.value],
+                              top: _headroom,
+                              baseline: baseline,
+                            ),
+                          ),
+                        ),
+                        for (var i = 0; i < entries.length; i++)
+                          Positioned(
+                            left: colWidth * i,
+                            width: colWidth,
+                            top: heads[i].dy - 30,
+                            child: Text(
+                              '${entries[i].value}',
+                              textAlign: TextAlign.center,
                               style: TextStyle(
                                 fontSize: isMobileScreen ? 12 : 13,
                                 fontWeight: FontWeight.w800,
-                                // A campus with none reads as empty, not as
-                                // a value to compare.
-                                color: entry.value == 0
+                                // A campus with none reads as empty.
+                                color: entries[i].value == 0
                                     ? AppTheme.slate400
                                     : AppTheme.slate900,
                               ),
                             ),
-                            const SizedBox(height: 6),
-                            Container(
-                              width: 24,
-                              height:
-                                  (plotHeight - _labelHeight) *
-                                  entry.value /
-                                  maxCount,
-                              decoration: const BoxDecoration(
-                                color: ChartPalette.series,
-                                borderRadius: BorderRadius.vertical(
-                                  top: Radius.circular(4),
-                                ),
+                          ),
+                        // Hovering anywhere in a campus's band shows its count.
+                        for (var i = 0; i < entries.length; i++)
+                          Positioned(
+                            left: colWidth * i,
+                            width: colWidth,
+                            top: 0,
+                            bottom: 0,
+                            child: Tooltip(
+                              message:
+                                  '${entries[i].key.replaceAll(' Campus', '')}: '
+                                  '${_studentAssistants(entries[i].value)}',
+                              child: const ColoredBox(
+                                color: Colors.transparent,
                               ),
                             ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          // The baseline every column grows from.
-          Container(height: 1, color: AppTheme.slate200),
-        ],
-        const SizedBox(height: 10),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+        ),
+        const SizedBox(height: 6),
         Row(
           children: counts.keys.map((campus) {
             return Expanded(
@@ -1509,12 +1566,49 @@ class _CampusEnrollmentChart extends StatelessWidget {
   }
 }
 
-/// One campus's headcount, year over year.
+class _CampusLollipopPainter extends CustomPainter {
+  final List<Offset> heads;
+  final List<int> counts;
+  final double top;
+  final double baseline;
+
+  _CampusLollipopPainter({
+    required this.heads,
+    required this.counts,
+    required this.top,
+    required this.baseline,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    _paintGrid(canvas, 0, size.width, [
+      for (var i = 0; i <= 3; i++) top + (baseline - top) / 3 * i,
+    ]);
+    for (var i = 0; i < heads.length; i++) {
+      if (counts[i] == 0) {
+        // Nothing to stand up: a small grey dot on the baseline.
+        _paintDot(canvas, heads[i], radius: 4, color: AppTheme.slate300);
+      } else {
+        _paintStem(canvas, heads[i], baseline);
+        _paintDot(canvas, heads[i], radius: 6);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _CampusLollipopPainter oldDelegate) =>
+      !listEquals(oldDelegate.heads, heads) ||
+      !listEquals(oldDelegate.counts, counts) ||
+      oldDelegate.top != top ||
+      oldDelegate.baseline != baseline;
+}
+
+/// One campus's headcount, year over year, on a line.
 ///
-/// A trend needs two points, so while only the current school year has a
-/// headcount this shows that number rather than a lone dot on an empty
-/// chart. Past years come from the headcount saved when each year is closed
-/// ([AppState.enrollmentHistory]).
+/// Past years come from the headcount saved when each year is closed
+/// ([AppState.enrollmentHistory]). Until three years are recorded, the
+/// school years after the current one are shown as upcoming, so the current
+/// year sits on a timeline instead of alone.
 class _CampusGrowthChart extends StatelessWidget {
   final String campus;
   final List<({String academicYear, int count})> trend;
@@ -1536,6 +1630,10 @@ class _CampusGrowthChart extends StatelessWidget {
     final current = shown.last;
     final previous = shown.length > 1 ? shown[shown.length - 2] : null;
     final change = previous == null ? 0 : current.count - previous.count;
+    final upcoming = [
+      for (var i = 1; i <= 3 - shown.length; i++)
+        RehireRecord.shiftAcademicYear(current.academicYear, i),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1544,7 +1642,7 @@ class _CampusGrowthChart extends StatelessWidget {
           title: 'Multi-Year Growth',
           subtitle: 'Student assistant headcount per school year, $campus',
           chip: previous == null
-              ? null
+              ? '${current.count} enrolled  •  AY ${current.academicYear}'
               : change == 0
               ? 'No change from AY ${previous.academicYear}'
               : '${change > 0 ? '+' : '−'}${change.abs()} from '
@@ -1552,53 +1650,45 @@ class _CampusGrowthChart extends StatelessWidget {
           isMobileScreen: isMobileScreen,
         ),
         const SizedBox(height: 18),
-        if (previous == null) ...[
-          Text(
-            '${current.count}',
-            style: const TextStyle(
-              fontSize: 36,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              height: 1.1,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${current.count == 1 ? 'student assistant' : 'student assistants'}'
-            ' in AY ${current.academicYear}',
-            style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.slate600,
-            ),
-          ),
-          const SizedBox(height: 14),
+        _GrowthLineChart(
+          points: shown,
+          upcoming: upcoming,
+          isMobileScreen: isMobileScreen,
+        ),
+        if (upcoming.isNotEmpty) ...[
+          const SizedBox(height: 10),
           const Text(
-            'The trend appears here once a second school year is recorded. '
-            "Each year's headcount is saved when that school year is closed.",
+            'Upcoming school years fill in as each year is closed.',
             style: TextStyle(
-              fontSize: 11.5,
+              fontSize: 11,
               fontWeight: FontWeight.w500,
               color: AppTheme.slate400,
             ),
           ),
-        ] else
-          _GrowthLineChart(points: shown, isMobileScreen: isMobileScreen),
+        ],
       ],
     );
   }
 }
 
 class _GrowthLineChart extends StatelessWidget {
+  /// Recorded school years, oldest first; the last is the current year.
   final List<({String academicYear, int count})> points;
+
+  /// School years after the current one, shown on the axis with no data.
+  final List<String> upcoming;
   final bool isMobileScreen;
 
-  const _GrowthLineChart({required this.points, required this.isMobileScreen});
+  const _GrowthLineChart({
+    required this.points,
+    required this.upcoming,
+    required this.isMobileScreen,
+  });
 
   // Room on the left for the y-axis numbers, and above the plot for the
   // latest year's label.
   static const _axisWidth = 28.0;
-  static const _headroom = 24.0;
+  static const _headroom = 32.0;
 
   /// A round step giving about three gridlines from zero up to [maxValue].
   static int _tickStep(int maxValue) {
@@ -1620,7 +1710,8 @@ class _GrowthLineChart extends StatelessWidget {
     final step = _tickStep(maxCount);
     // Always from zero, so the line's height is the headcount itself.
     final top = maxCount <= step ? step : (maxCount / step).ceil() * step;
-    final ticks = [for (var v = 0; v <= top; v += step) v];
+    final ticks = [for (var v = top; v >= 0; v -= step) v];
+    final slots = points.length + upcoming.length;
 
     return Column(
       children: [
@@ -1628,13 +1719,14 @@ class _GrowthLineChart extends StatelessWidget {
           height: isMobileScreen ? 150 : 180,
           child: LayoutBuilder(
             builder: (context, constraints) {
-              final slot = (constraints.maxWidth - _axisWidth) / points.length;
+              final slot = (constraints.maxWidth - _axisWidth) / slots;
+              double xFor(int i) => _axisWidth + slot * (i + 0.5);
               double yFor(int value) =>
                   constraints.maxHeight -
                   value / top * (constraints.maxHeight - _headroom);
               final offsets = [
                 for (var i = 0; i < points.length; i++)
-                  Offset(_axisWidth + slot * (i + 0.5), yFor(points[i].count)),
+                  Offset(xFor(i), yFor(points[i].count)),
               ];
 
               return Stack(
@@ -1645,6 +1737,7 @@ class _GrowthLineChart extends StatelessWidget {
                       painter: _GrowthLinePainter(
                         points: offsets,
                         gridLines: [for (final t in ticks) yFor(t)],
+                        slotXs: [for (var i = 0; i < slots; i++) xFor(i)],
                         left: _axisWidth,
                       ),
                     ),
@@ -1670,7 +1763,7 @@ class _GrowthLineChart extends StatelessWidget {
                   Positioned(
                     left: offsets.last.dx - 30,
                     width: 60,
-                    top: offsets.last.dy - 24,
+                    top: offsets.last.dy - 30,
                     child: Text(
                       '${points.last.count}',
                       textAlign: TextAlign.center,
@@ -1703,6 +1796,7 @@ class _GrowthLineChart extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(left: _axisWidth),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               for (final p in points)
                 Expanded(
@@ -1716,6 +1810,31 @@ class _GrowthLineChart extends StatelessWidget {
                     ),
                   ),
                 ),
+              for (final year in upcoming)
+                Expanded(
+                  child: Column(
+                    children: [
+                      Text(
+                        year,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.slate400,
+                        ),
+                      ),
+                      const Text(
+                        'upcoming',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w500,
+                          color: AppTheme.slate300,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           ),
         ),
@@ -1724,33 +1843,43 @@ class _GrowthLineChart extends StatelessWidget {
   }
 }
 
-/// Gridlines, a faint wash under the line, the 2px line and its markers.
+/// Gridlines, a tick under every school year, and the line with a gradient
+/// fill beneath it. A single year stands as a lollipop until there's a
+/// second one to draw a line to.
 class _GrowthLinePainter extends CustomPainter {
   final List<Offset> points;
+
+  /// Top to bottom; the last is zero, the baseline.
   final List<double> gridLines;
+  final List<double> slotXs;
   final double left;
 
   _GrowthLinePainter({
     required this.points,
     required this.gridLines,
+    required this.slotXs,
     required this.left,
   });
 
   @override
   void paint(Canvas canvas, Size size) {
-    // The first gridline is zero: the baseline, one step darker.
-    for (var i = 0; i < gridLines.length; i++) {
-      canvas.drawLine(
-        Offset(left, gridLines[i]),
-        Offset(size.width, gridLines[i]),
-        Paint()
-          ..color = i == 0 ? AppTheme.slate200 : AppTheme.slate100
-          ..strokeWidth = 1,
-      );
+    _paintGrid(canvas, left, size.width, gridLines);
+    final baseline = gridLines.last;
+    final tickPaint = Paint()
+      ..color = AppTheme.slate200
+      ..strokeWidth = 1;
+    for (final x in slotXs) {
+      canvas.drawLine(Offset(x, baseline), Offset(x, baseline + 4), tickPaint);
     }
     if (points.isEmpty) return;
 
-    final baseline = gridLines.first;
+    if (points.length == 1) {
+      _paintStem(canvas, points.first, baseline);
+      _paintDot(canvas, points.first, radius: 6);
+      return;
+    }
+
+    final highest = points.map((p) => p.dy).reduce((a, b) => a < b ? a : b);
     final area = Path()..moveTo(points.first.dx, baseline);
     for (final p in points) {
       area.lineTo(p.dx, p.dy);
@@ -1760,7 +1889,15 @@ class _GrowthLinePainter extends CustomPainter {
       ..close();
     canvas.drawPath(
       area,
-      Paint()..color = ChartPalette.series.withValues(alpha: 0.10),
+      Paint()
+        ..shader = LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            ChartPalette.series.withValues(alpha: 0.18),
+            ChartPalette.series.withValues(alpha: 0.0),
+          ],
+        ).createShader(Rect.fromLTRB(0, highest, size.width, baseline)),
     );
 
     final line = Path()..moveTo(points.first.dx, points.first.dy);
@@ -1772,16 +1909,14 @@ class _GrowthLinePainter extends CustomPainter {
       Paint()
         ..color = ChartPalette.series
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2
+        ..strokeWidth = 3
         ..strokeCap = StrokeCap.round
         ..strokeJoin = StrokeJoin.round,
     );
 
-    // Markers with a ring in the card's colour, so they stay legible where
-    // they sit on the line.
-    for (final p in points) {
-      canvas.drawCircle(p, 6.5, Paint()..color = Colors.white);
-      canvas.drawCircle(p, 4.5, Paint()..color = ChartPalette.series);
+    // The current year's marker is a little larger.
+    for (var i = 0; i < points.length; i++) {
+      _paintDot(canvas, points[i], radius: i == points.length - 1 ? 6 : 4.5);
     }
   }
 
@@ -1789,9 +1924,9 @@ class _GrowthLinePainter extends CustomPainter {
   bool shouldRepaint(covariant _GrowthLinePainter oldDelegate) =>
       !listEquals(oldDelegate.points, points) ||
       !listEquals(oldDelegate.gridLines, gridLines) ||
+      !listEquals(oldDelegate.slotXs, slotXs) ||
       oldDelegate.left != left;
 }
-
 class _SupervisorSummarySection extends StatelessWidget {
   final AppState state;
   final bool isMobileScreen;

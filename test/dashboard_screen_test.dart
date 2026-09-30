@@ -367,7 +367,7 @@ void main() {
       expect(history.last.byCampus['Mogpog Campus'], 0);
     });
 
-    testWidgets('compares campuses as columns', (tester) async {
+    testWidgets('compares campuses as lollipops', (tester) async {
       await pumpDashboard(
         tester,
         'Head',
@@ -381,7 +381,9 @@ void main() {
       expect(find.byTooltip('Mogpog: 0 student assistants'), findsOneWidget);
     });
 
-    testWidgets('shows one year as a number, not a lone dot', (tester) async {
+    testWidgets('puts a lone year on a timeline of upcoming years', (
+      tester,
+    ) async {
       await pumpDashboard(
         tester,
         'Head',
@@ -392,13 +394,16 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Multi-Year Growth'), findsOneWidget);
-      expect(find.text('student assistants in AY 2026-2027'), findsOneWidget);
+      expect(find.text('3 enrolled  •  AY 2026-2027'), findsOneWidget);
       expect(
-        find.textContaining('once a second school year is recorded'),
+        find.byTooltip('AY 2026-2027: 3 student assistants'),
         findsOneWidget,
       );
-      // No empty future years on an axis.
-      expect(find.text('2027-2028'), findsNothing);
+      // The next two years are on the axis, marked as not yet recorded.
+      expect(find.text('2027-2028'), findsOneWidget);
+      expect(find.text('2028-2029'), findsOneWidget);
+      expect(find.text('upcoming'), findsNWidgets(2));
+      expect(find.byTooltip(RegExp('2027-2028')), findsNothing);
     });
 
     testWidgets('draws the trend once a past year is recorded', (
@@ -422,6 +427,9 @@ void main() {
       expect(find.text('+2 from AY 2025-2026'), findsOneWidget);
       expect(find.text('2025-2026'), findsOneWidget);
       expect(find.text('2026-2027'), findsOneWidget);
+      // Padded to three years with the one after the current year.
+      expect(find.text('2027-2028'), findsOneWidget);
+      expect(find.text('upcoming'), findsOneWidget);
       expect(
         find.byTooltip('AY 2025-2026: 1 student assistant'),
         findsOneWidget,
