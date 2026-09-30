@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
@@ -1108,7 +1109,12 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
     final isAllSelected = _selectedCampus == _allCampuses;
     final perCampusCounts = state.studentsPerCampus;
 
-    final trend = isAllSelected ? const <int?>[] : (state.campusGrowthTrend[_selectedCampus] ?? const <int?>[]);
+    final trend = isAllSelected
+        ? const <({String academicYear, int count})>[]
+        : [
+            for (final year in state.enrollmentHistory)
+              (academicYear: year.academicYear, count: year.byCampus[_selectedCampus] ?? 0),
+          ];
 
     final deptCounts = isAllSelected
         ? (() {
@@ -1172,7 +1178,7 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
 
         const SizedBox(height: 16),
 
-        // Line chart card
+        // Enrollment (all campuses) or growth (one campus) card
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
@@ -1185,73 +1191,8 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
           ),
           padding: EdgeInsets.all(isMobileScreen ? 16 : 22),
           child: isAllSelected
-              ? _AllCampusesBarChart(counts: perCampusCounts, isMobileScreen: isMobileScreen)
-              : Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Multi-Year Growth',
-                          style: TextStyle(fontSize: isMobileScreen ? 14 : 15, fontWeight: FontWeight.w800, color: AppTheme.slate900),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          'Student assistant headcount trend, ${_selectedCampus.replaceAll(' Campus', '')}',
-                          style: const TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: AppTheme.slate500),
-                        ),
-                      ],
-                    ),
-                  ),
-                  if (trend.isNotEmpty && trend.first != null)
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: AppTheme.emerald50,
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        '${trend.first} enrolled  •  ${state.growthYears.first}',
-                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.emerald500),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 18),
-              SizedBox(
-                height: isMobileScreen ? 160 : 200,
-                width: double.infinity,
-                child: trend.isEmpty
-                    ? const Center(child: Text('No trend data', style: TextStyle(color: AppTheme.slate400)))
-                    : CustomPaint(
-                        painter: _LineChartPainter(values: trend.map((e) => e?.toDouble()).toList()),
-                        child: Container(),
-                      ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: state.growthYears.map((y) {
-                  return Expanded(
-                    child: Text(
-                      y.replaceAll('AY ', ''),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: AppTheme.slate400),
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Future school years will populate automatically once enrollment for that year is recorded.',
-                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w500, color: AppTheme.slate400),
-              ),
-            ],
-          ),
+              ? _CampusEnrollmentChart(counts: perCampusCounts, isMobileScreen: isMobileScreen)
+              : _CampusGrowthChart(campus: _label(_selectedCampus), trend: trend, isMobileScreen: isMobileScreen),
         ),
 
         const SizedBox(height: 16),
@@ -1365,122 +1306,199 @@ class _CampusDistributionSectionState extends State<_CampusDistributionSection> 
   }
 }
 
-/// Simple line-chart painter: draws a polyline with a soft gradient fill
-/// underneath and dot markers, only across data points that actually have
-/// a value. Null entries (future school years with no data yet) are left
-/// as empty gaps on the x-axis — nothing is drawn or interpolated for them.
-/// Bar comparison of student assistant headcount across every campus,
-/// shown when "All Campuses" is selected.
-class _AllCampusesBarChart extends StatelessWidget {
+/// Title, subtitle and an optional chip, shared by the campus charts. On
+/// phones the chip drops below the subtitle instead of squeezing the title.
+class _ChartHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  final String? chip;
+  final bool isMobileScreen;
+
+  const _ChartHeader({
+    required this.title,
+    required this.subtitle,
+    this.chip,
+    required this.isMobileScreen,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final chipWidget = chip == null
+        ? null
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+            decoration: BoxDecoration(
+              color: AppTheme.slate100,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              chip!,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate600,
+              ),
+            ),
+          );
+    final heading = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: isMobileScreen ? 14 : 15,
+            fontWeight: FontWeight.w800,
+            color: AppTheme.slate900,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitle,
+          style: const TextStyle(
+            fontSize: 11.5,
+            fontWeight: FontWeight.w500,
+            color: AppTheme.slate500,
+          ),
+        ),
+        if (isMobileScreen && chipWidget != null) ...[
+          const SizedBox(height: 8),
+          chipWidget,
+        ],
+      ],
+    );
+    if (isMobileScreen || chipWidget == null) return heading;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(child: heading),
+        const SizedBox(width: 10),
+        chipWidget,
+      ],
+    );
+  }
+}
+
+String _studentAssistants(int count) =>
+    count == 1 ? '1 student assistant' : '$count student assistants';
+
+/// Headcount across every campus, shown when "All Campuses" is selected.
+///
+/// Columns, not a line: the campuses are separate places, and a line
+/// between them would suggest a trend from one to the next. Headcount is
+/// one series, so every column is the same colour; the campus names on the
+/// axis carry identity.
+class _CampusEnrollmentChart extends StatelessWidget {
   final Map<String, int> counts;
   final bool isMobileScreen;
-  const _AllCampusesBarChart({required this.counts, required this.isMobileScreen});
 
-  // Headcount across campuses is one series, so it gets one colour: the
-  // campus names on the axis already carry identity. The five hues this used
-  // to cycle through implied five categories that do not exist, and two of
-  // them were the status colours, which mean good and warning elsewhere.
+  const _CampusEnrollmentChart({
+    required this.counts,
+    required this.isMobileScreen,
+  });
+
+  // A column's value label and the gap above the column.
+  static const _labelHeight = 28.0;
 
   @override
   Widget build(BuildContext context) {
     final total = counts.values.fold<int>(0, (a, b) => a + b);
-    final maxCount = counts.values.isEmpty ? 0 : counts.values.reduce((a, b) => a > b ? a : b);
+    final maxCount = counts.values.fold<int>(0, (a, b) => a > b ? a : b);
+    final plotHeight = isMobileScreen ? 150.0 : 190.0;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Text(
-                'Enrollment by Campus',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: isMobileScreen ? 14 : 15, fontWeight: FontWeight.w800, color: AppTheme.slate900),
-              ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(color: AppTheme.emerald50, borderRadius: BorderRadius.circular(20)),
-              child: Text(
-                '$total total',
-                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.emerald500),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 2),
-        const Text(
-          'Student assistants currently enrolled, by campus',
-          style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w500, color: AppTheme.slate500),
+        _ChartHeader(
+          title: 'Enrollment by Campus',
+          subtitle: 'Student assistants currently enrolled, by campus',
+          chip: '$total total',
+          isMobileScreen: isMobileScreen,
         ),
         const SizedBox(height: 18),
-        SizedBox(
-          height: isMobileScreen ? 150 : 190,
-          child: total == 0
-              ? const Center(child: Text('No enrollment data yet', style: TextStyle(color: AppTheme.slate400)))
-              : LayoutBuilder(
-                  builder: (context, constraints) {
-                    final entries = counts.entries.toList();
-                    final n = entries.length;
-                    final colWidth = constraints.maxWidth / n;
-                    const numberLabelHeight = 22.0;
-                    const topPad = 6.0;
-                    const bottomPad = 6.0;
-                    final lineAreaHeight = constraints.maxHeight - numberLabelHeight - topPad - bottomPad;
-
-                    final points = <Offset>[];
-                    final dotColors = <Color>[];
-                    for (int i = 0; i < n; i++) {
-                      final count = entries[i].value;
-                      final frac = maxCount == 0 ? 0.0 : count / maxCount;
-                      final x = colWidth * (i + 0.5);
-                      final y = numberLabelHeight + topPad + lineAreaHeight * (1 - frac.clamp(0.04, 1.0));
-                      points.add(Offset(x, y));
-                      dotColors.add(ChartPalette.series);
-                    }
-
-                    return Stack(
-                      children: [
-                        Positioned.fill(
-                          child: CustomPaint(
-                            painter: _CampusEnrollmentLineChartPainter(
-                              points: points,
-                              dotColors: dotColors,
-                              chartTop: numberLabelHeight,
+        if (total == 0)
+          SizedBox(
+            height: plotHeight,
+            child: const Center(
+              child: Text(
+                'No enrollment data yet',
+                style: TextStyle(color: AppTheme.slate400),
+              ),
+            ),
+          )
+        else ...[
+          SizedBox(
+            height: plotHeight,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (final entry in counts.entries)
+                  Expanded(
+                    child: Tooltip(
+                      message:
+                          '${entry.key.replaceAll(' Campus', '')}: '
+                          '${_studentAssistants(entry.value)}',
+                      // Transparent but hit-testable, so hovering anywhere in
+                      // the campus's band shows its tooltip.
+                      child: ColoredBox(
+                        color: Colors.transparent,
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Text(
+                              '${entry.value}',
+                              style: TextStyle(
+                                fontSize: isMobileScreen ? 12 : 13,
+                                fontWeight: FontWeight.w800,
+                                // A campus with none reads as empty, not as
+                                // a value to compare.
+                                color: entry.value == 0
+                                    ? AppTheme.slate400
+                                    : AppTheme.slate900,
+                              ),
                             ),
-                          ),
+                            const SizedBox(height: 6),
+                            Container(
+                              width: 24,
+                              height:
+                                  (plotHeight - _labelHeight) *
+                                  entry.value /
+                                  maxCount,
+                              decoration: const BoxDecoration(
+                                color: ChartPalette.series,
+                                borderRadius: BorderRadius.vertical(
+                                  top: Radius.circular(4),
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                        for (int i = 0; i < n; i++)
-                          Positioned(
-                            left: colWidth * i,
-                            top: points[i].dy - numberLabelHeight - 6,
-                            width: colWidth,
-                            child: Text(
-                              '${entries[i].value}',
-                              textAlign: TextAlign.center,
-                              style: TextStyle(fontSize: isMobileScreen ? 12 : 13, fontWeight: FontWeight.w800, color: AppTheme.slate900),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          // The baseline every column grows from.
+          Container(height: 1, color: AppTheme.slate200),
+        ],
         const SizedBox(height: 10),
         Row(
           children: counts.keys.map((campus) {
             return Expanded(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: isMobileScreen ? 2 : 4),
+                padding: EdgeInsets.symmetric(
+                  horizontal: isMobileScreen ? 2 : 4,
+                ),
                 child: Text(
                   campus.replaceAll(' Campus', ''),
                   textAlign: TextAlign.center,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: isMobileScreen ? 10.5 : 11.5, fontWeight: FontWeight.w600, color: AppTheme.slate600),
+                  style: TextStyle(
+                    fontSize: isMobileScreen ? 10.5 : 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate600,
+                  ),
                 ),
               ),
             );
@@ -1491,180 +1509,287 @@ class _AllCampusesBarChart extends StatelessWidget {
   }
 }
 
-/// Paints the connecting line, gradient area fill, and colored dot markers
-/// for the "Enrollment by Campus" line chart.
-class _CampusEnrollmentLineChartPainter extends CustomPainter {
-  final List<Offset> points;
-  final List<Color> dotColors;
-  final double chartTop;
-  _CampusEnrollmentLineChartPainter({required this.points, required this.dotColors, required this.chartTop});
+/// One campus's headcount, year over year.
+///
+/// A trend needs two points, so while only the current school year has a
+/// headcount this shows that number rather than a lone dot on an empty
+/// chart. Past years come from the headcount saved when each year is closed
+/// ([AppState.enrollmentHistory]).
+class _CampusGrowthChart extends StatelessWidget {
+  final String campus;
+  final List<({String academicYear, int count})> trend;
+  final bool isMobileScreen;
+
+  const _CampusGrowthChart({
+    required this.campus,
+    required this.trend,
+    required this.isMobileScreen,
+  });
 
   @override
-  void paint(Canvas canvas, Size size) {
-    if (points.isEmpty) return;
+  Widget build(BuildContext context) {
+    // The most recent years that fit across the card.
+    final maxYears = isMobileScreen ? 4 : 6;
+    final shown = trend.length > maxYears
+        ? trend.sublist(trend.length - maxYears)
+        : trend;
+    final current = shown.last;
+    final previous = shown.length > 1 ? shown[shown.length - 2] : null;
+    final change = previous == null ? 0 : current.count - previous.count;
 
-    // Horizontal gridlines across the chart area (below the number labels).
-    final gridPaint = Paint()
-      ..color = AppTheme.slate100
-      ..strokeWidth = 1;
-    final chartHeight = size.height - chartTop;
-    for (int i = 0; i <= 3; i++) {
-      final y = chartTop + chartHeight / 3 * i;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
-    }
-
-    if (points.length == 1) {
-      final p = points.first;
-      final dotFillPaint = Paint()..color = dotColors.first;
-      final dotStrokePaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      canvas.drawCircle(p, 5.5, dotFillPaint);
-      canvas.drawCircle(p, 5.5, dotStrokePaint);
-      return;
-    }
-
-    // Area fill under the line.
-    final fillPath = Path()..moveTo(points.first.dx, size.height);
-    for (final p in points) {
-      fillPath.lineTo(p.dx, p.dy);
-    }
-    fillPath.lineTo(points.last.dx, size.height);
-    fillPath.close();
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [AppTheme.maroon.withValues(alpha: 0.16), AppTheme.maroon.withValues(alpha: 0.0)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawPath(fillPath, fillPaint);
-
-    // The connecting line.
-    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
-    for (final p in points.skip(1)) {
-      linePath.lineTo(p.dx, p.dy);
-    }
-    final linePaint = Paint()
-      ..color = AppTheme.maroon
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(linePath, linePaint);
-
-    // Dot markers, colored per campus to match the original bar colors.
-    final dotStrokePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
-    for (int i = 0; i < points.length; i++) {
-      final dotFillPaint = Paint()..color = dotColors[i];
-      canvas.drawCircle(points[i], 5.5, dotFillPaint);
-      canvas.drawCircle(points[i], 5.5, dotStrokePaint);
-    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _ChartHeader(
+          title: 'Multi-Year Growth',
+          subtitle: 'Student assistant headcount per school year, $campus',
+          chip: previous == null
+              ? null
+              : change == 0
+              ? 'No change from AY ${previous.academicYear}'
+              : '${change > 0 ? '+' : '−'}${change.abs()} from '
+                    'AY ${previous.academicYear}',
+          isMobileScreen: isMobileScreen,
+        ),
+        const SizedBox(height: 18),
+        if (previous == null) ...[
+          Text(
+            '${current.count}',
+            style: const TextStyle(
+              fontSize: 36,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.slate900,
+              height: 1.1,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            '${current.count == 1 ? 'student assistant' : 'student assistants'}'
+            ' in AY ${current.academicYear}',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate600,
+            ),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'The trend appears here once a second school year is recorded. '
+            "Each year's headcount is saved when that school year is closed.",
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: AppTheme.slate400,
+            ),
+          ),
+        ] else
+          _GrowthLineChart(points: shown, isMobileScreen: isMobileScreen),
+      ],
+    );
   }
-
-  @override
-  bool shouldRepaint(covariant _CampusEnrollmentLineChartPainter oldDelegate) =>
-      oldDelegate.points != points || oldDelegate.dotColors != dotColors;
 }
 
-class _LineChartPainter extends CustomPainter {
-  final List<double?> values;
-  _LineChartPainter({required this.values});
+class _GrowthLineChart extends StatelessWidget {
+  final List<({String academicYear, int count})> points;
+  final bool isMobileScreen;
+
+  const _GrowthLineChart({required this.points, required this.isMobileScreen});
+
+  // Room on the left for the y-axis numbers, and above the plot for the
+  // latest year's label.
+  static const _axisWidth = 28.0;
+  static const _headroom = 24.0;
+
+  /// A round step giving about three gridlines from zero up to [maxValue].
+  static int _tickStep(int maxValue) {
+    if (maxValue <= 3) return 1;
+    final raw = maxValue / 3;
+    var magnitude = 1;
+    while (magnitude * 10 <= raw) {
+      magnitude *= 10;
+    }
+    for (final multiple in const [1, 2, 5]) {
+      if (multiple * magnitude >= raw) return multiple * magnitude;
+    }
+    return 10 * magnitude;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxCount = points.fold<int>(0, (a, p) => a > p.count ? a : p.count);
+    final step = _tickStep(maxCount);
+    // Always from zero, so the line's height is the headcount itself.
+    final top = maxCount <= step ? step : (maxCount / step).ceil() * step;
+    final ticks = [for (var v = 0; v <= top; v += step) v];
+
+    return Column(
+      children: [
+        SizedBox(
+          height: isMobileScreen ? 150 : 180,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final slot = (constraints.maxWidth - _axisWidth) / points.length;
+              double yFor(int value) =>
+                  constraints.maxHeight -
+                  value / top * (constraints.maxHeight - _headroom);
+              final offsets = [
+                for (var i = 0; i < points.length; i++)
+                  Offset(_axisWidth + slot * (i + 0.5), yFor(points[i].count)),
+              ];
+
+              return Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Positioned.fill(
+                    child: CustomPaint(
+                      painter: _GrowthLinePainter(
+                        points: offsets,
+                        gridLines: [for (final t in ticks) yFor(t)],
+                        left: _axisWidth,
+                      ),
+                    ),
+                  ),
+                  for (final t in ticks)
+                    Positioned(
+                      left: 0,
+                      width: _axisWidth - 8,
+                      top: yFor(t) - 7,
+                      child: Text(
+                        '$t',
+                        textAlign: TextAlign.right,
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.slate400,
+                          fontFeatures: [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ),
+                  // Only the latest year is labelled; the axis and the
+                  // tooltips carry the rest.
+                  Positioned(
+                    left: offsets.last.dx - 30,
+                    width: 60,
+                    top: offsets.last.dy - 24,
+                    child: Text(
+                      '${points.last.count}',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: isMobileScreen ? 12 : 13,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate900,
+                      ),
+                    ),
+                  ),
+                  for (var i = 0; i < points.length; i++)
+                    Positioned(
+                      left: offsets[i].dx - 14,
+                      top: offsets[i].dy - 14,
+                      width: 28,
+                      height: 28,
+                      child: Tooltip(
+                        message:
+                            'AY ${points[i].academicYear}: '
+                            '${_studentAssistants(points[i].count)}',
+                        child: const ColoredBox(color: Colors.transparent),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.only(left: _axisWidth),
+          child: Row(
+            children: [
+              for (final p in points)
+                Expanded(
+                  child: Text(
+                    p.academicYear,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.slate500,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Gridlines, a faint wash under the line, the 2px line and its markers.
+class _GrowthLinePainter extends CustomPainter {
+  final List<Offset> points;
+  final List<double> gridLines;
+  final double left;
+
+  _GrowthLinePainter({
+    required this.points,
+    required this.gridLines,
+    required this.left,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (values.isEmpty) return;
-
-    final known = values.whereType<double>().toList();
-
-    // Leave a little headroom so the line/dots don't clip at the top/bottom.
-    const topPad = 12.0;
-    const bottomPad = 6.0;
-    final chartHeight = size.height - topPad - bottomPad;
-    final stepX = values.length > 1 ? size.width / (values.length - 1) : 0.0;
-
-    // Horizontal gridlines span the full timeline, including empty years.
-    final gridPaint = Paint()
-      ..color = AppTheme.slate100
-      ..strokeWidth = 1;
-    for (int i = 0; i <= 3; i++) {
-      final y = topPad + chartHeight / 3 * i;
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), gridPaint);
+    // The first gridline is zero: the baseline, one step darker.
+    for (var i = 0; i < gridLines.length; i++) {
+      canvas.drawLine(
+        Offset(left, gridLines[i]),
+        Offset(size.width, gridLines[i]),
+        Paint()
+          ..color = i == 0 ? AppTheme.slate200 : AppTheme.slate100
+          ..strokeWidth = 1,
+      );
     }
+    if (points.isEmpty) return;
 
-    if (known.isEmpty) return;
-
-    final maxV = known.reduce((a, b) => a > b ? a : b);
-    final minV = known.reduce((a, b) => a < b ? a : b);
-    final range = (maxV - minV) == 0 ? (maxV == 0 ? 1 : maxV) : (maxV - minV);
-
-    // Only build points for indices that actually have data.
-    final points = <Offset>[
-      for (int i = 0; i < values.length; i++)
-        if (values[i] != null)
-          Offset(
-            stepX * i,
-            topPad + chartHeight - ((values[i]! - minV) / range) * chartHeight,
-          ),
-    ];
-
-    if (points.length == 1) {
-      // Only the current year has data — just show a single marker, no line.
-      final dotFillPaint = Paint()..color = const Color(0xFFB08900);
-      final dotStrokePaint = Paint()
-        ..color = Colors.white
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2;
-      canvas.drawCircle(points.first, 5, dotFillPaint);
-      canvas.drawCircle(points.first, 5, dotStrokePaint);
-      return;
-    }
-
-    // Area fill under the line (only across the known points)
-    final fillPath = Path()..moveTo(points.first.dx, size.height);
+    final baseline = gridLines.first;
+    final area = Path()..moveTo(points.first.dx, baseline);
     for (final p in points) {
-      fillPath.lineTo(p.dx, p.dy);
+      area.lineTo(p.dx, p.dy);
     }
-    fillPath.lineTo(points.last.dx, size.height);
-    fillPath.close();
-    final fillPaint = Paint()
-      ..shader = LinearGradient(
-        begin: Alignment.topCenter,
-        end: Alignment.bottomCenter,
-        colors: [AppTheme.gold400.withValues(alpha: 0.28), AppTheme.gold400.withValues(alpha: 0.0)],
-      ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
-    canvas.drawPath(fillPath, fillPaint);
+    area
+      ..lineTo(points.last.dx, baseline)
+      ..close();
+    canvas.drawPath(
+      area,
+      Paint()..color = ChartPalette.series.withValues(alpha: 0.10),
+    );
 
-    // The line itself
-    final linePath = Path()..moveTo(points.first.dx, points.first.dy);
+    final line = Path()..moveTo(points.first.dx, points.first.dy);
     for (final p in points.skip(1)) {
-      linePath.lineTo(p.dx, p.dy);
+      line.lineTo(p.dx, p.dy);
     }
-    final linePaint = Paint()
-      ..color = const Color(0xFFB08900)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 3
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
-    canvas.drawPath(linePath, linePaint);
+    canvas.drawPath(
+      line,
+      Paint()
+        ..color = ChartPalette.series
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
 
-    // Dot markers
-    final dotFillPaint = Paint()..color = const Color(0xFFB08900);
-    final dotStrokePaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2;
+    // Markers with a ring in the card's colour, so they stay legible where
+    // they sit on the line.
     for (final p in points) {
-      canvas.drawCircle(p, 4.5, dotFillPaint);
-      canvas.drawCircle(p, 4.5, dotStrokePaint);
+      canvas.drawCircle(p, 6.5, Paint()..color = Colors.white);
+      canvas.drawCircle(p, 4.5, Paint()..color = ChartPalette.series);
     }
   }
 
   @override
-  bool shouldRepaint(covariant _LineChartPainter oldDelegate) => oldDelegate.values != values;
+  bool shouldRepaint(covariant _GrowthLinePainter oldDelegate) =>
+      !listEquals(oldDelegate.points, points) ||
+      !listEquals(oldDelegate.gridLines, gridLines) ||
+      oldDelegate.left != left;
 }
 
 class _SupervisorSummarySection extends StatelessWidget {

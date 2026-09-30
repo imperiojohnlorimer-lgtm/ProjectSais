@@ -23,6 +23,8 @@ void main() {
     Size size, {
     List<User>? users,
     List<AttendanceRecord>? attendance,
+    List<Student>? students,
+    List<Map<String, dynamic>>? archives,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -33,6 +35,8 @@ void main() {
           final state = AppState()..currentUser = _user(role);
           if (users != null) state.users = users;
           if (attendance != null) state.attendance = attendance;
+          if (students != null) state.students = students;
+          if (archives != null) state.academicYearArchives = archives;
           return state;
         },
         child: MaterialApp(
@@ -315,6 +319,152 @@ void main() {
       );
       expect(find.text('No active accounts yet'), findsOneWidget);
     });
+  });
+
+  group('Head campus charts', () {
+    Student sa(String id, String campus) => Student(
+      id: id,
+      name: 'SA $id',
+      email: '$id@marsu.edu.ph',
+      department: 'College of Information and Computing Sciences',
+      campus: campus,
+    );
+    final roster = [
+      sa('a', 'Boac Campus'),
+      sa('b', 'Boac Campus'),
+      sa('c', 'Boac Campus'),
+      sa('d', 'Gasan Campus'),
+    ];
+
+    test('enrollment history keeps closed years that saved a headcount', () {
+      final state = AppState()
+        ..currentUser = _user('Head')
+        ..academicYear = '2027-2028'
+        ..students = roster
+        ..academicYearArchives = [
+          // Left over from an undone move to a later year.
+          {
+            'academicYear': '2028-2029',
+            'headcountByCampus': {'Boac Campus': 9},
+          },
+          {
+            'academicYear': '2026-2027',
+            'headcountByCampus': {'Boac Campus': 5, 'Gasan Campus': 2},
+          },
+          // Closed before headcounts were saved.
+          {'academicYear': '2025-2026'},
+        ];
+
+      final history = state.enrollmentHistory;
+      expect([for (final y in history) y.academicYear], [
+        '2026-2027',
+        '2027-2028',
+      ]);
+      expect(history.first.byCampus, {'Boac Campus': 5, 'Gasan Campus': 2});
+      // The current year is counted live, every campus included.
+      expect(history.last.byCampus['Boac Campus'], 3);
+      expect(history.last.byCampus['Gasan Campus'], 1);
+      expect(history.last.byCampus['Mogpog Campus'], 0);
+    });
+
+    testWidgets('compares campuses as columns', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Head',
+        const Size(1440, 1800),
+        students: roster,
+      );
+      expect(find.text('Enrollment by Campus'), findsOneWidget);
+      expect(find.text('4 total'), findsOneWidget);
+      expect(find.byTooltip('Boac: 3 student assistants'), findsOneWidget);
+      expect(find.byTooltip('Gasan: 1 student assistant'), findsOneWidget);
+      expect(find.byTooltip('Mogpog: 0 student assistants'), findsOneWidget);
+    });
+
+    testWidgets('shows one year as a number, not a lone dot', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Head',
+        const Size(1440, 1800),
+        students: roster,
+      );
+      await tester.tap(find.text('Boac').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Multi-Year Growth'), findsOneWidget);
+      expect(find.text('student assistants in AY 2026-2027'), findsOneWidget);
+      expect(
+        find.textContaining('once a second school year is recorded'),
+        findsOneWidget,
+      );
+      // No empty future years on an axis.
+      expect(find.text('2027-2028'), findsNothing);
+    });
+
+    testWidgets('draws the trend once a past year is recorded', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        'Head',
+        const Size(1440, 1800),
+        students: roster,
+        archives: [
+          {
+            'academicYear': '2025-2026',
+            'headcountByCampus': {'Boac Campus': 1},
+          },
+        ],
+      );
+      await tester.tap(find.text('Boac').first);
+      await tester.pumpAndSettle();
+
+      expect(find.text('+2 from AY 2025-2026'), findsOneWidget);
+      expect(find.text('2025-2026'), findsOneWidget);
+      expect(find.text('2026-2027'), findsOneWidget);
+      expect(
+        find.byTooltip('AY 2025-2026: 1 student assistant'),
+        findsOneWidget,
+      );
+      expect(
+        find.byTooltip('AY 2026-2027: 3 student assistants'),
+        findsOneWidget,
+      );
+    });
+
+    for (final width in const [320.0, 390.0, 768.0, 1440.0]) {
+      testWidgets('lay out without overflow at ${width.toInt()}px', (
+        tester,
+      ) async {
+        await pumpDashboard(
+          tester,
+          'Head',
+          Size(width, 2400),
+          students: roster,
+          archives: [
+            for (final (year, count) in const [
+              ('2020-2021', 30),
+              ('2021-2022', 12),
+              ('2022-2023', 0),
+              ('2023-2024', 7),
+              ('2024-2025', 125),
+              ('2025-2026', 1),
+            ])
+              {
+                'academicYear': year,
+                'headcountByCampus': {'Boac Campus': count},
+              },
+          ],
+        );
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Boac').first);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        await tester.tap(find.text('Gasan').first);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
 
   group('chart palette', () {

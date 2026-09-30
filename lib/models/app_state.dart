@@ -1790,6 +1790,7 @@ class AppState extends ChangeNotifier {
           academicYear,
           settings,
           archiveAttendance: autoArchiveAttendanceLogs,
+          headcountByCampus: studentsPerCampus,
         );
       }
       final archives = await _firestoreService!.getAcademicYearArchives();
@@ -4752,6 +4753,7 @@ class AppState extends ChangeNotifier {
           // app treats as on when it was never saved.
           archiveAttendance:
               currentSettings['autoArchiveLogs'] as bool? ?? true,
+          headcountByCampus: studentsPerCampus,
         );
         // Newest first, like getAcademicYearArchives.
         academicYearArchives =
@@ -6780,22 +6782,31 @@ class AppState extends ChangeNotifier {
     return counts;
   }
 
-  /// School years shown on the campus growth chart: the current year (with
-  /// real enrollment counts) followed by upcoming years left empty until
-  /// that data exists.
-  List<String> get growthYears => [
-    for (var i = 0; i < 3; i++)
-      'AY ${RehireRecord.shiftAcademicYear(academicYear, i)}',
-  ];
-
-  /// Student-assistant headcount per campus for [growthYears]. Only the
-  /// current school year (index 0) is populated, from the real student
-  /// roster — future years are left null (no data yet) rather than faked.
-  Map<String, List<int?>> get campusGrowthTrend {
-    final current = studentsPerCampus;
-    return {
-      for (final c in campuses) c: [current[c] ?? 0, null, null],
-    };
+  /// Student-assistant headcount per campus for each school year, oldest
+  /// first and ending with the current year, which is counted live. A past
+  /// year's headcount is the one saved with its archive when the year was
+  /// closed (see [FirestoreService.archiveAcademicYearSettings]); years
+  /// closed before that was saved are left out rather than guessed.
+  List<({String academicYear, Map<String, int> byCampus})>
+  get enrollmentHistory {
+    final byYear = <String, Map<String, int>>{};
+    for (final archive in academicYearArchives) {
+      final year = (archive['academicYear'] ?? archive['id'])?.toString();
+      final counts = archive['headcountByCampus'];
+      // A year after the current one is left over from an undone move.
+      if (year == null || counts is! Map || year.compareTo(academicYear) >= 0) {
+        continue;
+      }
+      byYear[year] = {
+        for (final entry in counts.entries)
+          if (entry.value is num) '${entry.key}': (entry.value as num).toInt(),
+      };
+    }
+    byYear[academicYear] = studentsPerCampus;
+    return [
+      for (final year in byYear.keys.toList()..sort())
+        (academicYear: year, byCampus: byYear[year]!),
+    ];
   }
 
   String _formattedToday() {

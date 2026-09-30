@@ -374,10 +374,13 @@ class FirestoreService {
   /// already is. Its records are copied in later, by the Head's session
   /// (see [markAcademicYearDataArchived]); [archiveAttendance] says whether
   /// that copy should also retire the year's attendance logs.
+  /// [headcountByCampus] is each campus's student assistant count as the
+  /// year closes, which the Head's dashboard plots year over year.
   Future<void> archiveAcademicYearSettings(
     String academicYear,
     Map<String, dynamic> settings, {
     bool archiveAttendance = false,
+    Map<String, int>? headcountByCampus,
   }) async {
     final archiveRef = _academicYearArchive(academicYear);
     if ((await archiveRef.get()).exists) return;
@@ -393,6 +396,7 @@ class FirestoreService {
       'archivedAt': FieldValue.serverTimestamp(),
       'archiveAttendance': archiveAttendance,
       'dataArchived': false,
+      'headcountByCampus': ?headcountByCampus,
     });
   }
 

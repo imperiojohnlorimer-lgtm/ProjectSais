@@ -30,6 +30,7 @@ class _FakeSettingsFirestore extends FirestoreService {
     String academicYear,
     Map<String, dynamic> settings, {
     bool archiveAttendance = false,
+    Map<String, int>? headcountByCampus,
   }) async {
     archives.putIfAbsent(
       academicYear,
@@ -37,6 +38,7 @@ class _FakeSettingsFirestore extends FirestoreService {
         'academicYear': academicYear,
         'archiveAttendance': archiveAttendance,
         'dataArchived': false,
+        'headcountByCampus': ?headcountByCampus,
       },
     );
   }
@@ -160,6 +162,43 @@ void main() {
     // So the Head's session moves records made meanwhile back.
     expect(fake.settings!['undoneAcademicYear'], '2027-2028');
     expect(state.canUndoTermChange, isFalse);
+  });
+
+  test('moving to the next year saves its headcount per campus', () async {
+    final (state, fake) = await _signedIn();
+    state.students = [
+      for (final (id, campus) in const [
+        ('s1', 'Boac Campus'),
+        ('s2', 'Boac Campus'),
+        ('s3', 'Gasan Campus'),
+      ])
+        Student(
+          id: id,
+          name: 'Student $id',
+          email: '$id@example.com',
+          department: 'College of Information and Computing Sciences',
+          campus: campus,
+        ),
+    ];
+
+    await _save(state, year: '2027-2028', semester: '1st Semester');
+    expect(fake.archives['2026-2027']!['headcountByCampus'], {
+      'Boac Campus': 2,
+      'Mogpog Campus': 0,
+      'Sta. Cruz Campus': 0,
+      'Torrijos Campus': 0,
+      'Gasan Campus': 1,
+    });
+
+    // As the Head's dashboard reads it back.
+    state.academicYearArchives = await fake.getAcademicYearArchives();
+    expect(
+      [
+        for (final year in state.enrollmentHistory)
+          (year.academicYear, year.byCampus['Boac Campus']),
+      ],
+      [('2026-2027', 2), ('2027-2028', 2)],
+    );
   });
 
   test('saving other settings keeps the change undoable', () async {
