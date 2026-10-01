@@ -191,6 +191,7 @@ class _RequestDialogState extends State<_RequestDialog> {
   final _slots = TextEditingController();
   final _requirement = TextEditingController();
   final _requirements = <String>[];
+  final _skills = <String>[];
   final _office = _OfficeSelection();
   late final List<Office> _offices;
   String _fileType = 'any'; // 'any' | 'word' | 'pdf' | 'image'
@@ -369,6 +370,7 @@ class _RequestDialogState extends State<_RequestDialog> {
         deadline: deadline.isEmpty ? null : deadline,
         slots: slots.isEmpty ? null : slots,
         requirements: List.of(_requirements),
+        skills: List.of(_skills),
         acceptsApplications: _acceptsApplications,
         isOpen: false,
         officeId: _office.office?.id,
@@ -677,6 +679,10 @@ class _RequestDialogState extends State<_RequestDialog> {
         const SizedBox(height: 20),
         _acceptApplicationsCard(),
         const SizedBox(height: 20),
+        _sectionLabel('NEEDED SKILLS'),
+        const SizedBox(height: 10),
+        _skillsBox(),
+        const SizedBox(height: 20),
         _sectionLabel('REQUIREMENTS'),
         const SizedBox(height: 10),
         _requirementsBox(),
@@ -697,6 +703,98 @@ class _RequestDialogState extends State<_RequestDialog> {
       letterSpacing: 1,
     ),
   );
+
+  /// The Head's skills list, to tap the ones the student assistant needs.
+  /// Approving the request adds them to the office's required skills.
+  Widget _skillsBox() {
+    final available = context.watch<AppState>().skills;
+    // A skill picked here stays shown if the Head removes it meanwhile.
+    final shown = [
+      ...available,
+      for (final skill in _skills)
+        if (!available.contains(skill)) skill,
+    ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.slate50,
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: shown.isEmpty
+          ? const Text(
+              'No skills to choose from yet. The Head keeps the skills list.',
+              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _skills.isEmpty
+                      ? 'Optional. Tap the skills the student assistant needs.'
+                      : '${_skills.length} selected',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate500,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [for (final skill in shown) _skillChip(skill)],
+                ),
+              ],
+            ),
+    );
+  }
+
+  Widget _skillChip(String skill) {
+    final selected = _skills.contains(skill);
+    return Semantics(
+      selected: selected,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: () => setState(() {
+          if (selected) {
+            _skills.remove(skill);
+          } else {
+            _skills.add(skill);
+          }
+        }),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 140),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          decoration: BoxDecoration(
+            color: selected ? AppTheme.maroon : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: selected ? AppTheme.maroon : AppTheme.slate200,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (selected) ...[
+                const Icon(Icons.check_rounded, size: 12, color: Colors.white),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                skill,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: selected ? Colors.white : AppTheme.slate600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   Widget _acceptApplicationsCard() {
     return Container(
@@ -1111,6 +1209,14 @@ class _OfficePickerFieldState extends State<_OfficePickerField> {
             },
             decoration: _decoration('New Office Name'),
           ),
+          const Padding(
+            padding: EdgeInsets.only(top: 6, left: 4),
+            child: Text(
+              'If there\'s no office by this name, approving your request '
+              'creates it, with you as its supervisor.',
+              style: TextStyle(fontSize: 11, color: AppTheme.slate400),
+            ),
+          ),
           if (widget.offices.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -1128,14 +1234,6 @@ class _OfficePickerFieldState extends State<_OfficePickerField> {
                   minimumSize: const Size(0, 0),
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-              ),
-            )
-          else
-            const Padding(
-              padding: EdgeInsets.only(top: 6, left: 4),
-              child: Text(
-                'This office will be set up by the Head once your request is approved.',
-                style: TextStyle(fontSize: 11, color: AppTheme.slate400),
               ),
             ),
         ],

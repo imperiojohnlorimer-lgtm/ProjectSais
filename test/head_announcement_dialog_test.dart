@@ -8,9 +8,25 @@ import 'package:projectsais/screens/accounts/admin_announcements_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/theme/app_theme.dart';
 
-/// Keeps the announcement the dialog posts instead of writing it.
+/// Keeps what the Head's dialogs save instead of writing it.
 class _Store extends FirestoreService {
   final saved = <Map<String, dynamic>>[];
+  final approved = <String, Map<String, dynamic>>{};
+  final savedOffices = <Office>[];
+
+  @override
+  Future<void> updateAnnouncement(String id, Map<String, dynamic> data) async =>
+      approved[id] = data;
+
+  @override
+  Future<void> approveAnnouncementWithOffice(
+    String id,
+    Map<String, dynamic> data,
+    Office office,
+  ) async {
+    approved[id] = data;
+    savedOffices.add(office);
+  }
 
   @override
   Future<DocumentReference> addAnnouncement({
@@ -48,7 +64,10 @@ final _head = User(
 void main() {
   late _Store store;
 
-  Future<void> openDialog(WidgetTester tester) async {
+  Future<void> pumpScreen(
+    WidgetTester tester, {
+    List<Announcement> announcements = const [],
+  }) async {
     tester.view.physicalSize = const Size(1440, 1000);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
@@ -66,6 +85,7 @@ void main() {
         create: (_) => AppState(firestoreService: store)
           ..currentUser = _head
           ..users = [_head]
+          ..announcements = announcements
           ..offices = const [
             Office(id: 'o1', name: 'CICS Office', code: 'CICS'),
             Office(id: 'o2', name: 'Registrar', code: 'REG'),
@@ -77,6 +97,10 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+  }
+
+  Future<void> openDialog(WidgetTester tester) async {
+    await pumpScreen(tester);
     await tester.tap(find.text('Post Announcement').first);
     await tester.pumpAndSettle();
   }
@@ -122,5 +146,57 @@ void main() {
     expect(posted['officeName'], 'Registrar');
     expect(posted['requirements'], isEmpty);
     expect(posted['deadline'], isNull);
+  });
+
+  testWidgets('approving a request for an office not on file creates it', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      announcements: [
+        Announcement(
+          id: 'req1',
+          title: 'Office Aide',
+          body: 'Help with records.',
+          postedBy: 'Sara Supervisor',
+          postedByRole: 'Supervisor',
+          postedById: 'sup1',
+          postedAt: '10/1/2026',
+          slots: '2',
+          skills: const ['Web Developer'],
+          officeName: 'Guidance Office',
+          approvalStatus: 'Pending',
+          isOpen: false,
+        ),
+      ],
+    );
+
+    final approve = find.widgetWithText(InkWell, 'Approve').first;
+    await tester.ensureVisible(approve);
+    await tester.pumpAndSettle();
+    await tester.tap(approve);
+    await tester.pumpAndSettle();
+
+    expect(find.text('New office'), findsOneWidget);
+    expect(
+      find.text(
+        'Creates "Guidance Office" with Sara Supervisor as its '
+        'supervisor',
+      ),
+      findsOneWidget,
+    );
+    final code = find.widgetWithText(TextField, 'Office code');
+    expect(tester.widget<TextField>(code).controller!.text, 'GO');
+    await tester.enterText(code, 'GUID');
+    await tester.tap(find.text('Approve & Create Office'));
+    await tester.pumpAndSettle();
+
+    final office = store.savedOffices.single;
+    expect(office.name, 'Guidance Office');
+    expect(office.code, 'GUID');
+    expect(office.headIds, ['sup1']);
+    expect(office.capacity, 2);
+    expect(office.requiredSkills, ['Web Developer']);
+    expect(store.approved['req1']!['officeId'], office.id);
   });
 }

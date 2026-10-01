@@ -277,6 +277,11 @@ class _AnnouncementCard extends StatelessWidget {
                     ],
                   ),
 
+                  if (announcement.skills.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SkillsNeeded(announcement.skills),
+                  ],
+
                   if (announcement.requirements.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Wrap(

@@ -183,6 +183,68 @@ class Office {
     'isActive': isActive,
     'requiredSkills': requiredSkills,
   };
+
+  /// A code to start from for an office called [name]: an acronym already
+  /// in it ("CICS Office" → CICS), else the initials of its main words
+  /// ("Office of the Registrar" → OR), else its first letters ("Library"
+  /// → LIBR).
+  static String suggestCode(String name) {
+    final words = [
+      for (final word in name.trim().split(RegExp(r'\s+')))
+        if (word.replaceAll(RegExp(r'[^A-Za-z0-9]'), '').isNotEmpty)
+          word.replaceAll(RegExp(r'[^A-Za-z0-9]'), ''),
+    ];
+    for (final word in words) {
+      if (word.length >= 2 && RegExp(r'^[A-Z]+$').hasMatch(word)) return word;
+    }
+    const minor = {'of', 'the', 'and', 'for', 'in', 'on', 'at', 'to'};
+    final initials = [
+      for (final word in words)
+        if (!minor.contains(word.toLowerCase())) word[0].toUpperCase(),
+    ].join();
+    if (initials.length >= 2) return initials;
+    final letters = words.join().toUpperCase();
+    return letters.length > 4 ? letters.substring(0, 4) : letters;
+  }
+}
+
+/// What approving a supervisor's request for a student assistant does to
+/// the office it names: creates the office when there's none, or else
+/// makes room in it for what was asked.
+class OfficeRequestPlan {
+  /// The office as it is now; null when approving creates it.
+  final Office? current;
+
+  /// The office as approving saves it.
+  final Office office;
+
+  /// Requested skills the office didn't need yet.
+  final List<String> addedSkills;
+
+  /// Whether the supervisor who asked becomes one of its supervisors.
+  final bool addsSupervisor;
+
+  const OfficeRequestPlan({
+    required this.current,
+    required this.office,
+    required this.addedSkills,
+    required this.addsSupervisor,
+  });
+
+  bool get createsOffice => current == null;
+
+  /// Whether the capacity rises to fit the slots asked for.
+  bool get raisesCapacity =>
+      current != null && office.capacity > current!.capacity;
+
+  bool get reactivates => current != null && !current!.isActive;
+
+  bool get changesOffice =>
+      createsOffice ||
+      addedSkills.isNotEmpty ||
+      addsSupervisor ||
+      raisesCapacity ||
+      reactivates;
 }
 
 /// A degree program the university offers (e.g. BSIT), under one
@@ -954,6 +1016,11 @@ class Announcement {
   final String? deadline;
   final String? slots;
   final List<String> requirements;
+
+  /// Skills the student assistant needs, from the Head's skills list. A
+  /// supervisor's request names them; approving it adds them to the
+  /// office's required skills.
+  final List<String> skills;
   final bool isOpen; // true = accepting applications
   final bool acceptsApplications;
   final String? postedById;
@@ -988,6 +1055,7 @@ class Announcement {
     this.deadline,
     this.slots,
     this.requirements = const [],
+    this.skills = const [],
     this.isOpen = true,
     this.acceptsApplications = true,
     this.postedById,
@@ -1059,6 +1127,8 @@ class Announcement {
     bool? acceptsApplications,
     String? approvalStatus,
     String? rejectionReason,
+    String? officeId,
+    String? officeName,
   }) => Announcement(
     id: id,
     title: title,
@@ -1069,11 +1139,12 @@ class Announcement {
     deadline: deadline,
     slots: slots,
     requirements: requirements,
+    skills: skills,
     isOpen: isOpen ?? this.isOpen,
     acceptsApplications: acceptsApplications ?? this.acceptsApplications,
     postedById: postedById,
-    officeId: officeId,
-    officeName: officeName,
+    officeId: officeId ?? this.officeId,
+    officeName: officeName ?? this.officeName,
     approvalStatus: approvalStatus ?? this.approvalStatus,
     rejectionReason: rejectionReason ?? this.rejectionReason,
     academicYear: academicYear ?? this.academicYear,

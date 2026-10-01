@@ -1774,6 +1774,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
+          if (ann.skills.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+              child: SkillsNeeded(ann.skills),
+            ),
           if (ann.requirements.isNotEmpty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
@@ -2225,6 +2230,10 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         height: 1.7,
                       ),
                     ),
+                    if (ann.skills.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      SkillsNeeded(ann.skills),
+                    ],
                     if (ann.requirements.isNotEmpty) ...[
                       const SizedBox(height: 18),
                       const Text(
@@ -2339,22 +2348,33 @@ class _ApproveActionState extends State<_ApproveAction> {
   bool _approving = false;
 
   Future<void> _approve() async {
-    final confirmed = await showDialog<bool>(
+    // The dialog returns the code for an office the approval creates ('' if
+    // it creates none), or null when cancelled.
+    final officeCode = await showDialog<String>(
       context: context,
       builder: (_) => _ApproveConfirmDialog(ann: widget.ann),
     );
-    if (confirmed != true || !mounted) return;
+    if (officeCode == null || !mounted) return;
 
     final messenger = ScaffoldMessenger.of(context);
     final state = context.read<AppState>();
+    final plan = state.officePlanFor(widget.ann);
     setState(() => _approving = true);
-    final ok = await state.approveAnnouncement(widget.ann.id);
+    final ok = await state.approveAnnouncement(
+      widget.ann.id,
+      newOfficeCode: officeCode,
+    );
     // Once approved the card swaps this button out, so it may be gone.
     if (mounted) setState(() => _approving = false);
+    final officeNote = plan == null || !plan.changesOffice
+        ? ''
+        : plan.createsOffice
+        ? ' The office "${plan.office.name}" was created.'
+        : ' ${plan.office.name} was updated.';
     AppSnackBar.showWithMessenger(
       messenger,
       ok
-          ? '"${widget.ann.title}" approved and posted to students'
+          ? '"${widget.ann.title}" approved and posted to students.$officeNote'
           : 'Could not approve "${widget.ann.title}". Check your connection '
                 'and try again.',
       type: ok ? SnackType.success : SnackType.error,
@@ -2371,12 +2391,42 @@ class _ApproveActionState extends State<_ApproveAction> {
   );
 }
 
-class _ApproveConfirmDialog extends StatelessWidget {
+/// Confirms an approval, and says what it does to the request's office:
+/// creating it (with a code the Head can change) or the changes that make
+/// room in it. Pops the office code, '' when no office is created.
+class _ApproveConfirmDialog extends StatefulWidget {
   final Announcement ann;
   const _ApproveConfirmDialog({required this.ann});
 
   @override
+  State<_ApproveConfirmDialog> createState() => _ApproveConfirmDialogState();
+}
+
+class _ApproveConfirmDialogState extends State<_ApproveConfirmDialog> {
+  late final _code = TextEditingController(
+    text: Office.suggestCode(widget.ann.officeName ?? ''),
+  );
+  String? _codeError;
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  void _confirm(OfficeRequestPlan? plan) {
+    final code = _code.text.trim();
+    if (plan != null && plan.createsOffice && code.isEmpty) {
+      setState(() => _codeError = 'Enter a code for the new office.');
+      return;
+    }
+    Navigator.pop(context, plan != null && plan.createsOffice ? code : '');
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final ann = widget.ann;
+    final plan = context.watch<AppState>().officePlanFor(ann);
     final details = [
       if (ann.officeName != null) (Icons.apartment_rounded, ann.officeName!),
       (Icons.person_rounded, 'Requested by ${ann.postedBy}'),
@@ -2384,76 +2434,92 @@ class _ApproveConfirmDialog extends StatelessWidget {
       if (ann.deadline != null) (Icons.event_rounded, 'Due ${ann.deadline}'),
     ];
     return AlertDialog(
+      scrollable: true,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Text(
         'Approve this request?',
         style: TextStyle(fontWeight: FontWeight.w700),
       ),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.slate50,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.slate200),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  ann.title,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slate900,
+      content: SizedBox(
+        width: 440,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.slate50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.slate200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    ann.title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.slate900,
+                    ),
                   ),
-                ),
-                for (final (icon, text) in details) ...[
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      Icon(icon, size: 13, color: AppTheme.slate400),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          text,
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            color: AppTheme.slate600,
+                  for (final (icon, text) in details) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Icon(icon, size: 13, color: AppTheme.slate400),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            text,
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              color: AppTheme.slate600,
+                            ),
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+                  ],
+                  if (ann.skills.isNotEmpty) ...[
+                    const SizedBox(height: 10),
+                    SkillsNeeded(ann.skills),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            'Once approved, it is posted to students and they can start '
-            'applying. ${ann.postedBy} will be notified.',
-            style: const TextStyle(
-              fontSize: 13,
-              height: 1.45,
-              color: AppTheme.slate600,
+            if (plan != null && plan.changesOffice) ...[
+              const SizedBox(height: 12),
+              _officeChanges(plan),
+            ],
+            const SizedBox(height: 14),
+            Text(
+              'Once approved, it is posted to students and they can start '
+              'applying. ${ann.postedBy} will be notified.',
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.45,
+                color: AppTheme.slate600,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context, false),
+          onPressed: () => Navigator.pop(context),
           child: const Text('Cancel'),
         ),
         ElevatedButton.icon(
-          onPressed: () => Navigator.pop(context, true),
+          onPressed: () => _confirm(plan),
           icon: const Icon(Icons.check_rounded, size: 18),
-          label: const Text('Approve'),
+          label: Text(
+            plan != null && plan.createsOffice
+                ? 'Approve & Create Office'
+                : 'Approve',
+          ),
           style: ElevatedButton.styleFrom(
             backgroundColor: AppTheme.emerald500,
             foregroundColor: Colors.white,
@@ -2464,6 +2530,115 @@ class _ApproveConfirmDialog extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// What approving does to the office, in a tinted box.
+  Widget _officeChanges(OfficeRequestPlan plan) {
+    final office = plan.office;
+    final current = plan.current;
+    final supervisor = widget.ann.postedBy;
+    final slots = int.tryParse(widget.ann.slots?.trim() ?? '') ?? 0;
+    final changes = plan.createsOffice
+        ? [
+            'Creates "${office.name}" with $supervisor as its supervisor',
+            if (office.capacity > 0)
+              'Room for ${office.capacity} student '
+                  'assistant${office.capacity == 1 ? '' : 's'}',
+            if (office.requiredSkills.isNotEmpty)
+              'Needs: ${office.requiredSkills.join(', ')}',
+          ]
+        : [
+            if (plan.addedSkills.isNotEmpty)
+              'Adds to the skills it needs: ${plan.addedSkills.join(', ')}',
+            if (plan.raisesCapacity)
+              'Raises its capacity from ${current!.capacity} to '
+                  '${office.capacity}, to fit the $slots '
+                  'slot${slots == 1 ? '' : 's'} asked for',
+            if (plan.addsSupervisor) 'Adds $supervisor as a supervisor',
+            if (plan.reactivates) 'Makes it active again',
+          ];
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.maroon50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.2)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                plan.createsOffice
+                    ? Icons.add_business_rounded
+                    : Icons.apartment_rounded,
+                size: 15,
+                color: AppTheme.maroon,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  plan.createsOffice
+                      ? 'New office'
+                      : 'Updates ${office.name}',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.maroon,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          for (final change in changes) ...[
+            const SizedBox(height: 6),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 5),
+                  child: Icon(Icons.circle, size: 5, color: AppTheme.maroon),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    change,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: AppTheme.slate700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (plan.createsOffice) ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _code,
+              textCapitalization: TextCapitalization.characters,
+              onChanged: (_) {
+                if (_codeError != null) setState(() => _codeError = null);
+              },
+              decoration: InputDecoration(
+                labelText: 'Office code',
+                helperText: 'You can change it later in Offices.',
+                errorText: _codeError,
+                isDense: true,
+                filled: true,
+                fillColor: Colors.white,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

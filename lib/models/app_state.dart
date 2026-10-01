@@ -380,6 +380,10 @@ class AppState extends ChangeNotifier {
                       ?.map((e) => e.toString())
                       .toList() ??
                   [],
+              skills: [
+                for (final skill in m['skills'] as List<dynamic>? ?? const [])
+                  skill.toString(),
+              ],
               isOpen: m['isOpen'] ?? true,
               acceptsApplications: m['acceptsApplications'] ?? true,
               postedById: m['postedById'],
@@ -1956,6 +1960,7 @@ class AppState extends ChangeNotifier {
       'deadline': a.deadline,
       'slots': a.slots,
       'requirements': a.requirements,
+      'skills': a.skills,
       'acceptsApplications': a.acceptsApplications,
       'officeId': a.officeId,
       'officeName': a.officeName,
@@ -1984,6 +1989,7 @@ class AppState extends ChangeNotifier {
         deadline: a.deadline,
         slots: a.slots,
         requirements: a.requirements,
+        skills: a.skills,
         isOpen: false,
         acceptsApplications: a.acceptsApplications,
         postedById: a.postedById,
@@ -2040,31 +2046,141 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// What approving [request] does to the office it names, or null for
+  /// anything but a pending supervisor's request that names one.
+  ///
+  /// The office is the one the supervisor picked, else one of the same
+  /// name. With none, approving creates it, coded [newOfficeCode] (or
+  /// [Office.suggestCode]), with the supervisor over it, the requested
+  /// skills, and room for the slots asked for. An office that exists gets
+  /// the requested skills it lacked, its capacity raised if the slots
+  /// wouldn't fit, the supervisor added if they weren't over it, and is
+  /// reactivated if it was inactive.
+  OfficeRequestPlan? officePlanFor(
+    Announcement request, {
+    String? newOfficeCode,
+  }) {
+    final name = request.officeName?.trim() ?? '';
+    if (!request.isPending ||
+        request.postedByRole != 'Supervisor' ||
+        name.isEmpty) {
+      return null;
+    }
+    final wanted = name.toLowerCase();
+    bool named(Office office) => office.name.trim().toLowerCase() == wanted;
+    final current =
+        offices.where((o) => o.id == request.officeId).firstOrNull ??
+        offices.where((o) => o.isActive && named(o)).firstOrNull ??
+        offices.where(named).firstOrNull;
+    final supervisorId = request.postedById ?? '';
+    final supervisorName = request.postedBy;
+    final slots = int.tryParse(request.slots?.trim() ?? '') ?? 0;
+
+    if (current == null) {
+      final code = newOfficeCode?.trim() ?? '';
+      return OfficeRequestPlan(
+        current: null,
+        office: Office(
+          id: 'office_${DateTime.now().millisecondsSinceEpoch}',
+          name: name,
+          code: code.isEmpty ? Office.suggestCode(name) : code,
+          headIds: [supervisorId],
+          headNames: [supervisorName],
+          capacity: slots,
+          requiredSkills: request.skills,
+        ),
+        addedSkills: request.skills,
+        addsSupervisor: true,
+      );
+    }
+
+    final known = {
+      for (final skill in current.requiredSkills) skill.trim().toLowerCase(),
+    };
+    final addedSkills = [
+      for (final skill in request.skills)
+        if (known.add(skill.trim().toLowerCase())) skill,
+    ];
+    final addsSupervisor = !current.hasHead(supervisorId, supervisorName);
+    // The id and name lists run in parallel, so line them up first.
+    final heads = current.headIds.length > current.headNames.length
+        ? current.headIds.length
+        : current.headNames.length;
+    List<String> padded(List<String> list) => [
+      ...list,
+      for (var i = list.length; i < heads; i++) '',
+    ];
+    final needed = current.assistantIds.length + slots;
+    return OfficeRequestPlan(
+      current: current,
+      office: current.copyWith(
+        headIds: addsSupervisor
+            ? [...padded(current.headIds), supervisorId]
+            : null,
+        headNames: addsSupervisor
+            ? [...padded(current.headNames), supervisorName]
+            : null,
+        // No capacity means no limit, which stays.
+        capacity: current.capacity > 0 && needed > current.capacity
+            ? needed
+            : null,
+        isActive: true,
+        requiredSkills: [...current.requiredSkills, ...addedSkills],
+      ),
+      addedSkills: addedSkills,
+      addsSupervisor: addsSupervisor,
+    );
+  }
+
   /// Approves a supervisor's pending request, or re-opens a closed
   /// announcement. The change is saved to Firestore before anything else
   /// happens, so the caller can show progress while it saves and report a
   /// failure instead of the approval silently not sticking. Returns whether
   /// it succeeded.
-  Future<bool> approveAnnouncement(String id) async {
+  ///
+  /// A request for an office also creates or updates that office, as
+  /// [officePlanFor] describes, in the same save; [newOfficeCode] is the
+  /// code a created office gets.
+  Future<bool> approveAnnouncement(String id, {String? newOfficeCode}) async {
     final original = announcements.where((a) => a.id == id).firstOrNull;
     if (original == null) return false;
+    final plan = officePlanFor(original, newOfficeCode: newOfficeCode);
+    final changes = <String, dynamic>{
+      'approvalStatus': 'Approved',
+      'isOpen': true,
+      if (plan != null) 'officeId': plan.office.id,
+      if (plan != null) 'officeName': plan.office.name,
+    };
 
     if (id.isNotEmpty) {
       try {
         _firestoreService ??= FirestoreService();
-        await _firestoreService!.updateAnnouncement(id, {
-          'approvalStatus': 'Approved',
-          'isOpen': true,
-        });
+        if (plan != null && plan.changesOffice) {
+          await _firestoreService!.approveAnnouncementWithOffice(
+            id,
+            changes,
+            plan.office,
+          );
+        } else {
+          await _firestoreService!.updateAnnouncement(id, changes);
+        }
       } catch (error) {
         debugPrint('Failed to approve announcement: $error');
         return false;
       }
     }
 
+    if (plan != null && plan.changesOffice) {
+      final index = offices.indexWhere((o) => o.id == plan.office.id);
+      offices = index < 0
+          ? [...offices, plan.office]
+          : ([...offices]..[index] = plan.office);
+    }
     final approved = original.copyWith(
       approvalStatus: 'Approved',
       isOpen: true,
+      officeId: plan?.office.id,
+      officeName: plan?.office.name,
     );
     announcements = announcements
         .map((a) => a.id == id ? approved : a)
@@ -2092,7 +2208,8 @@ class AppState extends ChangeNotifier {
           userId: postedById,
           title: 'Announcement Approved',
           message:
-              'Your announcement "${approved.title}" was approved and is now live.',
+              'Your announcement "${approved.title}" was approved and is now live.'
+              '${plan != null && plan.createsOffice ? ' The office "${plan.office.name}" was created, with you as its supervisor.' : ''}',
           type: 'announcement',
           createdAt: _formattedToday(),
         ),

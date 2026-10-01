@@ -64,6 +64,7 @@ void main() {
         create: (_) => AppState(firestoreService: store)
           ..currentUser = _supervisor
           ..users = [_head, _supervisor]
+          ..skills = ['Data encoding', 'Web Developer']
           ..offices = const [
             Office(
               id: 'o1',
@@ -97,6 +98,7 @@ void main() {
       for (final section in [
         'BASIC INFORMATION',
         'OFFICE & SCHEDULE',
+        'NEEDED SKILLS',
         'REQUIREMENTS',
         'ATTACHMENT',
       ]) {
@@ -138,6 +140,12 @@ void main() {
       'Help file records and answer walk-in students.',
     );
     await tester.enterText(field('Available Slots'), '2');
+    final skill = find.text('Web Developer');
+    await tester.ensureVisible(skill);
+    await tester.pumpAndSettle();
+    await tester.tap(skill);
+    await tester.pumpAndSettle();
+    expect(find.text('1 selected'), findsOneWidget);
     await tester.enterText(
       find.widgetWithText(TextField, 'Add requirement (press Enter)'),
       'Certificate of Registration',
@@ -166,6 +174,7 @@ void main() {
     expect(request['officeName'], 'CICS Office');
     expect(request['slots'], '2');
     expect(request['requirements'], ['Certificate of Registration::pdf']);
+    expect(request['skills'], ['Web Developer']);
     expect(request['acceptsApplications'], true);
     expect(request['academicYear'], isNotNull);
     // Sent: the dialog closed.

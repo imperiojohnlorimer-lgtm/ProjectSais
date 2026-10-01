@@ -1682,6 +1682,20 @@ class FirestoreService {
     await _announcements.doc(id).update(data);
   }
 
+  /// Approves a supervisor's request ([data] on announcement [id]) and
+  /// saves the office it creates or changes, in one batch, so neither is
+  /// saved without the other.
+  Future<void> approveAnnouncementWithOffice(
+    String id,
+    Map<String, dynamic> data,
+    Office office,
+  ) async {
+    final batch = _db.batch();
+    batch.update(_announcements.doc(id), data);
+    batch.set(_offices.doc(office.id), office.toJson());
+    await batch.commit();
+  }
+
   /// Deletes an announcement.
   Future<void> deleteAnnouncement(String id) async {
     await _announcements.doc(id).delete();

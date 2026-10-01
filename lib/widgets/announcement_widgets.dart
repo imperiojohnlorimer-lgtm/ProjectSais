@@ -240,6 +240,10 @@ class AnnouncementCard extends StatelessWidget {
                         ),
                     ],
                   ),
+                  if (announcement.skills.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    SkillsNeeded(announcement.skills),
+                  ],
                   if (announcement.requirements.isNotEmpty) ...[
                     const SizedBox(height: 12),
                     Wrap(
@@ -502,6 +506,10 @@ class AnnouncementDetailsDialog extends StatelessWidget {
                         height: 1.7,
                       ),
                     ),
+                    if (announcement.skills.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      SkillsNeeded(announcement.skills),
+                    ],
                     if (announcement.requirements.isNotEmpty) ...[
                       const SizedBox(height: 20),
                       const Text(
@@ -761,6 +769,55 @@ class AnnouncementTextField extends StatelessWidget {
           vertical: 12,
         ),
       ),
+    );
+  }
+}
+
+/// The skills an announcement says the student assistant needs, under a
+/// small "Skills needed" label.
+class SkillsNeeded extends StatelessWidget {
+  final List<String> skills;
+
+  const SkillsNeeded(this.skills, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Skills needed',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.slate500,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final skill in skills)
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: AppTheme.slate100,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppTheme.slate200),
+                ),
+                child: Text(
+                  skill,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.slate700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
     );
   }
 }
