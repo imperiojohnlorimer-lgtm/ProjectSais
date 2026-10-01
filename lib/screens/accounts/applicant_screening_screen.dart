@@ -91,10 +91,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   @override
   void initState() {
     super.initState();
-    for (final key in [...skillNames, ...overallNames]) {
-      ratings[key] = 4;
-      notes[key] = '';
-    }
+    _resetAssessment();
   }
 
   @override
@@ -1919,7 +1916,12 @@ Widget _form(AppState state) {
       _input('Contact Information', contact),
       _input('Year Level', yearLevel),
       DropdownButtonFormField<String>(
-        initialValue: targetOfficeId.isEmpty ? null : targetOfficeId,
+        // As with the program, rebuild when another applicant is loaded.
+        key: ValueKey('target-office-$targetOfficeId'),
+        // A saved record's office may since have been deleted.
+        initialValue: state.offices.any((o) => o.id == targetOfficeId)
+            ? targetOfficeId
+            : null,
         decoration: InputDecoration(
           labelText: 'Recommended / Applying for Office',
           isDense: true,
@@ -2537,12 +2539,12 @@ Widget _form(AppState state) {
   void _newForm() {
     activeApplication = null;
     activeRecord = null;
+    _resetAssessment();
     name.clear();
     studentNumber.clear();
     program.clear();
     address.clear();
     contact.clear();
-    remarks.clear();
     final state = context.read<AppState>();
     
     // Find the current user's assigned office
@@ -2569,47 +2571,61 @@ Widget _form(AppState state) {
     setState(() => view = 'form');
   }
 
+  /// Opens the form for [app] straight away, from the profiles the app
+  /// already keeps live. Once [app] has been screened, it opens with the
+  /// saved assessment, to review or change.
   void _start(Application app) {
     final state = context.read<AppState>();
-    _loadAndStartForm(state, app);
-  }
-
-  Future<void> _loadAndStartForm(AppState state, Application app) async {
-    User? user = _user(state, app);
-    
-    // Load the fresh user profile from Firestore (not from stale state.users)
-    if (user != null && user.id.isNotEmpty) {
-      try {
-        final freshUser = await state.getFreshUserProfile(user.id);
-        if (freshUser != null) {
-          user = freshUser;
-        }
-      } catch (_) {
-        // If Firestore load fails, use the in-memory user
-      }
+    ScreeningRecord? saved;
+    for (final record in state.screeningRecords) {
+      if (record.applicationId == app.id) saved = record;
     }
-    
-    if (!mounted) return;
-    
-    final defaults = resolveApplicantScreeningDefaults(
-      user: user,
-      offices: state.offices,
-    );
+    if (saved != null) {
+      _fillFromRecord(saved);
+    } else {
+      final user = _user(state, app);
+      final defaults = resolveApplicantScreeningDefaults(
+        user: user,
+        offices: state.offices,
+      );
+      _resetAssessment();
+      name.text = app.applicantName;
+      studentNumber.text = user?.studentId ?? '';
+      program.text = defaults.program;
+      address.text = user?.address ?? '';
+      contact.text = '${user?.phone ?? ''} / ${user?.email ?? ''}';
+      yearLevel.text = defaults.yearLevel;
+      interviewer.text = state.currentUser?.name ?? '';
+      targetOfficeId = defaults.officeId;
+      targetOfficeName = defaults.officeName;
+    }
     activeApplication = app;
-    name.text = app.applicantName;
-    studentNumber.text = user?.studentId ?? '';
-    program.text = defaults.program;
-    address.text = user?.address ?? '';
-    contact.text = '${user?.phone ?? ''} / ${user?.email ?? ''}';
-    yearLevel.text = defaults.yearLevel;
-    interviewer.text = state.currentUser?.name ?? '';
-    targetOfficeId = defaults.officeId;
-    targetOfficeName = defaults.officeName;
+    activeRecord = saved;
     setState(() => view = 'form');
   }
 
   void _loadRecord(ScreeningRecord record) {
+    _fillFromRecord(record);
+    // Forget any application opened earlier from the queue, or saving
+    // would decide that one instead.
+    activeApplication = null;
     activeRecord = record;
+    setState(() => view = 'form');
+  }
+
+  /// Puts every rating back to its starting 4 and clears the notes, so
+  /// one applicant's assessment doesn't carry over to the next.
+  void _resetAssessment() {
+    for (final key in [...skillNames, ...overallNames]) {
+      ratings[key] = 4;
+      notes[key] = '';
+    }
+    recommendation = 'Recommended';
+    remarks.clear();
+  }
+
+  void _fillFromRecord(ScreeningRecord record) {
+    _resetAssessment();
     name.text = record.fullName;
     studentNumber.text = record.studentNumber;
     program.text = record.academicProgram;
@@ -2625,7 +2641,6 @@ Widget _form(AppState state) {
     ratings.addAll(record.overall);
     notes.addAll(record.skillNotes);
     notes.addAll(record.overallNotes);
-    setState(() => view = 'form');
   }
 
   User? _user(AppState state, Application app) {
@@ -2790,8 +2805,12 @@ Widget _form(AppState state) {
       id: stableId,
       academicYear: recordYear,
       createdAt: DateTime.now().toIso8601String(),
-      applicationId: activeApplication?.id ?? '',
-      applicantId: activeApplication?.applicantId ?? '',
+      // A record reopened from Screening Results stays linked to its
+      // application, so the queue still shows it as screened.
+      applicationId:
+          activeApplication?.id ?? activeRecord?.applicationId ?? '',
+      applicantId:
+          activeApplication?.applicantId ?? activeRecord?.applicantId ?? '',
       fullName: name.text,
       studentNumber: studentNumber.text,
       academicProgram: program.text,

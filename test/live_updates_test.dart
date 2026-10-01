@@ -50,6 +50,19 @@ class _FakeLiveFirestore extends FirestoreService {
 
   @override
   Future<List<String>> getStudentIdsForUser(String uid) async => [];
+
+  /// Like Firestore, reports the new folder to the live query before the
+  /// save returns.
+  final folders = <Map<String, dynamic>>[];
+
+  @override
+  Future<String> addDocumentFolder(DocumentFolder folder) async {
+    final id = 'folder${folders.length + 1}';
+    folders.add({...folder.toJson(), 'id': id});
+    list('documentFolders').add(List.of(folders));
+    await _settle();
+    return id;
+  }
 }
 
 Future<void> _settle() => Future<void>.delayed(Duration.zero);
@@ -148,6 +161,31 @@ void main() {
     await _settle();
 
     expect(state.users.any((u) => u.email == 'sam@example.com'), isFalse);
+  });
+
+  test('a new document folder is listed once, newest first', () async {
+    final head = User(
+      id: 'head1',
+      name: 'Hana Head',
+      email: 'head@example.com',
+      role: 'Head',
+    );
+    final (state, fake) = await _signedIn(head);
+    fake.folders.addAll([
+      {'id': 'old', 'name': 'Memos', 'createdAt': '2020-09-01T08:00:00.000'},
+      {'id': 'new', 'name': 'MOAs', 'createdAt': '2020-09-20T08:00:00.000'},
+    ]);
+    fake.list('documentFolders').add(List.of(fake.folders));
+    await _settle();
+    expect(state.documentFolders.map((f) => f.name), ['MOAs', 'Memos']);
+
+    await state.createDocumentFolder('Office Orders');
+
+    expect(state.documentFolders.map((f) => f.name), [
+      'Office Orders',
+      'MOAs',
+      'Memos',
+    ]);
   });
 
   test('calendar events update live', () async {

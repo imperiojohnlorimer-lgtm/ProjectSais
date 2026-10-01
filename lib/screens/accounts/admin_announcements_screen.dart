@@ -460,15 +460,16 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
   void _showPostAnnouncementDialog(BuildContext context, AppState state) {
     final titleCtrl = TextEditingController();
     final bodyCtrl = TextEditingController();
-    final deadlineCtrl = TextEditingController(
-      text: '${DateTime.now().month}/${DateTime.now().day}/${DateTime.now().year}',
-    );
+    // Empty until picked: the picker saves "Oct 1, 2026", the only form
+    // the deadline check reads.
+    final deadlineCtrl = TextEditingController();
     final slotsCtrl = TextEditingController(text: '3');
-    final reqs = <String>['doc', 'docpdf'];
+    final reqs = <String>[];
     final reqCtrl = TextEditingController();
     String reqFileType = 'any'; // 'any' | 'word' | 'pdf' | 'image'
     var acceptsApplications = true;
-    var selectedOfficeId = state.offices.isNotEmpty ? state.offices.first.id : '';
+    // '' = not for one office in particular.
+    var selectedOfficeId = '';
     PlatformFile? attachedFile;
     bool uploadingAttachment = false;
     String? attachmentUrl;
@@ -955,10 +956,11 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                           _sectionLabel('AUDIENCE & SCHEDULE'),
                           const SizedBox(height: 10),
                           DropdownButtonFormField<String>(
-                            initialValue: selectedOfficeId.isEmpty ? null : selectedOfficeId,
+                            initialValue: selectedOfficeId,
+                            isExpanded: true,
                             icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
                             decoration: const InputDecoration(
-                              labelText: 'Select Office',
+                              labelText: 'Office',
                               prefixIcon: Icon(
                                 Icons.account_balance_outlined,
                                 color: AppTheme.maroon,
@@ -968,15 +970,25 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                             onChanged: (String? value) {
                               setDialogState(() => selectedOfficeId = value ?? '');
                             },
-                            items: state.offices.map((office) {
-                              return DropdownMenuItem(
-                                value: office.id,
+                            items: [
+                              const DropdownMenuItem(
+                                value: '',
                                 child: Text(
-                                  office.name,
-                                  style: const TextStyle(color: AppTheme.slate800),
+                                  'Any office',
+                                  style: TextStyle(color: AppTheme.slate500),
                                 ),
-                              );
-                            }).toList(),
+                              ),
+                              for (final office in state.offices)
+                                if (office.isActive)
+                                  DropdownMenuItem(
+                                    value: office.id,
+                                    child: Text(
+                                      office.name,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(color: AppTheme.slate800),
+                                    ),
+                                  ),
+                            ],
                           ),
                           const SizedBox(height: 14),
                           Row(
@@ -1457,6 +1469,9 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
 
                           final today =
                               '${DateTime.now().month}/${DateTime.now().day}/${DateTime.now().year}';
+                          final office = state.offices
+                              .where((o) => o.id == selectedOfficeId)
+                              .firstOrNull;
                           final ok = await state.postAnnouncement(
                             Announcement(
                               id: 'ann_${DateTime.now().millisecondsSinceEpoch}',
@@ -1470,6 +1485,8 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                               slots: slotsText.isEmpty ? null : slotsText,
                               requirements: reqs,
                               acceptsApplications: acceptsApplications,
+                              officeId: office?.id,
+                              officeName: office?.name,
                               attachmentName: attachedFile?.name,
                               attachmentUrl: attachmentUrl,
                               attachmentPath: attachmentPath,

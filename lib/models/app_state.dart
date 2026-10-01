@@ -688,7 +688,8 @@ class AppState extends ChangeNotifier {
       listen(
         'Document folders',
         fs.collectionStream('documentFolders'),
-        (list) => documentFolders = list.map(DocumentFolder.fromJson).toList(),
+        (list) =>
+            documentFolders = _sortedFolders(list.map(DocumentFolder.fromJson)),
       );
     }
 
@@ -868,11 +869,6 @@ class AppState extends ChangeNotifier {
       debugPrint('Failed to load user profile: $error');
     }
     return null;
-  }
-
-  /// Load the latest user profile from Firestore by ID (public method)
-  Future<User?> getFreshUserProfile(String userId) async {
-    return await _loadUserProfile(uid: userId);
   }
 
   Future<bool> registerUser(User user, String password) async {
@@ -1601,7 +1597,9 @@ class AppState extends ChangeNotifier {
       }
       // Document Folders
       try {
-        documentFolders = await _firestoreService!.getAllDocumentFolders();
+        documentFolders = _sortedFolders(
+          await _firestoreService!.getAllDocumentFolders(),
+        );
       } catch (_) {
         documentFolders = [];
       }
@@ -1923,7 +1921,7 @@ class AppState extends ChangeNotifier {
       );
 
       // Update local state and notify users now that Firestore write succeeded.
-      announcements = [created, ...announcements];
+      announcements = _withAdded(announcements, created, (a) => a.id);
       final studentUsers = users.where((u) => u.role == 'Student');
       for (final u in studentUsers) {
         _addNotification(
@@ -1961,6 +1959,11 @@ class AppState extends ChangeNotifier {
       'acceptsApplications': a.acceptsApplications,
       'officeId': a.officeId,
       'officeName': a.officeName,
+      'academicYear': a.academicYear ?? academicYear,
+      'attachmentName': a.attachmentName,
+      'attachmentUrl': a.attachmentUrl,
+      'attachmentPath': a.attachmentPath,
+      'attachmentSize': a.attachmentSize,
     }..removeWhere((k, v) => v == null);
 
     _firestoreService ??= FirestoreService();
@@ -1982,13 +1985,19 @@ class AppState extends ChangeNotifier {
         slots: a.slots,
         requirements: a.requirements,
         isOpen: false,
+        acceptsApplications: a.acceptsApplications,
         postedById: a.postedById,
         officeId: a.officeId,
         officeName: a.officeName,
         approvalStatus: 'Pending',
+        academicYear: a.academicYear ?? academicYear,
+        attachmentName: a.attachmentName,
+        attachmentUrl: a.attachmentUrl,
+        attachmentPath: a.attachmentPath,
+        attachmentSize: a.attachmentSize,
       );
 
-      announcements = [pending, ...announcements];
+      announcements = _withAdded(announcements, pending, (a) => a.id);
 
       // Notify admins locally and persist notifications to Firestore so
       // admins signed in on other devices will receive them.
@@ -2678,7 +2687,17 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// [list] with [item] added at the front, unless it's already there. A
+  /// live listener usually has it first: Firestore reports a new document
+  /// as soon as it's written, before the save itself returns.
+  static List<T> _withAdded<T>(List<T> list, T item, String Function(T) idOf) =>
+      list.any((x) => idOf(x) == idOf(item)) ? list : [item, ...list];
+
   // ─── Document Folders (Head file manager) ─────────────
+  /// Newest first, so a folder just made shows up at the front.
+  List<DocumentFolder> _sortedFolders(Iterable<DocumentFolder> list) =>
+      list.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
   Future<void> createDocumentFolder(String name) async {
     if (name.trim().isEmpty) return;
     _firestoreService ??= FirestoreService();
@@ -2689,15 +2708,16 @@ class AppState extends ChangeNotifier {
       createdAt: DateTime.now().toIso8601String(),
     );
     final id = await _firestoreService!.addDocumentFolder(folder);
-    documentFolders = [
+    documentFolders = _withAdded(
+      documentFolders,
       DocumentFolder(
         id: id,
         name: folder.name,
         createdBy: folder.createdBy,
         createdAt: folder.createdAt,
       ),
-      ...documentFolders,
-    ];
+      (f) => f.id,
+    );
     notifyListeners();
   }
 
@@ -4530,7 +4550,8 @@ class AppState extends ChangeNotifier {
         sentAt: _formattedToday(),
       ),
     );
-    headForwards = [
+    headForwards = _withAdded(
+      headForwards,
       HeadForward(
         id: forwardId,
         type: type,
@@ -4544,8 +4565,8 @@ class AppState extends ChangeNotifier {
         sentById: currentUser?.id,
         sentAt: _formattedToday(),
       ),
-      ...headForwards,
-    ];
+      (f) => f.id,
+    );
     for (final head in users.where((u) => u.role == 'Head')) {
       _addNotification(
         AppNotification(
