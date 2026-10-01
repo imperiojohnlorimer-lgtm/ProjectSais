@@ -659,9 +659,23 @@ class Task {
   /// same "MMM d, yyyy" format as [AttendanceRecord.date] (e.g. "Sep 3,
   /// 2026") — set automatically by [AppState.updateTaskStatus]. Drives the
   /// DTR/Accomplishment Report's automatic "task completed → attendance"
-  /// entry: a completed task becomes that day's accomplishment instead of
-  /// requiring the supervisor to type it in manually.
+  /// entry: once the supervisor approves the task, it becomes that day's
+  /// accomplishment instead of requiring the supervisor to type it in.
   final String? completedAt;
+
+  /// The supervisor's check of the finished work: 'Pending', 'Approved' or
+  /// 'Rejected'. Marking a task Completed sends it for approval. Approving
+  /// it puts it on the student's DTR and lets it go into a report;
+  /// rejecting it sends it back to In Progress with [reviewNote]. Null
+  /// until the task is first completed. A task completed before approvals
+  /// existed has none and counts as waiting ([awaitingApproval]).
+  final String? reviewStatus;
+
+  /// When ("Sep 3, 2026") and by whom (account id) the task was last
+  /// approved or rejected, and the reason given for a rejection.
+  final String? reviewedAt;
+  final String? reviewedBy;
+  final String? reviewNote;
 
   Task({
     required this.id,
@@ -678,6 +692,10 @@ class Task {
     this.isArchived = false,
     this.academicYear,
     this.completedAt,
+    this.reviewStatus,
+    this.reviewedAt,
+    this.reviewedBy,
+    this.reviewNote,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) => Task(
@@ -705,8 +723,14 @@ class Task {
     isArchived: json['isArchived'] == true,
     academicYear: json['academicYear']?.toString(),
     completedAt: json['completedAt']?.toString(),
+    reviewStatus: json['reviewStatus']?.toString(),
+    reviewedAt: json['reviewedAt']?.toString(),
+    reviewedBy: json['reviewedBy']?.toString(),
+    reviewNote: json['reviewNote']?.toString(),
   );
 
+  /// [resetReview] replaces the four review fields with exactly the ones
+  /// passed, clearing the rest.
   Task copyWith({
     String? title,
     String? description,
@@ -722,6 +746,11 @@ class Task {
     String? academicYear,
     String? completedAt,
     bool clearCompletedAt = false,
+    String? reviewStatus,
+    String? reviewedAt,
+    String? reviewedBy,
+    String? reviewNote,
+    bool resetReview = false,
   }) => Task(
     id: id,
     title: title ?? this.title,
@@ -737,7 +766,24 @@ class Task {
     isArchived: isArchived ?? this.isArchived,
     academicYear: academicYear ?? this.academicYear,
     completedAt: clearCompletedAt ? null : (completedAt ?? this.completedAt),
+    reviewStatus: resetReview
+        ? reviewStatus
+        : (reviewStatus ?? this.reviewStatus),
+    reviewedAt: resetReview ? reviewedAt : (reviewedAt ?? this.reviewedAt),
+    reviewedBy: resetReview ? reviewedBy : (reviewedBy ?? this.reviewedBy),
+    reviewNote: resetReview ? reviewNote : (reviewNote ?? this.reviewNote),
   );
+
+  /// Completed and approved by the supervisor: on the DTR, and free to go
+  /// into a report.
+  bool get isApproved => status == 'Completed' && reviewStatus == 'Approved';
+
+  /// Completed, waiting for the supervisor to approve or reject it.
+  bool get awaitingApproval =>
+      status == 'Completed' && reviewStatus != 'Approved';
+
+  /// Sent back by the supervisor and not yet completed again.
+  bool get wasRejected => status != 'Completed' && reviewStatus == 'Rejected';
 
   String get displayStatus {
     switch (status) {
@@ -801,6 +847,11 @@ class Report {
   final String? sentToHeadAt;
   final List<ReportAttachment> headAttachments;
 
+  /// The approved tasks the student put in this report. They aren't
+  /// offered for another report unless this one is rejected. Empty on
+  /// reports sent before reports recorded their tasks.
+  final List<String> taskIds;
+
   Report({
     required this.id,
     this.applicantId,
@@ -815,6 +866,7 @@ class Report {
     this.sentToHead = false,
     this.sentToHeadAt,
     this.headAttachments = const [],
+    this.taskIds = const [],
   });
 
   factory Report.fromJson(Map<String, dynamic> json) => Report(
@@ -841,6 +893,11 @@ class Report {
             ?.map(
               (item) => ReportAttachment.fromJson(item as Map<String, dynamic>),
             )
+            .toList() ??
+        const [],
+    taskIds:
+        (json['taskIds'] as List<dynamic>?)
+            ?.map((e) => e.toString())
             .toList() ??
         const [],
   );

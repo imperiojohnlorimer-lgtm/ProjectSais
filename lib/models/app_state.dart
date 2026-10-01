@@ -4132,15 +4132,8 @@ class AppState extends ChangeNotifier {
       return false;
     }
 
-    if (task.assignedTo != null) {
-      // assignedTo is a roster id; older roster entries keep the student's
-      // account id in userId instead, and notifications go by account.
-      final rosterEntry = students
-          .where((s) => s.id == task.assignedTo)
-          .firstOrNull;
-      final recipientId = (rosterEntry?.userId ?? '').isNotEmpty
-          ? rosterEntry!.userId!
-          : task.assignedTo!;
+    final recipientId = _assigneeAccountId(task);
+    if (recipientId != null) {
       _addNotification(
         AppNotification(
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_$recipientId',
@@ -4156,9 +4149,25 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// The account a task's student is notified at. assignedTo is a roster
+  /// id; older roster entries keep the student's account id in userId
+  /// instead, and notifications go by account.
+  String? _assigneeAccountId(Task task) {
+    if (task.assignedTo == null) return null;
+    final rosterEntry = students
+        .where((s) => s.id == task.assignedTo)
+        .firstOrNull;
+    return (rosterEntry?.userId ?? '').isNotEmpty
+        ? rosterEntry!.userId!
+        : task.assignedTo!;
+  }
+
   /// Changes a task's status. Shown straight away, then saved; a save the
   /// Firestore rules or the connection refuse is undone here and reported
   /// as false, and only a saved change notifies whoever assigned the task.
+  ///
+  /// Marking a task Completed sends it to the supervisor for approval. An
+  /// approved task is on the student's DTR and can no longer change.
   Future<bool> updateTaskStatus(String id, String status) async {
     final existingTask = tasks.firstWhere(
       (task) => task.id == id,
@@ -4171,36 +4180,40 @@ class AppState extends ChangeNotifier {
         dueDate: '',
       ),
     );
-    if (existingTask.id.isEmpty || existingTask.isArchived) return false;
+    if (existingTask.id.isEmpty ||
+        existingTask.isArchived ||
+        existingTask.isApproved) {
+      return false;
+    }
     final previousTasks = tasks;
+    final becameCompleted = status == 'Completed';
     tasks = tasks.map((t) {
-      if (t.id == id) {
-        // Stamp (or clear) the completion date so the DTR/Accomplishment
-        // Report screen can automatically turn "task completed today" into
-        // that day's attendance/accomplishment entry. Re-completing a task
-        // that's already marked Completed keeps its original date rather
-        // than overwriting it.
-        final becameCompleted = status == 'Completed';
-        return Task(
-          id: t.id,
-          title: t.title,
-          description: t.description,
+      if (t.id != id) return t;
+      // Stamp (or clear) the completion date so the DTR/Accomplishment
+      // Report screen can, once the task is approved, turn "task completed
+      // today" into that day's accomplishment entry. Re-completing a task
+      // that's already marked Completed keeps its original date rather
+      // than overwriting it.
+      final completedAt = becameCompleted
+          ? (t.completedAt ?? _formattedToday())
+          : null;
+      if (becameCompleted) {
+        // Waiting for the supervisor again; an earlier rejection's note
+        // no longer applies.
+        return t.copyWith(
           status: status,
-          priority: t.priority,
-          dueDate: t.dueDate,
-          assignedTo: t.assignedTo,
-          assignedToName: t.assignedToName,
-          assignedBy: t.assignedBy,
-          category: t.category,
-          checklistItems: t.checklistItems,
-          isArchived: t.isArchived,
-          academicYear: t.academicYear,
-          completedAt: becameCompleted
-              ? (t.completedAt ?? _formattedToday())
-              : null,
+          completedAt: completedAt,
+          resetReview: true,
+          reviewStatus: 'Pending',
         );
       }
-      return t;
+      // Taken back before approval, the task no longer waits for one. A
+      // rejection's note stays until the student completes it again.
+      return t.copyWith(
+        status: status,
+        clearCompletedAt: true,
+        resetReview: !t.wasRejected,
+      );
     }).toList();
     notifyListeners();
 
@@ -4233,9 +4246,12 @@ class AppState extends ChangeNotifier {
           AppNotification(
             id: 'n_${DateTime.now().microsecondsSinceEpoch}_$recipientId',
             userId: recipientId,
-            title: 'Task Updated',
-            message:
-                '${existingTask.assignedToName ?? "A student"} marked "${existingTask.title}" as $status.',
+            title: becameCompleted ? 'Task Awaiting Approval' : 'Task Updated',
+            message: becameCompleted
+                ? '${existingTask.assignedToName ?? "A student"} marked '
+                      '"${existingTask.title}" as Completed. Approve or '
+                      'reject it on the Tasks screen.'
+                : '${existingTask.assignedToName ?? "A student"} marked "${existingTask.title}" as $status.',
             type: 'task',
             createdAt: _formattedToday(),
           ),
@@ -4244,6 +4260,109 @@ class AppState extends ChangeNotifier {
       notifyListeners();
     }
     return true;
+  }
+
+  /// The supervisor's verdict on a task the student marked Completed.
+  /// Approving it puts it on the student's DTR, on the day it was
+  /// completed, and lets the student put it in a report. Rejecting it
+  /// sends it back to In Progress with [note] for the student. Shown
+  /// straight away, then saved; a refused save is undone here and reported
+  /// as false, and only a saved verdict notifies the student.
+  Future<bool> reviewTask(
+    String id, {
+    required bool approve,
+    String? note,
+  }) async {
+    final index = tasks.indexWhere((t) => t.id == id);
+    if (index < 0) return false;
+    final task = tasks[index];
+    if (task.isArchived || !task.awaitingApproval) return false;
+    final reason = note?.trim() ?? '';
+    final updated = approve
+        ? task.copyWith(
+            resetReview: true,
+            reviewStatus: 'Approved',
+            reviewedAt: _formattedToday(),
+            reviewedBy: currentUser?.id,
+          )
+        : task.copyWith(
+            status: 'In Progress',
+            clearCompletedAt: true,
+            resetReview: true,
+            reviewStatus: 'Rejected',
+            reviewedAt: _formattedToday(),
+            reviewedBy: currentUser?.id,
+            reviewNote: reason.isEmpty ? null : reason,
+          );
+    final previousTasks = tasks;
+    tasks = [...tasks]..[index] = updated;
+    notifyListeners();
+
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTask(updated);
+    } catch (error) {
+      debugPrint('Failed to save task review: $error');
+      tasks = previousTasks;
+      notifyListeners();
+      return false;
+    }
+
+    final recipientId = _assigneeAccountId(task);
+    if (recipientId != null && recipientId != currentUser?.id) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().microsecondsSinceEpoch}_$recipientId',
+          userId: recipientId,
+          title: approve ? 'Task Approved' : 'Task Rejected',
+          message: approve
+              ? 'Your supervisor approved "${task.title}". It is now on '
+                    'your DTR and can go into your next report.'
+              : 'Your supervisor did not approve "${task.title}" and moved '
+                    'it back to In Progress.'
+                    '${reason.isEmpty ? '' : ' Reason: $reason'}',
+          type: 'task',
+          createdAt: _formattedToday(),
+        ),
+      );
+      notifyListeners();
+    }
+    return true;
+  }
+
+  /// The approved tasks the signed-in student can still put in a report,
+  /// most recently completed first. A task already in one of their reports
+  /// is left out, unless the supervisor rejected that report. Reports sent
+  /// before reports recorded their tasks are matched by the "• Title" lines
+  /// the report form wrote into their content.
+  List<Task> get reportableTasks {
+    final standing = filteredReports.where((r) => r.status != 'Rejected');
+    final usedIds = {for (final r in standing) ...r.taskIds};
+    final usedTitles = <String>{};
+    for (final report in standing.where((r) => r.taskIds.isEmpty)) {
+      for (final rawLine in report.content.split('\n')) {
+        final line = rawLine.trim();
+        if (!line.startsWith('•')) continue;
+        final title = line.substring(1).trim().split(' — ').first.trim();
+        if (title.isNotEmpty) usedTitles.add(title.toLowerCase());
+      }
+    }
+    final list = filteredTasks
+        .where(
+          (t) =>
+              t.isApproved &&
+              !t.isArchived &&
+              !usedIds.contains(t.id) &&
+              !usedTitles.contains(t.title.trim().toLowerCase()),
+        )
+        .toList();
+    final epoch = DateTime(1970);
+    list.sort(
+      (a, b) => (_parsePayrollDate(b.completedAt) ?? epoch).compareTo(
+        _parsePayrollDate(a.completedAt) ?? epoch,
+      ),
+    );
+    return list;
   }
 
   /// Deletes a task. Returns whether it was deleted; a refused delete is
@@ -4270,23 +4389,7 @@ class AppState extends ChangeNotifier {
   Future<bool> setTaskArchived(String id, bool isArchived) async {
     final index = tasks.indexWhere((task) => task.id == id);
     if (index < 0) return false;
-    final task = tasks[index];
-    final updated = Task(
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      status: task.status,
-      priority: task.priority,
-      dueDate: task.dueDate,
-      assignedTo: task.assignedTo,
-      assignedToName: task.assignedToName,
-      assignedBy: task.assignedBy,
-      category: task.category,
-      checklistItems: task.checklistItems,
-      isArchived: isArchived,
-      academicYear: task.academicYear,
-      completedAt: task.completedAt,
-    );
+    final updated = tasks[index].copyWith(isArchived: isArchived);
     final previousTasks = tasks;
     tasks = [...tasks]..[index] = updated;
     notifyListeners();
@@ -4370,6 +4473,7 @@ class AppState extends ChangeNotifier {
       sentToHead: old.sentToHead,
       sentToHeadAt: old.sentToHeadAt,
       headAttachments: old.headAttachments,
+      taskIds: old.taskIds,
     );
 
     _firestoreService ??= FirestoreService();
@@ -4514,6 +4618,7 @@ class AppState extends ChangeNotifier {
       sentToHead: true,
       sentToHeadAt: _formattedToday(),
       headAttachments: old.attachments,
+      taskIds: old.taskIds,
     );
 
     _firestoreService ??= FirestoreService();

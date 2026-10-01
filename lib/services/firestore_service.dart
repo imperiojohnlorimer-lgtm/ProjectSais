@@ -1143,12 +1143,31 @@ class FirestoreService {
       'checklistItems': t.checklistItems,
       'isArchived': t.isArchived,
       'academicYear': t.academicYear,
-      'completedAt': t.completedAt,
     }..removeWhere((k, v) => v == null);
+    final clearable = {
+      'completedAt': t.completedAt,
+      'reviewStatus': t.reviewStatus,
+      'reviewedAt': t.reviewedAt,
+      'reviewedBy': t.reviewedBy,
+      'reviewNote': t.reviewNote,
+    };
+    data.addAll({
+      for (final e in clearable.entries)
+        if (e.value != null) e.key: e.value,
+    });
 
     if (t.id.isNotEmpty) {
       final docRef = _tasks.doc(t.id);
       final existing = await docRef.get();
+      // The save merges, which would keep a cleared field's old value: a
+      // task sent back to In Progress would come back from the server
+      // still completed or reviewed. So cleared fields are deleted.
+      if (existing.exists) {
+        data.addAll({
+          for (final e in clearable.entries)
+            if (e.value == null) e.key: FieldValue.delete(),
+        });
+      }
       if (existing.exists &&
           (existing.data() as Map<String, dynamic>?)?.containsKey(
                 'createdAt',
@@ -1278,6 +1297,7 @@ class FirestoreService {
       'headAttachments': r.headAttachments
           .map((attachment) => attachment.toJson())
           .toList(),
+      'taskIds': r.taskIds.isEmpty ? null : r.taskIds,
     }..removeWhere((k, v) => v == null);
     if (r.id.isNotEmpty) {
       await _reports.doc(r.id).set(data);

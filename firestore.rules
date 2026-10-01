@@ -444,7 +444,8 @@ service cloud.firestore {
       // Defaults mirror Task.fromJson, so older documents missing a field
       // still compare equal after the app rewrites them.
       function studentTaskUpdate() {
-        return request.resource.data.get('status', '')
+        return studentTaskReview()
+          && request.resource.data.get('status', '')
             in ['Not Started', 'In Progress', 'Completed']
           && sameOr('title', '')
           && sameOr('description', '')
@@ -465,6 +466,36 @@ service cloud.firestore {
               && request.resource.data.completedAt
                 in [phDate(-1), phDate(0), phDate(1)]
             )
+          );
+      }
+
+      // Only the supervisor approves or rejects a task. Once approved it
+      // is on the student's DTR, so the student can't change it again.
+      // Marking it Completed sends it for approval, with no verdict on it
+      // (the app treats a completed task with no review as waiting, as
+      // tasks completed before approvals existed are); taken back, it waits
+      // for none, though a rejection may stay on it until it's completed
+      // again.
+      function studentTaskReview() {
+        let after = request.resource.data;
+        let reviewCleared = after.get('reviewedAt', null) == null
+          && after.get('reviewedBy', null) == null
+          && after.get('reviewNote', null) == null;
+        return resource.data.get('reviewStatus', null) != 'Approved'
+          && (
+            after.get('status', '') == 'Completed'
+              ? after.get('reviewStatus', null) in [null, 'Pending']
+                && reviewCleared
+              : (
+                (after.get('reviewStatus', null) == null && reviewCleared)
+                || (
+                  after.get('reviewStatus', null) == 'Rejected'
+                  && unchanged('reviewStatus')
+                  && unchanged('reviewedAt')
+                  && unchanged('reviewedBy')
+                  && unchanged('reviewNote')
+                )
+              )
           );
       }
     }

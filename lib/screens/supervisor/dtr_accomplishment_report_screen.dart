@@ -985,13 +985,14 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       (sessionsByDay[day] ??= []).add(r);
     }
 
-    // Group every task this student marked "Completed" this month by the
-    // calendar day it was completed on — a finished task is itself an
-    // accomplishment, so it drives that day's entry automatically when
-    // there's no separate clock-in/out session already covering it.
+    // Group every task of this student's that the supervisor approved by
+    // the calendar day it was completed on — approved work is itself the
+    // day's accomplishment, so it's written in instead of "Present", and
+    // drives the day's entry on its own when there's no clock-in/out
+    // session that day. A task still waiting for approval isn't counted.
     final tasksByDay = <int, List<Task>>{};
     for (final t in state.tasks) {
-      if (t.isArchived || t.status != 'Completed') continue;
+      if (t.isArchived || !t.isApproved) continue;
       if (!state.isRecordOfStudent(
         widget.student,
         t.assignedTo,
@@ -1071,6 +1072,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         }
       }
 
+      final approvedWork = _accomplishmentOf(tasksByDay[day] ?? const []);
       return DtrDayEntry(
         day: day,
         amIn: amIn,
@@ -1080,14 +1082,25 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         totalHours: totalHours == 0 ? null : totalHours,
         note: missedTimeOut
             ? 'Missed time-out — please record the time-out'
-            : (hasOngoing ? 'Present (ongoing)' : 'Present'),
+            : approvedWork ?? (hasOngoing ? 'Present (ongoing)' : 'Present'),
         isInvalid: missedTimeOut,
       );
     });
   }
 
-  /// Builds a day's entry from the task(s) the student completed that day,
-  /// when there's no separate clock-in/out session for the day.
+  /// The titles of a day's approved tasks, as its Accomplishment/s entry,
+  /// or null when there are none.
+  String? _accomplishmentOf(List<Task> tasks) {
+    final titles = tasks
+        .map((t) => t.title.trim())
+        .where((t) => t.isNotEmpty)
+        .join('; ');
+    if (titles.isNotEmpty) return titles;
+    return tasks.isEmpty ? null : 'Task completed';
+  }
+
+  /// Builds a day's entry from the approved task(s) the student completed
+  /// that day, when there's no separate clock-in/out session for the day.
   ///
   /// Validity mirrors the official DTR's own convention: a student isn't
   /// supposed to be working on an official holiday or a weekend, so a task
@@ -1106,11 +1119,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     List<Task> completedTasks,
   ) {
     final state = context.read<AppState>();
-    final titles = completedTasks
-        .map((t) => t.title.trim())
-        .where((t) => t.isNotEmpty)
-        .join('; ');
-    final accomplishment = titles.isEmpty ? 'Task completed' : titles;
+    final accomplishment = _accomplishmentOf(completedTasks)!;
 
     final isWeekend =
         weekday == DateTime.saturday || weekday == DateTime.sunday;

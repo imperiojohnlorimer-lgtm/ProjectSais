@@ -63,11 +63,15 @@ class _TasksScreenState extends State<TasksScreen> {
   String _search = '';
   final Set<String> _pendingIds = {};
 
+  // A Completed task is split by the supervisor's check of it: waiting
+  // under "For Approval", then "Approved". A rejected one is back in
+  // progress.
   static const _statuses = [
     'All',
     'Not Started',
     'In Progress',
-    'Completed',
+    'For Approval',
+    'Approved',
     'Archived',
   ];
 
@@ -75,7 +79,8 @@ class _TasksScreenState extends State<TasksScreen> {
     'All': Icons.apps_rounded,
     'Not Started': Icons.radio_button_unchecked_rounded,
     'In Progress': Icons.autorenew_rounded,
-    'Completed': Icons.check_circle_rounded,
+    'For Approval': Icons.hourglass_top_rounded,
+    'Approved': Icons.verified_rounded,
     'Archived': Icons.archive_rounded,
   };
 
@@ -85,12 +90,26 @@ class _TasksScreenState extends State<TasksScreen> {
         return AppTheme.slate500;
       case 'In Progress':
         return AppTheme.blue500;
-      case 'Completed':
+      case 'For Approval':
+        return AppTheme.amber500;
+      case 'Approved':
         return AppTheme.emerald500;
       case 'Archived':
         return AppTheme.slate400;
       default:
         return AppTheme.maroon;
+    }
+  }
+
+  /// Whether a live task belongs under the status filter [filter].
+  static bool _inFilter(Task t, String filter) {
+    switch (filter) {
+      case 'For Approval':
+        return t.awaitingApproval;
+      case 'Approved':
+        return t.isApproved;
+      default:
+        return t.status == filter;
     }
   }
 
@@ -105,7 +124,9 @@ class _TasksScreenState extends State<TasksScreen> {
         if (!t.isArchived) return false;
       } else {
         if (t.isArchived) return false;
-        if (_filterStatus != 'All' && t.status != _filterStatus) return false;
+        if (_filterStatus != 'All' && !_inFilter(t, _filterStatus)) {
+          return false;
+        }
       }
       return query.isEmpty ||
           t.title.toLowerCase().contains(query) ||
@@ -130,9 +151,11 @@ class _TasksScreenState extends State<TasksScreen> {
             ? liveTasks.length
             : s == 'Archived'
             ? state.filteredTasks.where((t) => t.isArchived).length
-            : liveTasks.where((t) => t.status == s).length,
+            : liveTasks.where((t) => _inFilter(t, s)).length,
     };
-    final completedCount = statusCounts['Completed'] ?? 0;
+    final completedCount = liveTasks
+        .where((t) => t.status == 'Completed')
+        .length;
     final progress = liveTasks.isEmpty
         ? 0.0
         : completedCount / liveTasks.length;
@@ -197,9 +220,9 @@ class _TasksScreenState extends State<TasksScreen> {
                       icon: Icons.autorenew_rounded,
                     ),
                     HeroStatData(
-                      label: 'Completed',
-                      value: '$completedCount',
-                      icon: Icons.check_circle_rounded,
+                      label: 'For approval',
+                      value: '${statusCounts['For Approval'] ?? 0}',
+                      icon: Icons.hourglass_top_rounded,
                     ),
                     HeroStatData(
                       label: 'Overdue',
@@ -358,6 +381,10 @@ class _TasksScreenState extends State<TasksScreen> {
                         );
                       }
                     },
+                    onReview: role == 'Supervisor'
+                        ? (approve) =>
+                              _reviewTask(context, state, tasks[i], approve)
+                        : null,
                     onArchive: role == 'Supervisor'
                         ? () async {
                             final willArchive = !tasks[i].isArchived;
@@ -415,6 +442,125 @@ class _TasksScreenState extends State<TasksScreen> {
             ),
           ),
       ],
+    );
+  }
+
+  /// The supervisor approves a completed task, after confirming, or
+  /// rejects it with an optional reason for the student.
+  Future<void> _reviewTask(
+    BuildContext context,
+    AppState state,
+    Task task,
+    bool approve,
+  ) async {
+    String? note;
+    if (approve) {
+      final student = task.assignedToName ?? 'the student';
+      final ok = await showConfirmDialog(
+        context,
+        title: 'Approve Task',
+        message:
+            'Approve "${task.title}"? It goes on $student\'s DTR'
+            '${task.completedAt == null ? '' : ' for ${task.completedAt}'}, '
+            'and they can add it to a report. After this they can no longer '
+            'change it.',
+        confirmLabel: 'Approve',
+        confirmColor: AppTheme.emerald500,
+      );
+      if (!ok) return;
+    } else {
+      note = await _askRejectReason(context);
+      if (note == null) return;
+    }
+    if (!context.mounted) return;
+    setState(() => _pendingIds.add(task.id));
+    final saved = await state.reviewTask(task.id, approve: approve, note: note);
+    if (!context.mounted) return;
+    setState(() => _pendingIds.remove(task.id));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          !saved
+              ? "Couldn't save your review. Check your connection and try "
+                    'again.'
+              : approve
+              ? 'Task approved'
+              : 'Task sent back to the student',
+        ),
+        backgroundColor: !saved
+            ? AppTheme.red500
+            : approve
+            ? AppTheme.emerald500
+            : AppTheme.slate600,
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  /// Asks why a task is being rejected. Returns null when cancelled, and
+  /// the reason (possibly empty) when confirmed.
+  Future<String?> _askRejectReason(BuildContext context) {
+    final reasonCtrl = TextEditingController();
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Reject Task',
+          style: TextStyle(fontWeight: FontWeight.w700),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'The task goes back to In Progress. Tell the student what to '
+              'fix (optional).',
+              style: TextStyle(fontSize: 13, color: AppTheme.slate600),
+            ),
+            const SizedBox(height: 14),
+            TextField(
+              controller: reasonCtrl,
+              maxLines: 3,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Reason for rejection',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppTheme.slate200),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.red500,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            onPressed: () =>
+                Navigator.of(dialogContext).pop(reasonCtrl.text.trim()),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1252,6 +1398,10 @@ class _TaskCard extends StatelessWidget {
   final ValueChanged<String> onStatusChange;
   final VoidCallback onDelete;
   final VoidCallback? onArchive;
+
+  /// Approve (true) or reject (false) a completed task. Only the
+  /// supervisor gets these.
+  final ValueChanged<bool>? onReview;
   final bool isBusy;
 
   const _TaskCard({
@@ -1260,6 +1410,7 @@ class _TaskCard extends StatelessWidget {
     required this.onStatusChange,
     required this.onDelete,
     this.onArchive,
+    this.onReview,
     this.isBusy = false,
   });
 
@@ -1557,6 +1708,28 @@ class _TaskCard extends StatelessWidget {
                           ],
                         ],
                       ),
+                      // The day an approved task lands on the DTR.
+                      if (task.status == 'Completed' &&
+                          task.completedAt != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.check_circle_outline_rounded,
+                              size: 12,
+                              color: AppTheme.slate400,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Completed: ${task.completedAt}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate600,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                   if (task.category != null && task.category!.isNotEmpty) ...[
@@ -1666,6 +1839,17 @@ class _TaskCard extends StatelessWidget {
                         ),
                       ],
                     )
+                  else if (role == 'Student Assistant' && task.isApproved)
+                    // Approved work is on the DTR; it can't change now.
+                    _reviewNote(
+                      icon: Icons.verified_rounded,
+                      color: AppTheme.emerald500,
+                      background: AppTheme.emerald50,
+                      text:
+                          'Approved by your supervisor'
+                          '${task.reviewedAt == null ? '' : ' on ${task.reviewedAt}'}'
+                          '. It is on your DTR and can go into a report.',
+                    )
                   else if (role == 'Student Assistant')
                     Wrap(
                       spacing: 8,
@@ -1718,7 +1902,31 @@ class _TaskCard extends StatelessWidget {
                       ).toList(),
                     )
                   else
-                    StatusBadge.fromStatus(task.displayStatus),
+                    _staffStatus(),
+                  if (!task.isArchived &&
+                      role == 'Student Assistant' &&
+                      task.awaitingApproval) ...[
+                    const SizedBox(height: 10),
+                    _reviewNote(
+                      icon: Icons.hourglass_top_rounded,
+                      color: AppTheme.amber500,
+                      background: AppTheme.amber50,
+                      text: "Waiting for your supervisor's approval.",
+                    ),
+                  ],
+                  if (!task.isArchived && task.wasRejected) ...[
+                    const SizedBox(height: 10),
+                    _reviewNote(
+                      icon: Icons.undo_rounded,
+                      color: AppTheme.red500,
+                      background: AppTheme.red50,
+                      text:
+                          'Rejected'
+                          '${task.reviewedAt == null ? '' : ' on ${task.reviewedAt}'}'
+                          '${(task.reviewNote ?? '').isEmpty ? '.' : ': ${task.reviewNote}'}'
+                          '${role == 'Student Assistant' ? ' Fix it, then mark it Completed again.' : ''}',
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1727,4 +1935,120 @@ class _TaskCard extends StatelessWidget {
       ),
     );
   }
+
+  /// The status row staff see. A completed task shows where it stands
+  /// with the supervisor, who also gets Approve and Reject while it waits.
+  Widget _staffStatus() {
+    if (task.isApproved) {
+      return Wrap(
+        spacing: 8,
+        runSpacing: 6,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          const StatusBadge(
+            label: 'Approved',
+            bgColor: AppTheme.emerald50,
+            textColor: AppTheme.emerald500,
+          ),
+          if (task.reviewedAt != null)
+            Text(
+              'on ${task.reviewedAt}',
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
+            ),
+        ],
+      );
+    }
+    if (!task.awaitingApproval) {
+      return StatusBadge.fromStatus(task.displayStatus);
+    }
+    const badge = StatusBadge(
+      label: 'For Approval',
+      bgColor: AppTheme.amber50,
+      textColor: AppTheme.amber500,
+    );
+    if (onReview == null) return badge;
+    const buttonPadding = EdgeInsets.symmetric(horizontal: 12, vertical: 8);
+    final buttonShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(10),
+    );
+    const buttonText = TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5);
+    return Wrap(
+      spacing: 8,
+      runSpacing: 10,
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        badge,
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            OutlinedButton.icon(
+              onPressed: () => onReview!(false),
+              icon: const Icon(Icons.close_rounded, size: 16),
+              label: const Text('Reject'),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.red500,
+                side: const BorderSide(color: AppTheme.red500, width: 1.2),
+                padding: buttonPadding,
+                shape: buttonShape,
+                textStyle: buttonText,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+            const SizedBox(width: 8),
+            ElevatedButton.icon(
+              onPressed: () => onReview!(true),
+              icon: const Icon(Icons.check_rounded, size: 16),
+              label: const Text('Approve'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.emerald500,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: buttonPadding,
+                shape: buttonShape,
+                textStyle: buttonText,
+                visualDensity: VisualDensity.compact,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _reviewNote({
+    required IconData icon,
+    required Color color,
+    required Color background,
+    required String text,
+  }) => Container(
+    width: double.infinity,
+    padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 9),
+    decoration: BoxDecoration(
+      color: background,
+      borderRadius: BorderRadius.circular(10),
+      border: Border.all(color: color.withValues(alpha: 0.25)),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(icon, size: 14, color: color),
+        ),
+        const SizedBox(width: 7),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.slate700,
+              fontWeight: FontWeight.w600,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }

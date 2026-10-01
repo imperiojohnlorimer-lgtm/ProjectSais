@@ -391,49 +391,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     ),
   );
 
-  /// Tasks this user has marked Completed and hasn't archived — these are
-  /// the candidates offered to auto-fill the report's "Content /
-  /// Accomplishments" field, newest completion first. Tasks that were
-  /// already written into a report the supervisor has since Approved are
-  /// left out, since they've already been credited and shouldn't be
-  /// offered again.
-  List<Task> _completedTasksFor(AppState state) {
-    final creditedTitles = _titlesInApprovedReports(state);
-    final list = state.filteredTasks
-        .where(
-          (t) =>
-              t.status == 'Completed' &&
-              !t.isArchived &&
-              !creditedTitles.contains(t.title.trim().toLowerCase()),
-        )
-        .toList();
-    list.sort((a, b) => (b.completedAt ?? '').compareTo(a.completedAt ?? ''));
-    return list;
-  }
-
-  /// Task titles (lower-cased) that appear in the bulleted content of any
-  /// of this student's already-Approved reports — built by parsing each
-  /// "• Title" / "• Title — description" line the same way
-  /// [_composeAccomplishments] originally wrote it.
-  Set<String> _titlesInApprovedReports(AppState state) {
-    // A student assistant's filteredReports are already just their own.
-    final approved = state.filteredReports.where(
-      (report) => report.status == 'Approved',
-    );
-    final titles = <String>{};
-    for (final report in approved) {
-      for (final rawLine in report.content.split('\n')) {
-        final line = rawLine.trim();
-        if (!line.startsWith('•')) continue;
-        final withoutBullet = line.substring(1).trim();
-        final title = withoutBullet.split(' — ').first.trim();
-        if (title.isNotEmpty) titles.add(title.toLowerCase());
-      }
-    }
-    return titles;
-  }
-
-  /// Renders the currently-checked completed tasks as a bullet list, e.g.
+  /// Renders the currently-checked approved tasks as a bullet list, e.g.
   /// "• Finished the report (General)" — this is what gets written into
   /// the Content / Accomplishments field.
   String _composeAccomplishments(
@@ -457,8 +415,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
     // Set while the report saves, so a second tap can't submit it twice.
     var submitting = false;
 
-    final completedTasks = _completedTasksFor(state);
+    // Only work the supervisor approved, and only once: a task already in
+    // a report isn't offered again unless that report is rejected.
+    final completedTasks = state.reportableTasks;
     final includedTaskIds = completedTasks.map((t) => t.id).toSet();
+    final awaitingApproval = state.filteredTasks
+        .where((t) => !t.isArchived && t.awaitingApproval)
+        .length;
     if (completedTasks.isNotEmpty) {
       contentCtrl.text = _composeAccomplishments(
         completedTasks,
@@ -607,7 +570,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               const SizedBox(width: 6),
                               const Expanded(
                                 child: Text(
-                                  'COMPLETED TASKS — INCLUDED ABOVE',
+                                  'APPROVED TASKS — INCLUDED ABOVE',
                                   style: TextStyle(
                                     fontSize: 10.5,
                                     fontWeight: FontWeight.w800,
@@ -672,6 +635,40 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           }),
                         ],
                       ),
+                    ),
+                  ],
+                  if (awaitingApproval > 0) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.only(top: 1),
+                          child: Icon(
+                            Icons.hourglass_top_rounded,
+                            size: 14,
+                            color: AppTheme.amber500,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            awaitingApproval == 1
+                                ? '1 completed task is waiting for your '
+                                      "supervisor's approval. You can add it "
+                                      'to a report once it is approved.'
+                                : '$awaitingApproval completed tasks are '
+                                      "waiting for your supervisor's approval. "
+                                      'You can add them to a report once they '
+                                      'are approved.',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: AppTheme.slate500,
+                              height: 1.35,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                   const SizedBox(height: 18),
@@ -879,6 +876,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             submittedAt: '${now.month}/${now.day}/${now.year}',
                             attachments: attachments,
                             academicYear: state.academicYear,
+                            taskIds: [
+                              for (final task in completedTasks)
+                                if (includedTaskIds.contains(task.id)) task.id,
+                            ],
                           );
                           final ok = await state.submitReport(report);
                           if (context.mounted) Navigator.pop(context);
