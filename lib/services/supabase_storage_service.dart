@@ -78,6 +78,35 @@ class SupabaseStorageService {
     return _getFreshDocumentUrl(path);
   }
 
+  /// A link that opens a stored file now. The links saved with files are
+  /// signed and stop working after an hour, so this signs a new one from
+  /// [path], or, when a record has no path, from the path inside its saved
+  /// signed link [storedUrl]. Only a link that isn't a signed one is
+  /// returned as saved. Null when there's nothing to open.
+  Future<String?> openableUrl({String? path, String? storedUrl}) async {
+    final filePath = path != null && path.trim().isNotEmpty
+        ? path.trim()
+        : pathFromSignedUrl(storedUrl);
+    if (filePath != null) return getDocumentUrl(filePath);
+    return storedUrl == null || storedUrl.isEmpty ? null : storedUrl;
+  }
+
+  /// The path in the Documents bucket that a Supabase storage link points
+  /// to (`…/storage/v1/object/sign/Documents/<path>?token=…`), or null for
+  /// any other link.
+  static String? pathFromSignedUrl(String? url) {
+    final uri = Uri.tryParse(url ?? '');
+    if (uri == null || !(uri.isScheme('https') || uri.isScheme('http'))) {
+      return null;
+    }
+    final segments = uri.pathSegments;
+    final object = segments.indexOf('object');
+    if (object < 0 || segments.length < object + 4) return null;
+    if (segments[object + 2] != 'Documents') return null;
+    final path = segments.skip(object + 3).join('/');
+    return path.isEmpty ? null : path;
+  }
+
   Future<String> _getFreshDocumentUrl(String path) async {
     final token = await fb_auth.FirebaseAuth.instance.currentUser?.getIdToken(
       true,

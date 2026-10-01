@@ -810,12 +810,12 @@ class _RehiringScreenState extends State<RehiringScreen> {
     final messenger = ScaffoldMessenger.of(context);
     try {
       // The stored URL is a signed one that expires, so ask for a fresh one
-      // from the storage path when there is one.
-      final path = record.contractStoragePath;
-      final url = path != null && path.isNotEmpty
-          ? await SupabaseStorageService.instance.getDocumentUrl(path)
-          : record.contractDownloadUrl;
-      if (url == null || url.isEmpty) {
+      // from its storage path, or the path inside the saved link.
+      final url = await SupabaseStorageService.instance.openableUrl(
+        path: record.contractStoragePath,
+        storedUrl: record.contractDownloadUrl,
+      );
+      if (url == null) {
         throw Exception('This contract has no file attached.');
       }
       final opened = await launchUrl(

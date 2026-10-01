@@ -151,11 +151,12 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
   Future<void> _download(Document doc) async {
     final messenger = ScaffoldMessenger.of(context);
     try {
-      String? url = doc.downloadUrl;
-      if ((url == null || url.isEmpty) && doc.filePath != null && doc.filePath!.isNotEmpty) {
-        url = await SupabaseStorageService.instance.getDocumentUrl(doc.filePath!);
-      }
-      if (url == null || url.isEmpty) throw Exception('No file content available.');
+      // The saved link expires after an hour; sign a fresh one.
+      final url = await SupabaseStorageService.instance.openableUrl(
+        path: doc.filePath,
+        storedUrl: doc.downloadUrl,
+      );
+      if (url == null) throw Exception('No file content available.');
       final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
       if (!opened) throw Exception('The browser could not open the document.');
     } catch (e) {

@@ -313,11 +313,12 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _downloadingId = '${entry.studentKey}-${entry.title}-${entry.sortDate}');
     try {
-      String? url = entry.downloadUrl;
-      if ((url == null || url.isEmpty) && entry.storagePath != null && entry.storagePath!.isNotEmpty) {
-        url = await SupabaseStorageService.instance.getDocumentUrl(entry.storagePath!);
-      }
-      if (url == null || url.isEmpty) {
+      // The saved link expires after an hour; sign a fresh one.
+      final url = await SupabaseStorageService.instance.openableUrl(
+        path: entry.storagePath,
+        storedUrl: entry.downloadUrl,
+      );
+      if (url == null) {
         throw Exception('This document has no file content or storage path.');
       }
       final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);

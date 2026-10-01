@@ -4,6 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -415,7 +416,13 @@ class _StudentGroupState extends State<_StudentGroup> {
               padding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
               child: Column(
                 children: widget.items
-                    .map((f) => _ForwardTile(item: f, state: widget.state))
+                    .map(
+                      (f) => _ForwardTile(
+                        key: ValueKey(f.id),
+                        item: f,
+                        state: widget.state,
+                      ),
+                    )
                     .toList(),
               ),
             ),
@@ -425,10 +432,23 @@ class _StudentGroupState extends State<_StudentGroup> {
   }
 }
 
-class _ForwardTile extends StatelessWidget {
+class _ForwardTile extends StatefulWidget {
   final HeadForward item;
   final AppState state;
-  const _ForwardTile({required this.item, required this.state});
+  const _ForwardTile({super.key, required this.item, required this.state});
+
+  @override
+  State<_ForwardTile> createState() => _ForwardTileState();
+}
+
+class _ForwardTileState extends State<_ForwardTile> {
+  // Darker than emerald500, so the "Reviewed" label reads on its tint.
+  static const _reviewedGreen = Color(0xFF047857);
+
+  bool _opening = false;
+  bool _saving = false;
+
+  HeadForward get item => widget.item;
 
   IconData get _icon {
     switch (item.type) {
@@ -463,38 +483,121 @@ class _ForwardTile extends StatelessWidget {
     }
   }
 
-  // The stored downloadUrl is a Supabase signed URL that expires (~1hr), so
-  // always request a fresh one from storagePath first, falling back to the
-  // stored URL for older records that predate storagePath being saved.
-  Future<void> _download(BuildContext context) async {
+  bool get _hasFile =>
+      (item.downloadUrl ?? '').isNotEmpty ||
+      (item.storagePath ?? '').isNotEmpty;
+
+  // The saved downloadUrl is a signed link that expires after an hour, so
+  // a fresh one is signed every time: from storagePath, or for older
+  // forwards saved without one, from the path inside the saved link.
+  Future<void> _download() async {
     final messenger = ScaffoldMessenger.of(context);
+    setState(() => _opening = true);
     try {
-      String? url = item.downloadUrl;
-      if (item.storagePath != null && item.storagePath!.isNotEmpty) {
-        url = await SupabaseStorageService.instance.getDocumentUrl(
-          item.storagePath!,
-        );
-      }
-      if (url == null || url.isEmpty)
-        throw Exception('No file content available.');
+      final url = await SupabaseStorageService.instance.openableUrl(
+        path: item.storagePath,
+        storedUrl: item.downloadUrl,
+      );
+      if (url == null) throw Exception('No file is attached.');
       final opened = await launchUrl(
         Uri.parse(url),
         mode: LaunchMode.externalApplication,
       );
-      if (!opened) throw Exception('The browser could not open the document.');
+      if (!opened) throw Exception('The browser could not open the file.');
     } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Unable to download: $e'),
-          backgroundColor: AppTheme.amber500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
+      AppSnackBar.showWithMessenger(
+        messenger,
+        'Could not open ${item.fileName}: $e',
+        type: SnackType.error,
       );
+    } finally {
+      if (mounted) setState(() => _opening = false);
     }
+  }
+
+  Future<void> _toggleReviewed() async {
+    setState(() => _saving = true);
+    await widget.state.setHeadForwardReviewed(item.id, !item.reviewed);
+    if (mounted) setState(() => _saving = false);
+  }
+
+  static Widget _spinner(Color color) => SizedBox(
+    width: 14,
+    height: 14,
+    child: CircularProgressIndicator(strokeWidth: 2, color: color),
+  );
+
+  ButtonStyle _buttonStyle({
+    required Color background,
+    required Color foreground,
+    BorderSide? side,
+  }) => ButtonStyle(
+    backgroundColor: WidgetStatePropertyAll(background),
+    foregroundColor: WidgetStatePropertyAll(foreground),
+    iconColor: WidgetStatePropertyAll(foreground),
+    overlayColor: WidgetStatePropertyAll(foreground.withValues(alpha: 0.08)),
+    side: side == null ? null : WidgetStatePropertyAll(side),
+    elevation: const WidgetStatePropertyAll(0),
+    minimumSize: const WidgetStatePropertyAll(Size(0, 36)),
+    padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(horizontal: 14)),
+    iconSize: const WidgetStatePropertyAll(16),
+    textStyle: const WidgetStatePropertyAll(
+      TextStyle(
+        fontFamily: 'Inter',
+        fontSize: 12.5,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0,
+      ),
+    ),
+    shape: WidgetStatePropertyAll(
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    visualDensity: VisualDensity.standard,
+  );
+
+  Widget _downloadButton() {
+    return FilledButton.icon(
+      onPressed: _opening ? null : _download,
+      icon: _opening
+          ? _spinner(Colors.white)
+          : const Icon(Icons.file_download_outlined),
+      label: Text(_opening ? 'Opening…' : 'Download'),
+      style: _buttonStyle(
+        background: _opening
+            ? AppTheme.maroon.withValues(alpha: 0.75)
+            : AppTheme.maroon,
+        foreground: Colors.white,
+      ),
+    );
+  }
+
+  Widget _reviewedButton() {
+    final reviewed = item.reviewed;
+    final button = OutlinedButton.icon(
+      onPressed: _saving ? null : _toggleReviewed,
+      icon: _saving
+          ? _spinner(reviewed ? _reviewedGreen : AppTheme.slate600)
+          : Icon(
+              reviewed
+                  ? Icons.check_circle_rounded
+                  : Icons.check_circle_outline_rounded,
+            ),
+      label: Text(reviewed ? 'Reviewed' : 'Mark as reviewed'),
+      style: _buttonStyle(
+        background: reviewed ? AppTheme.emerald50 : Colors.white,
+        foreground: reviewed ? _reviewedGreen : AppTheme.slate700,
+        side: BorderSide(
+          color: reviewed
+              ? AppTheme.emerald500.withValues(alpha: 0.35)
+              : AppTheme.slate300,
+        ),
+      ),
+    );
+    return Tooltip(
+      message: reviewed ? 'Mark as not reviewed' : 'Mark as reviewed',
+      child: button,
+    );
   }
 
   @override
@@ -590,78 +693,13 @@ class _ForwardTile extends StatelessWidget {
                         ),
                         overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
                         children: [
-                          if (item.downloadUrl != null ||
-                              item.storagePath != null)
-                            ElevatedButton.icon(
-                              onPressed: () => _download(context),
-                              icon: const Icon(
-                                Icons.download_rounded,
-                                size: 13,
-                              ),
-                              label: const Text('Download'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.emerald500,
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 8,
-                                ),
-                                textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 11.5,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(9),
-                                ),
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              ),
-                            ),
-                          OutlinedButton.icon(
-                            onPressed: () => state.setHeadForwardReviewed(
-                              item.id,
-                              !item.reviewed,
-                            ),
-                            icon: Icon(
-                              item.reviewed
-                                  ? Icons.check_circle_rounded
-                                  : Icons.check_circle_outline_rounded,
-                              size: 13,
-                            ),
-                            label: Text(
-                              item.reviewed ? 'Reviewed' : 'Mark reviewed',
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: item.reviewed
-                                  ? AppTheme.slate500
-                                  : AppTheme.maroon,
-                              side: BorderSide(
-                                color: item.reviewed
-                                    ? AppTheme.slate300
-                                    : AppTheme.maroon,
-                                width: 1.2,
-                              ),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                                vertical: 8,
-                              ),
-                              textStyle: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 11.5,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(9),
-                              ),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                            ),
-                          ),
+                          if (_hasFile) _downloadButton(),
+                          _reviewedButton(),
                         ],
                       ),
                     ],
