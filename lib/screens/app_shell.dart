@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
+import '../widgets/academic_year_archive_dialog.dart';
 import '../widgets/shared_widgets.dart';
 import './dashboard/dashboard_screen.dart';
 import './students/students_screen.dart';
@@ -594,6 +595,64 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
+  /// Tells the Head an academic year is about to be archived — from
+  /// [AppState.archiveNoticeDays] before its end date until its records
+  /// have been copied in — with a preview of what will be saved.
+  Widget _archiveBanner(AppState state) {
+    final pending = state.pendingArchive;
+    final String year;
+    final String message;
+    if (pending != null) {
+      year = pending.year;
+      message =
+          'AY $year will be archived after '
+          '${AppState.monthDayTime(pending.dueAt)}. Preview what will be '
+          'saved and finish anything still open.';
+    } else {
+      year = state.academicYear;
+      final days = state.daysUntilAcademicYearEnds;
+      final end = AppState.monthDay(state.academicYearEnd);
+      message = days < 0
+          ? 'AY $year ended on $end, and its records will be archived soon. '
+                'Preview what will be saved and finish anything still open.'
+          : 'AY $year ends ${AppState.daysAwayLabel(days)} ($end), and its '
+                'records will be archived after that. Preview what will be '
+                'saved and finish anything still open.';
+    }
+    final isMobile = MediaQuery.of(context).size.width < 900;
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(isMobile ? 16 : 32, 8, isMobile ? 8 : 24, 8),
+      decoration: BoxDecoration(
+        color: AppTheme.amber50,
+        border: Border(
+          bottom: BorderSide(color: AppTheme.amber500.withValues(alpha: 0.3)),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.inventory_2_outlined,
+            size: 18,
+            color: AppTheme.amber500,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate700),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => showAcademicYearArchiveDialog(context, year),
+            child: const Text('Preview'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showLogoutConfirmation(BuildContext context) {
     showDialog(
       context: context,
@@ -910,6 +969,10 @@ class _AppShellState extends State<AppShell> {
                 if (role == 'Admin' &&
                     state.daysUntilAcademicYearEnds <= _yearEndReminderDays)
                   _yearEndBanner(state, onSettings: activeTab == 'settings'),
+                if (role == 'Head' &&
+                    (state.pendingArchive != null ||
+                        state.academicYearEndingSoon))
+                  _archiveBanner(state),
                 // Main content
                 Expanded(
                   child: AnimatedSwitcher(

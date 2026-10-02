@@ -70,6 +70,7 @@ class AppState extends ChangeNotifier {
   String? _syncedStudentIds;
   Timer? _missedTimeOutTimer;
   Timer? _clockOutReminderTimer;
+  Timer? _archiveTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
     clientId: kIsWeb
@@ -518,6 +519,9 @@ class AppState extends ChangeNotifier {
       debugPrint('Live data unavailable: $error');
     }
     if (role != 'Admin') registerForPush();
+    // After the notifications have loaded, so a Head's session can see one
+    // it already has.
+    _noticeAcademicYearEnding();
   }
 
   void _stopRealtimeListeners() {
@@ -534,6 +538,7 @@ class AppState extends ChangeNotifier {
     }
     _missedTimeOutTimer?.cancel();
     _clockOutReminderTimer?.cancel();
+    _archiveTimer?.cancel();
     for (final sub in _liveSubs) {
       sub.cancel();
     }
@@ -603,6 +608,7 @@ class AppState extends ChangeNotifier {
               .getAcademicYearArchives()
               .then((archives) {
                 academicYearArchives = archives;
+                _scheduleArchiveCheck();
                 notifyListeners();
               })
               .catchError((Object error) {
@@ -610,6 +616,9 @@ class AppState extends ChangeNotifier {
               });
           _restampUndoneAcademicYear();
         }
+        // The end date may have moved.
+        _scheduleArchiveCheck();
+        _noticeAcademicYearEnding();
         // A new term is what puts pending rehire decisions into effect.
         if (isHead && previousTerm != '$academicYear|$academicSemester') {
           _applyDueRehireDecisions().then((_) => notifyListeners());
@@ -862,6 +871,7 @@ class AppState extends ChangeNotifier {
     _payrollSheetsSub?.cancel();
     _missedTimeOutTimer?.cancel();
     _clockOutReminderTimer?.cancel();
+    _archiveTimer?.cancel();
     _clockOutReminderAlerts.close();
     _pushMessagesSub?.cancel();
     for (final sub in _liveSubs) {
@@ -1811,7 +1821,8 @@ class AppState extends ChangeNotifier {
   /// or by the Admin moving the settings on to the next year. Copying its
   /// records into the archive needs every application, task and calendar,
   /// which only the Head can read, so that part always happens in the
-  /// Head's session — once per year.
+  /// Head's session — once per year, and no sooner than [archiveDueAt], so
+  /// the Heads can preview it first.
   Future<void> _archiveFinishedAcademicYears(
     Map<String, dynamic>? settings,
   ) async {
@@ -1824,24 +1835,35 @@ class AppState extends ChangeNotifier {
       final dayAfterEnd = DateTime(end.year, end.month, end.day + 1);
       final yearEnded = !DateTime.now().isBefore(dayAfterEnd);
       if (settings != null && yearEnded) {
-        await _firestoreService!.archiveAcademicYearSettings(
-          academicYear,
+        final year = academicYear;
+        final listed = await _firestoreService!.archiveAcademicYearSettings(
+          year,
           settings,
           archiveAttendance: autoArchiveAttendanceLogs,
           headcountByCampus: studentsPerCampus,
         );
+        if (listed) {
+          final due = DateTime.now().add(archivePreviewWindow);
+          await _notifyHeadsAboutArchive(
+            year,
+            title: 'Academic Year Ended',
+            message:
+                'AY $year ended on ${monthDay(end)}. Its records will be '
+                'archived after ${monthDayTime(due)}. Before then, preview '
+                'what will be saved and finish anything still open.',
+          );
+        }
       }
       final archives = await _firestoreService!.getAcademicYearArchives();
       for (final archive in archives) {
-        if (archive['dataArchived'] != false) continue;
+        final due = archiveDueAt(archive);
+        if (due == null) continue;
         final year = archive['id'].toString();
-        // A year's records stay live while the Admin can still undo moving
-        // on from it, and while it's back in effect after an undo.
+        // A year's records stay live while it's back in effect after an
+        // undo, and until the Heads have had their time to preview them —
+        // which also outlasts the Admin's chance to undo moving on from it.
         if (year == academicYear && !yearEnded) continue;
-        if (canUndoTermChange &&
-            year == _previousAcademicTerm?['academicYear']?.toString()) {
-          continue;
-        }
+        if (due.isAfter(DateTime.now())) continue;
         await _firestoreService!.archiveReportsForAcademicYear(year);
         await _firestoreService!.archiveApplicationsForAcademicYear(year);
         await _firestoreService!.archiveTasksForAcademicYear(year);
@@ -1853,6 +1875,13 @@ class AppState extends ChangeNotifier {
           await _firestoreService!.archiveAttendanceForAcademicYear(year);
         }
         await _firestoreService!.markAcademicYearDataArchived(year);
+        await _notifyHeadsAboutArchive(
+          year,
+          title: 'Academic Year Archived',
+          message:
+              'AY $year\'s records have been archived. Open this to see '
+              'what was saved.',
+        );
       }
       academicYearArchives = await _firestoreService!.getAcademicYearArchives();
     } catch (error) {
@@ -1860,6 +1889,7 @@ class AppState extends ChangeNotifier {
       // loading; an unfinished year is picked up again next time.
       debugPrint('Failed to archive academic years: $error');
     }
+    _scheduleArchiveCheck();
   }
 
   /// Moves records stamped with a year the Admin moved to and then undid
@@ -1875,6 +1905,282 @@ class AppState extends ChangeNotifier {
       // Picked up again next time.
       debugPrint('Failed to move records back from AY $undone: $error');
     }
+  }
+
+  // ─── Academic year archive: notices and preview ────
+
+  /// How long a finished year waits on the archive list before the Head's
+  /// session copies its records in, so the Heads can preview what will be
+  /// saved and finish what's still open. As long as [termChangeUndoWindow],
+  /// so a year the Admin moved on from is copied once that can't be undone.
+  static const archivePreviewWindow = Duration(hours: 24);
+
+  /// How many days before the year's end date the Heads hear it's coming.
+  static const archiveNoticeDays = 7;
+
+  /// What an academic year's archive holds, as (collection in the archive,
+  /// label), in the order the archive dialog lists them.
+  static const archiveRecordKinds = [
+    (key: 'reports', label: 'Reports'),
+    (key: 'applications', label: 'Applications'),
+    (key: 'screening_records', label: 'Screening results'),
+    (key: 'tasks', label: 'Tasks'),
+    (key: 'evaluations', label: 'Evaluations'),
+    (key: 'announcements', label: 'Announcements'),
+    (key: 'calendar_events', label: 'Calendar events'),
+    (key: 'attendance', label: 'Attendance logs'),
+  ];
+
+  /// The once-only archive notices this session has sent, so each goes out
+  /// once however often the settings change.
+  final _archiveNoticesSent = <String>{};
+
+  /// A date saved in an archive entry, in local time: a Firestore timestamp,
+  /// or an ISO string for the settings' own dates.
+  static DateTime? dateOf(Object? value) => switch (value) {
+    Timestamp timestamp => timestamp.toDate(),
+    DateTime date => date.toLocal(),
+    String text => DateTime.tryParse(text),
+    _ => null,
+  };
+
+  static const _monthNames = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  /// "Jul 31".
+  static String monthDay(DateTime date) =>
+      '${_monthNames[date.month - 1]} ${date.day}';
+
+  /// "3:00 PM".
+  static String clockTime(DateTime date) {
+    final hour = date.hour % 12 == 0 ? 12 : date.hour % 12;
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$hour:$minute ${date.hour < 12 ? 'AM' : 'PM'}';
+  }
+
+  /// "Oct 5, 3:00 PM", rounded up to the minute so a time something is due
+  /// is never early.
+  static String monthDayTime(DateTime date) {
+    final at = date.second == 0 && date.millisecond == 0
+        ? date
+        : DateTime(date.year, date.month, date.day, date.hour, date.minute + 1);
+    return '${monthDay(at)}, ${clockTime(at)}';
+  }
+
+  /// "today", "tomorrow" or "in 5 days".
+  static String daysAwayLabel(int days) => switch (days) {
+    0 => 'today',
+    1 => 'tomorrow',
+    _ => 'in $days days',
+  };
+
+  /// [year]'s entry on the archive list, if it's on it.
+  Map<String, dynamic>? academicYearArchive(String year) {
+    for (final archive in academicYearArchives) {
+      if ((archive['academicYear'] ?? archive['id'])?.toString() == year) {
+        return archive;
+      }
+    }
+    return null;
+  }
+
+  /// When [archive]'s records are due to be copied in:
+  /// [archivePreviewWindow] after the year went on the archive list, and
+  /// not before the Admin can no longer undo moving on from it. Null once
+  /// they have been.
+  DateTime? archiveDueAt(Map<String, dynamic> archive) {
+    if (archive['dataArchived'] != false) return null;
+    var due =
+        dateOf(archive['archivedAt'])?.add(archivePreviewWindow) ??
+        DateTime.now();
+    final year = (archive['academicYear'] ?? archive['id'])?.toString();
+    final undoDeadline = termChangeUndoDeadline;
+    if (undoDeadline != null &&
+        undoDeadline.isAfter(due) &&
+        year == _previousAcademicTerm?['academicYear']?.toString()) {
+      due = undoDeadline;
+    }
+    return due;
+  }
+
+  /// The year waiting for the Head's session to copy its records into the
+  /// archive, and when that's due — or null when none is.
+  ({String year, DateTime dueAt})? get pendingArchive {
+    for (final archive in academicYearArchives) {
+      final due = archiveDueAt(archive);
+      final year = (archive['academicYear'] ?? archive['id'])?.toString();
+      if (due == null || year == null) continue;
+      // Back in effect after an undo: it waits for its end date again.
+      if (year == academicYear && daysUntilAcademicYearEnds >= 0) continue;
+      return (year: year, dueAt: due);
+    }
+    return null;
+  }
+
+  /// Whether the year in effect ends within [archiveNoticeDays], or has
+  /// ended, without being on the archive list yet.
+  bool get academicYearEndingSoon =>
+      daysUntilAcademicYearEnds <= archiveNoticeDays &&
+      academicYearArchive(academicYear) == null;
+
+  /// Whether archiving [year] takes its attendance logs too: the
+  /// "Auto-archive Logs" setting it went on the list with, or for a year
+  /// not on it yet, the setting now.
+  bool archivesAttendance(String year) {
+    final archive = academicYearArchive(year);
+    return archive == null
+        ? autoArchiveAttendanceLogs
+        : archive['archiveAttendance'] == true;
+  }
+
+  /// What's still unfinished among [year]'s records, which archiving
+  /// copies as they stand: applications the Head hasn't decided, student
+  /// assistant requests waiting for the Head's approval, and reports and
+  /// completed tasks waiting for a supervisor.
+  ({int applications, int requests, int reports, int tasks}) archiveOpenItems(
+    String year,
+  ) => (
+    applications: applications
+        .where((a) => a.academicYear == year && a.status == 'Pending')
+        .length,
+    requests: announcements
+        .where((a) => a.academicYear == year && a.isPending)
+        .length,
+    reports: reports
+        .where((r) => r.academicYear == year && r.status == 'Pending')
+        .length,
+    tasks: tasks
+        .where(
+          (t) => t.academicYear == year && !t.isArchived && t.awaitingApproval,
+        )
+        .length,
+  );
+
+  /// How many of each kind of record [year]'s archive holds — or, before
+  /// it's been archived, would get — keyed as in [archiveRecordKinds]. A
+  /// year not archived yet takes the Head's access to count.
+  Future<Map<String, int>> countArchiveRecords(String year) async {
+    _firestoreService ??= FirestoreService();
+    final archive = academicYearArchive(year);
+    if (archive != null && archive['dataArchived'] != false) {
+      return _firestoreService!.countArchivedRecords(year);
+    }
+    final counts = {...await _firestoreService!.countRecordsToArchive(year)};
+    // The logs archiveAttendanceForAcademicYear would take, out of the full
+    // list a Head's session keeps.
+    counts['attendance'] = archivesAttendance(year)
+        ? attendance
+              .where(
+                (record) =>
+                    !record.isArchived &&
+                    (record.academicYear == null ||
+                        record.academicYear == year),
+              )
+              .length
+        : 0;
+    return counts;
+  }
+
+  /// Sends every Head an 'academic_year' notification about [year], which
+  /// opens its archive preview or summary. With [onceId] it's one that's
+  /// only ever sent once: each Head's copy is saved as `<onceId>_<head id>`,
+  /// and the rules refuse saving a notification over another.
+  Future<void> _notifyHeadsAboutArchive(
+    String year, {
+    required String title,
+    required String message,
+    String? onceId,
+  }) async {
+    for (final headId in await _headIds()) {
+      final id = onceId == null ? null : '${onceId}_$headId';
+      if (id != null &&
+          (!_archiveNoticesSent.add(id) ||
+              notifications.any((n) => n.id == id))) {
+        continue;
+      }
+      _addNotification(
+        AppNotification(
+          id: id ?? '',
+          userId: headId,
+          title: title,
+          message: message,
+          type: 'academic_year',
+          createdAt: _formattedToday(),
+          academicYear: year,
+        ),
+        id: id,
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Tells the Heads, once a year, that the year in effect ends within
+  /// [archiveNoticeDays] and will be archived after that. Whichever Admin
+  /// or Head session opens SAIS first that week sends it, so it can reach
+  /// a Head's phone before they open SAIS themselves.
+  Future<void> _noticeAcademicYearEnding() async {
+    if (role != 'Admin' && role != 'Head') return;
+    final days = daysUntilAcademicYearEnds;
+    if (days < 0 || !academicYearEndingSoon) return;
+    final year = academicYear;
+    await _notifyHeadsAboutArchive(
+      year,
+      title: 'Academic Year Ending Soon',
+      message:
+          'AY $year ends ${daysAwayLabel(days)} '
+          '(${monthDay(academicYearEnd)}), and its records will be archived '
+          'after that. Preview what will be saved and finish anything still '
+          'open.',
+      onceId: 'ay_ending_$year',
+    );
+  }
+
+  /// Sets a timer for the next archiving step that a Head's session left
+  /// open would otherwise leave for a reload: listing the year in effect
+  /// the day after its end date, or copying in a listed year's records once
+  /// they're due. Only within [archiveNoticeDays]; anything later is picked
+  /// up when SAIS next loads.
+  void _scheduleArchiveCheck() {
+    _archiveTimer?.cancel();
+    _archiveTimer = null;
+    if (role != 'Head' || currentUser == null) return;
+    final now = DateTime.now();
+    final end = academicYearEnd;
+    DateTime? next;
+    for (final at in [
+      if (academicYearArchive(academicYear) == null)
+        DateTime(end.year, end.month, end.day + 1),
+      for (final archive in academicYearArchives) ?archiveDueAt(archive),
+    ]) {
+      if (at.isAfter(now) && (next == null || at.isBefore(next))) next = at;
+    }
+    if (next == null) return;
+    final wait = next.difference(now);
+    if (wait > const Duration(days: archiveNoticeDays)) return;
+    // A moment past it, so the step finds it due.
+    _archiveTimer = Timer(wait + const Duration(seconds: 1), () async {
+      try {
+        _firestoreService ??= FirestoreService();
+        await _archiveFinishedAcademicYears(
+          await _firestoreService!.getAcademicYearSettings(),
+        );
+      } catch (error) {
+        debugPrint('Failed to check for academic years to archive: $error');
+      }
+      notifyListeners();
+    });
   }
 
   Future<void> _syncApprovedApplicationSkills() async {
@@ -5041,6 +5347,8 @@ class AppState extends ChangeNotifier {
     required List<Map<String, dynamic>> milestones,
   }) async {
     _firestoreService ??= FirestoreService();
+    // The year this puts on the archive list, if any.
+    String? closedYear;
     if (academicYear != year) {
       final currentSettings = await _firestoreService!
           .getAcademicYearSettings();
@@ -5048,31 +5356,42 @@ class AppState extends ChangeNotifier {
         // Only record the year as finished. Its records are copied into the
         // archive by the Head's session (see _archiveFinishedAcademicYears),
         // since the Admin can't read them all.
-        await _firestoreService!.archiveAcademicYearSettings(
-          currentSettings['academicYear'].toString(),
+        final finishedYear = currentSettings['academicYear'].toString();
+        // The finished year's own "Auto-archive Logs" setting, which the
+        // app treats as on when it was never saved.
+        final archiveAttendance =
+            currentSettings['autoArchiveLogs'] as bool? ?? true;
+        final headcount = studentsPerCampus;
+        final listed = await _firestoreService!.archiveAcademicYearSettings(
+          finishedYear,
           currentSettings,
-          // The finished year's own "Auto-archive Logs" setting, which the
-          // app treats as on when it was never saved.
-          archiveAttendance:
-              currentSettings['autoArchiveLogs'] as bool? ?? true,
-          headcountByCampus: studentsPerCampus,
+          archiveAttendance: archiveAttendance,
+          headcountByCampus: headcount,
         );
-        // Newest first, like getAcademicYearArchives.
-        academicYearArchives =
-            [
-              ...academicYearArchives.where(
-                (archive) =>
-                    archive['academicYear'] != currentSettings['academicYear'],
-              ),
-              {
-                ...currentSettings,
-                'academicYear': currentSettings['academicYear'],
-              },
-            ]..sort(
-              (a, b) => b['academicYear'].toString().compareTo(
-                a['academicYear'].toString(),
-              ),
-            );
+        // Already listed when its end date passed first, and the Heads were
+        // told then.
+        if (listed) {
+          closedYear = finishedYear;
+          // Newest first, like getAcademicYearArchives.
+          academicYearArchives =
+              [
+                ...academicYearArchives.where(
+                  (archive) => archive['academicYear'] != finishedYear,
+                ),
+                {
+                  ...currentSettings,
+                  'academicYear': finishedYear,
+                  'archivedAt': DateTime.now(),
+                  'archiveAttendance': archiveAttendance,
+                  'dataArchived': false,
+                  'headcountByCampus': headcount,
+                },
+              ]..sort(
+                (a, b) => b['academicYear'].toString().compareTo(
+                  a['academicYear'].toString(),
+                ),
+              );
+        }
       }
     }
     final termChanged = academicYear != year || academicSemester != semester;
@@ -5111,6 +5430,18 @@ class AppState extends ChangeNotifier {
     await _firestoreService!.saveAcademicYearSettings(settings);
     _applyAcademicSettings(settings);
     notifyListeners();
+    if (closedYear != null) {
+      final due =
+          termChangeUndoDeadline ?? DateTime.now().add(archivePreviewWindow);
+      await _notifyHeadsAboutArchive(
+        closedYear,
+        title: 'Academic Year Closing',
+        message:
+            'The Admin started AY $year. AY $closedYear\'s records will be '
+            'archived after ${monthDayTime(due)}. Before then, preview what '
+            'will be saved and finish anything still open.',
+      );
+    }
   }
 
   /// Undoes the last academic year or semester change, within
@@ -5157,6 +5488,15 @@ class AppState extends ChangeNotifier {
       academicYearArchives = await _firestoreService!.getAcademicYearArchives();
     } catch (_) {}
     notifyListeners();
+    if (previousYear != undoneYear) {
+      await _notifyHeadsAboutArchive(
+        previousYear,
+        title: 'Academic Year Switch Undone',
+        message:
+            'The Admin moved back to AY $previousYear, so its records won\'t '
+            'be archived for now.',
+      );
+    }
   }
 
   Future<String?> createManagedUser(User user, String password) async {

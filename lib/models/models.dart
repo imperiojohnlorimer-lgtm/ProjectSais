@@ -1506,6 +1506,10 @@ class AppNotification {
   final String? attachmentName;
   final String? attachmentUrl;
 
+  /// The year an 'academic_year' notification is about, whose archive
+  /// preview or summary tapping it opens.
+  final String? academicYear;
+
   AppNotification({
     required this.id,
     required this.userId,
@@ -1516,6 +1520,7 @@ class AppNotification {
     this.isRead = false,
     this.attachmentName,
     this.attachmentUrl,
+    this.academicYear,
   });
 
   factory AppNotification.fromJson(Map<String, dynamic> json) =>
@@ -1529,6 +1534,7 @@ class AppNotification {
         isRead: json['isRead'] == true,
         attachmentName: json['attachmentName'],
         attachmentUrl: json['attachmentUrl'],
+        academicYear: json['academicYear']?.toString(),
       );
 
   Map<String, dynamic> toJson() => {
@@ -1540,6 +1546,7 @@ class AppNotification {
     'isRead': isRead,
     'attachmentName': attachmentName,
     'attachmentUrl': attachmentUrl,
+    'academicYear': academicYear,
   }..removeWhere((_, v) => v == null);
 
   AppNotification copyWith({bool? isRead}) => AppNotification(
@@ -1552,6 +1559,7 @@ class AppNotification {
     isRead: isRead ?? this.isRead,
     attachmentName: attachmentName,
     attachmentUrl: attachmentUrl,
+    academicYear: academicYear,
   );
 }
 

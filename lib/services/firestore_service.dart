@@ -375,15 +375,16 @@ class FirestoreService {
   /// (see [markAcademicYearDataArchived]); [archiveAttendance] says whether
   /// that copy should also retire the year's attendance logs.
   /// [headcountByCampus] is each campus's student assistant count as the
-  /// year closes, which the Head's dashboard plots year over year.
-  Future<void> archiveAcademicYearSettings(
+  /// year closes, which the Head's dashboard plots year over year. Returns
+  /// whether this call put the year on the list.
+  Future<bool> archiveAcademicYearSettings(
     String academicYear,
     Map<String, dynamic> settings, {
     bool archiveAttendance = false,
     Map<String, int>? headcountByCampus,
   }) async {
     final archiveRef = _academicYearArchive(academicYear);
-    if ((await archiveRef.get()).exists) return;
+    if ((await archiveRef.get()).exists) return false;
     await archiveRef.set({
       // Without the undo bookkeeping, which is about the settings document.
       ...Map.of(settings)..removeWhere(
@@ -398,6 +399,50 @@ class FirestoreService {
       'dataArchived': false,
       'headcountByCampus': ?headcountByCampus,
     });
+    return true;
+  }
+
+  /// The collections a year's records are copied from, keyed by the
+  /// archive collection each goes into. Attendance is left out: its logs
+  /// are picked by more than their year (see
+  /// [archiveAttendanceForAcademicYear]).
+  static const _archivedCollections = {
+    'reports': 'reports',
+    'applications': 'applications',
+    'screening_records': 'screeningRecords',
+    'tasks': 'tasks',
+    'evaluations': 'evaluations',
+    'announcements': 'announcements',
+    'calendar_events': 'schedule_events',
+  };
+
+  /// How many records stamped [academicYear] archiving it would copy, per
+  /// archive collection. Counting reads one document per thousand records.
+  Future<Map<String, int>> countRecordsToArchive(String academicYear) async {
+    final counts = await Future.wait([
+      for (final source in _archivedCollections.values)
+        _db
+            .collection(source)
+            .where('academicYear', isEqualTo: academicYear)
+            .count()
+            .get()
+            .then((snapshot) => snapshot.count ?? 0),
+    ]);
+    return Map.fromIterables(_archivedCollections.keys, counts);
+  }
+
+  /// How many records [academicYear]'s archive holds, per collection.
+  Future<Map<String, int>> countArchivedRecords(String academicYear) async {
+    final names = [..._archivedCollections.keys, 'attendance'];
+    final counts = await Future.wait([
+      for (final name in names)
+        _academicYearArchive(academicYear)
+            .collection(name)
+            .count()
+            .get()
+            .then((snapshot) => snapshot.count ?? 0),
+    ]);
+    return Map.fromIterables(names, counts);
   }
 
   /// Takes [academicYear] off the archive list again — for an undone move

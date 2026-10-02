@@ -28,6 +28,7 @@ class NotificationTile extends StatelessWidget {
     'evaluation' => (Icons.fact_check_outlined, AppTheme.amber500),
     'rehire' => (Icons.autorenew_rounded, AppTheme.maroon),
     'attendance' => (Icons.alarm_rounded, AppTheme.amber500),
+    'academic_year' => (Icons.inventory_2_outlined, AppTheme.amber500),
     _ => (Icons.info_outline, AppTheme.slate500),
   };
 

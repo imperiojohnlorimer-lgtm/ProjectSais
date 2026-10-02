@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/academic_year_archive_dialog.dart';
 import '../../widgets/shared_widgets.dart';
 
 class AcademicYearSettingsScreen extends StatefulWidget {
@@ -211,8 +212,9 @@ class _AcademicYearSettingsScreenState
             ? 'Everyone will be moved to AY $year, $_semester. After '
                   '$undoHours hours, AY ${state.academicYear}\'s records '
                   'will be archived and rehire decisions for the new term '
-                  'will take effect. Until then you can undo this here.'
-                  '$droppedNote'
+                  'will take effect. The Head is notified now and can '
+                  'preview what will be saved. Until then you can undo this '
+                  'here.$droppedNote'
             : 'Everyone will see $_semester, AY $year as the current term. '
                   'Rehire decisions made for it will take effect after '
                   '$undoHours hours; until then you can undo this here.',
@@ -697,28 +699,43 @@ class _AcademicYearSettingsScreenState
               style: TextStyle(fontSize: 12, color: AppTheme.slate500),
             )
           else
-            ...archives.map(
-              (archive) => ListTile(
+            ...archives.map((archive) {
+              final year = (archive['academicYear'] ?? archive['id'])
+                  ?.toString();
+              final waiting = archive['dataArchived'] == false;
+              return ListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
-                leading: const Icon(
-                  Icons.history,
+                leading: Icon(
+                  waiting ? Icons.hourglass_top_rounded : Icons.history,
                   size: 18,
-                  color: AppTheme.slate500,
+                  color: waiting ? AppTheme.amber500 : AppTheme.slate500,
                 ),
                 title: Text(
-                  archive['academicYear']?.toString() ?? 'Unknown year',
+                  year ?? 'Unknown year',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 subtitle: Text(
-                  archive['semester']?.toString() ?? 'Archived period',
+                  waiting
+                      ? 'Waiting to be archived'
+                      : archive['semester']?.toString() ?? 'Archived period',
                   style: const TextStyle(fontSize: 11),
                 ),
-              ),
-            ),
+                trailing: year == null
+                    ? null
+                    : const Icon(
+                        Icons.chevron_right,
+                        size: 18,
+                        color: AppTheme.slate400,
+                      ),
+                onTap: year == null
+                    ? null
+                    : () => showAcademicYearArchiveDialog(context, year),
+              );
+            }),
         ],
       ),
     );

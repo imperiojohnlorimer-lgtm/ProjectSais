@@ -26,21 +26,20 @@ class _FakeSettingsFirestore extends FirestoreService {
       push(data);
 
   @override
-  Future<void> archiveAcademicYearSettings(
+  Future<bool> archiveAcademicYearSettings(
     String academicYear,
     Map<String, dynamic> settings, {
     bool archiveAttendance = false,
     Map<String, int>? headcountByCampus,
   }) async {
-    archives.putIfAbsent(
-      academicYear,
-      () => {
-        'academicYear': academicYear,
-        'archiveAttendance': archiveAttendance,
-        'dataArchived': false,
-        'headcountByCampus': ?headcountByCampus,
-      },
-    );
+    if (archives.containsKey(academicYear)) return false;
+    archives[academicYear] = {
+      'academicYear': academicYear,
+      'archiveAttendance': archiveAttendance,
+      'dataArchived': false,
+      'headcountByCampus': ?headcountByCampus,
+    };
+    return true;
   }
 
   @override

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/academic_year_archive_dialog.dart';
 import '../../widgets/notification_tile.dart';
 import '../../widgets/push_notifications_card.dart';
 import '../../widgets/shared_widgets.dart';
@@ -204,12 +205,21 @@ class AdminNotificationsScreen extends StatelessWidget {
                 else
                   ...notifs.map((n) {
                     final tab = state.notificationTab(n);
+                    // About an academic year's archive: its preview, or
+                    // once archived, its summary.
+                    final archiveYear = n.type == 'academic_year'
+                        ? n.academicYear ?? state.academicYear
+                        : null;
                     return NotificationTile(
                       notif: n,
-                      opensScreen: tab != null,
+                      opensScreen: tab != null || archiveYear != null,
                       onTap: () {
                         if (!n.isRead) state.markNotificationRead(n.id);
-                        if (tab != null) state.setTab(tab);
+                        if (archiveYear != null) {
+                          showAcademicYearArchiveDialog(context, archiveYear);
+                        } else if (tab != null) {
+                          state.setTab(tab);
+                        }
                       },
                     );
                   }),
