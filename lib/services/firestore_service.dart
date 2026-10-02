@@ -1579,6 +1579,21 @@ class FirestoreService {
     await _notifications.doc(id).delete();
   }
 
+  /// Records that [token], one browser's push address, belongs to
+  /// [userId], so the clockout-reminders function can reach it. The token
+  /// names the document, so a browser has one entry whoever signs in on it.
+  Future<void> savePushToken(String token, String userId) async {
+    await _db.collection('pushTokens').doc(token).set({
+      'userId': userId,
+      'token': token,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> deletePushToken(String token) async {
+    await _db.collection('pushTokens').doc(token).delete();
+  }
+
   Future<void> deleteNotificationsForUser(String userId) async {
     final snap = await _notifications.where('userId', isEqualTo: userId).get();
     // A batch holds at most 500 writes; past that Firestore rejects the

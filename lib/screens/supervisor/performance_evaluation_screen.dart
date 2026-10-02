@@ -47,6 +47,9 @@ class _PerformanceEvaluationScreenState
   String _search = '';
   String _term = 'First Semester';
 
+  /// Evaluations whose Word file is being put together for download.
+  final _downloading = <String>{};
+
   static const _terms = ['First Semester', 'Midyear Term', 'Second Semester'];
 
   @override
@@ -394,18 +397,36 @@ class _PerformanceEvaluationScreenState
                             : t;
                       }
 
+                      final downloading =
+                          existing != null &&
+                          _downloading.contains(existing.id);
                       final downloadButton = existing == null
                           ? null
                           : OutlinedButton.icon(
-                              onPressed: () =>
-                                  _downloadEvaluation(context, existing),
-                              icon: const Icon(
-                                Icons.download_rounded,
-                                size: 16,
+                              onPressed: downloading
+                                  ? null
+                                  : () =>
+                                        _downloadEvaluation(context, existing),
+                              icon: downloading
+                                  ? const SizedBox(
+                                      width: 14,
+                                      height: 14,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        color: AppTheme.maroon,
+                                      ),
+                                    )
+                                  : const Icon(
+                                      Icons.download_rounded,
+                                      size: 16,
+                                    ),
+                              label: label(
+                                downloading ? 'Preparing…' : 'Download',
                               ),
-                              label: label('Download'),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: AppTheme.maroon,
+                                disabledForegroundColor: AppTheme.maroon
+                                    .withValues(alpha: 0.75),
                                 side: const BorderSide(
                                   color: AppTheme.maroon,
                                   width: 1.3,
@@ -596,7 +617,12 @@ class _PerformanceEvaluationScreenState
     Evaluation evaluation,
   ) async {
     final messenger = ScaffoldMessenger.of(context);
+    if (!_downloading.add(evaluation.id)) return;
+    setState(() {});
     try {
+      // Filling in the Word template holds up the page, so let the
+      // spinner show first.
+      await WidgetsBinding.instance.endOfFrame;
       final doc = await const PerformanceEvaluationDocumentService()
           .generatePerformanceEvaluation(evaluation: evaluation);
       final bytes = doc.bytes;
@@ -651,6 +677,8 @@ class _PerformanceEvaluationScreenState
           margin: const EdgeInsets.all(16),
         ),
       );
+    } finally {
+      if (mounted) setState(() => _downloading.remove(evaluation.id));
     }
   }
 

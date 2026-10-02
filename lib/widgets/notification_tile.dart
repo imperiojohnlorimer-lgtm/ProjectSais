@@ -27,6 +27,7 @@ class NotificationTile extends StatelessWidget {
     'payroll' => (Icons.payments_outlined, AppTheme.emerald500),
     'evaluation' => (Icons.fact_check_outlined, AppTheme.amber500),
     'rehire' => (Icons.autorenew_rounded, AppTheme.maroon),
+    'attendance' => (Icons.alarm_rounded, AppTheme.amber500),
     _ => (Icons.info_outline, AppTheme.slate500),
   };
 

@@ -9,12 +9,29 @@ import 'sp_profile_screen.dart';
 
 class StudentPortalShell extends StatefulWidget {
   const StudentPortalShell({super.key});
+
+  /// The portal's pages, in sidebar order (the order of [_navItems]' ids).
+  static const pages = [
+    (id: 'announcements', label: 'Announcements'),
+    (id: 'notifications', label: 'Notifications'),
+    (id: 'profile', label: 'Profile'),
+  ];
+
   @override
   State<StudentPortalShell> createState() => _StudentPortalShellState();
 }
 
 class _StudentPortalShellState extends State<StudentPortalShell> {
-  int _tab = 0;
+  /// The open page, kept in [AppState.activeTab] so the address bar shows
+  /// it and Back, Forward and refresh find it again.
+  int get _tab {
+    final active = context.read<AppState>().activeTab;
+    final index = StudentPortalShell.pages.indexWhere((p) => p.id == active);
+    return index < 0 ? 0 : index;
+  }
+
+  set _tab(int index) =>
+      context.read<AppState>().setTab(StudentPortalShell.pages[index].id);
 
   static const _navItems = [
     (id: 0, label: 'Announcements', icon: Icons.campaign_outlined,       activeIcon: Icons.campaign),

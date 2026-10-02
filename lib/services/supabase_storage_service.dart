@@ -24,6 +24,11 @@ class SupabaseStorageService {
   /// the current session and writes the record with a Firebase service
   /// account, since `attendance` is staff-only in the Firestore rules.
   static const clockAttendanceUrl = '$_functionsRoot/clock-attendance';
+
+  /// Pushes notifications to devices: clock-out reminders (run by a
+  /// Supabase cron job), every other notification once the app saves it,
+  /// and the test notification the Turn on cards offer.
+  static const clockOutRemindersUrl = '$_functionsRoot/clockout-reminders';
   static const _allowedExtensions = {
     'pdf',
     'doc',

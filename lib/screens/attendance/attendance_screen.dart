@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/web_print_stub.dart'
     if (dart.library.html) '../../utils/web_print.dart'
     as web_print;
+import '../../widgets/push_notifications_card.dart';
 import '../../widgets/shared_widgets.dart';
 
 void _showSnack(BuildContext ctx, String msg, Color color) {
@@ -831,6 +832,16 @@ class _ClockCardState extends State<_ClockCard> {
                         ),
                       ),
                     ),
+                  ),
+                  const SizedBox(height: 12),
+                  const PushNotificationsCard(
+                    title: 'Clock-out reminders',
+                    offText:
+                        'Get a notification 30 minutes before your session '
+                        'ends, even with SAIS closed.',
+                    onText:
+                        'On for this device: a notification 30 minutes before '
+                        'your session ends, even with SAIS closed.',
                   ),
                 ] else ...[
                   const SizedBox(height: 16),

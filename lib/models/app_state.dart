@@ -12,6 +12,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:projectsais/services/appointment_document_service.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/services/performance_evaluation_document_service.dart';
+import 'package:projectsais/services/push_service.dart';
 import 'package:projectsais/services/supabase_storage_service.dart';
 import '../firebase_options.dart';
 import 'models.dart';
@@ -30,10 +31,15 @@ class QrClockResult {
   });
 }
 
+/// The pages a signed-out visitor can see: `/`, `/login` and `/register`.
+enum PublicPage { landing, login, register }
+
 class AppState extends ChangeNotifier {
-  /// [firestoreService] is for tests; the app lets it default.
-  AppState({FirestoreService? firestoreService})
-    : _firestoreService = firestoreService;
+  /// [firestoreService] and [pushService] are for tests; the app lets them
+  /// default.
+  AppState({FirestoreService? firestoreService, PushService? pushService})
+    : _firestoreService = firestoreService,
+      _push = pushService ?? PushService();
 
   User? currentUser;
   String activeTab = 'dashboard';
@@ -63,6 +69,7 @@ class AppState extends ChangeNotifier {
   /// them, so an unrelated profile change doesn't re-read every claim.
   String? _syncedStudentIds;
   Timer? _missedTimeOutTimer;
+  Timer? _clockOutReminderTimer;
   final GoogleSignIn _googleSignIn = GoogleSignIn(
     scopes: ['email', 'profile'],
     clientId: kIsWeb
@@ -338,7 +345,12 @@ class AppState extends ChangeNotifier {
   String get role => currentUser?.role ?? 'Student Assistant';
 
   Future<void> init() async {
-    await _initializeFirebaseAuthUser();
+    try {
+      await _initializeFirebaseAuthUser();
+    } finally {
+      sessionChecked = true;
+      notifyListeners();
+    }
     await _ensureSeeded();
     await _loadNotificationsForCurrentUser();
     _startRealtimeListeners();
@@ -422,6 +434,7 @@ class AppState extends ChangeNotifier {
                       .toList();
                   notifyListeners();
                   if (isStaffUser) invalidateMissedTimeOuts();
+                  if (role == 'Student Assistant') remindToClockOutIfDue();
                 },
                 // Without this a rejected query (a missing index, say) kills
                 // the subscription silently and the list just stays empty.
@@ -504,6 +517,7 @@ class AppState extends ChangeNotifier {
     } catch (error) {
       debugPrint('Live data unavailable: $error');
     }
+    if (role != 'Admin') registerForPush();
   }
 
   void _stopRealtimeListeners() {
@@ -519,6 +533,7 @@ class AppState extends ChangeNotifier {
       sub?.cancel();
     }
     _missedTimeOutTimer?.cancel();
+    _clockOutReminderTimer?.cancel();
     for (final sub in _liveSubs) {
       sub.cancel();
     }
@@ -846,6 +861,9 @@ class AppState extends ChangeNotifier {
     _payrollSub?.cancel();
     _payrollSheetsSub?.cancel();
     _missedTimeOutTimer?.cancel();
+    _clockOutReminderTimer?.cancel();
+    _clockOutReminderAlerts.close();
+    _pushMessagesSub?.cancel();
     for (final sub in _liveSubs) {
       sub.cancel();
     }
@@ -1397,6 +1415,8 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> signOut() async {
+    // While still signed in: only the owner may delete it.
+    await _forgetPushToken();
     try {
       await fb_auth.FirebaseAuth.instance.signOut();
     } catch (_) {}
@@ -1422,6 +1442,22 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Navigation ────────────────────────────────────
+  // The address bar follows these: AppRouterDelegate writes the page shown
+  // here into it, and opens the page an address names.
+
+  /// The page a signed-out visitor sees.
+  PublicPage publicPage = PublicPage.landing;
+
+  void showPublicPage(PublicPage page) {
+    if (publicPage == page) return;
+    publicPage = page;
+    notifyListeners();
+  }
+
+  /// Whether startup has finished restoring a signed-in session. Until
+  /// then, a link to a signed-in page waits rather than showing Login.
+  bool sessionChecked = false;
+
   void setTab(String tab) {
     activeTab = tab;
     notifyListeners();
@@ -3434,10 +3470,13 @@ class AppState extends ChangeNotifier {
       _docIdChars.codeUnitAt(_docIdRandom.nextInt(_docIdChars.length)),
   ]);
 
-  void _addNotification(AppNotification n) {
+  /// Saves [n] under [id] when given (one that must only ever be sent once),
+  /// else under a new random id, and has it pushed to the recipient's
+  /// devices unless [push] is off.
+  void _addNotification(AppNotification n, {String? id, bool push = true}) {
     // The local copy gets the id the saved one will have, so marking it read
     // or deleting it before the live feed catches up reaches the saved one.
-    final id = _newDocId();
+    id ??= _newDocId();
     final local = AppNotification.fromJson({
       ...n.toJson(),
       'id': id,
@@ -3445,10 +3484,29 @@ class AppState extends ChangeNotifier {
     });
     notifications = [local, ...notifications];
     _firestoreService ??= FirestoreService();
-    _firestoreService!.addNotification({...n.toJson(), 'id': id}).catchError((
-      error,
-    ) {
-      debugPrint('Failed to persist notification: $error');
+    final savedId = id;
+    _firestoreService!
+        .addNotification({...n.toJson(), 'id': id})
+        .then((_) {
+          // Only once it's saved: the push function reads it from there.
+          if (push) _queuePush(savedId);
+        })
+        .catchError((error) {
+          debugPrint('Failed to persist notification: $error');
+        });
+  }
+
+  final _pushQueue = <String>[];
+
+  /// Gathers the notifications saved in one go (approving several
+  /// applications, say) into one request to the push function.
+  void _queuePush(String id) {
+    _pushQueue.add(id);
+    if (_pushQueue.length > 1) return;
+    scheduleMicrotask(() {
+      final ids = List.of(_pushQueue);
+      _pushQueue.clear();
+      _push.deliver(ids);
     });
   }
 
@@ -3584,6 +3642,7 @@ class AppState extends ChangeNotifier {
       ('head_forward', 'Head') => 'head_forwards',
       ('office', 'Head') => 'offices',
       ('office', 'Supervisor') => 'students',
+      ('attendance', 'Student Assistant') => 'attendance',
       // Role changes: the profile shows the new role.
       ('system', _) => 'profile',
       _ => null,
@@ -6842,6 +6901,226 @@ class AppState extends ChangeNotifier {
     final today = _formattedToday();
     return filteredAttendance.any(
       (r) => r.date == today && r.isInvalid && !r.isArchived,
+    );
+  }
+
+  // ─── Clock-out reminder ────────────────────────────
+  /// How long before a session ends a Student Assistant still clocked in
+  /// is reminded to clock out.
+  static const clockOutReminderLead = Duration(minutes: 30);
+
+  /// Reminders sent while the app is open, for the shell to show on screen
+  /// as well as in the notifications list.
+  final _clockOutReminderAlerts = StreamController<AppNotification>.broadcast();
+  Stream<AppNotification> get clockOutReminderAlerts =>
+      _clockOutReminderAlerts.stream;
+
+  /// Reminders this session has already handled, so one the student deleted
+  /// isn't sent again on the next attendance update.
+  final _clockOutRemindersHandled = <String>{};
+
+  /// The reminder's notification id: one per attendance record, so a reload,
+  /// a second tab or another device can't send it twice. (The rules refuse
+  /// rewriting a saved notification, so a second save of it fails.)
+  static String clockOutReminderId(String recordId) => 'clockout_$recordId';
+
+  /// When the holder of [record] is reminded to clock out:
+  /// [clockOutReminderLead] before its session ends. Null when its time-in
+  /// can't be read, falls outside both sessions, or comes after that moment
+  /// (they'd be reminded the instant they clocked in).
+  DateTime? clockOutReminderTime(AttendanceRecord record) {
+    final day = _parseFormattedDate(record.date);
+    final start = day == null ? null : _parseTime(record.timeIn, day);
+    if (start == null) return null;
+    final end = attendanceQrSessionEnd(start);
+    if (end == null) return null;
+    final remindAt = end.subtract(clockOutReminderLead);
+    return start.isBefore(remindAt) ? remindAt : null;
+  }
+
+  /// Reminds the signed-in Student Assistant to clock out once a session
+  /// they're clocked in to is [clockOutReminderLead] from its end, and sets
+  /// a timer for a reminder still ahead. Runs on every change to their
+  /// attendance, so clocking in sets the timer and clocking out clears it,
+  /// and opening the app late in a session sends the reminder it missed
+  /// while closed. Returns the reminder sent, if any.
+  AppNotification? remindToClockOutIfDue([DateTime? at]) {
+    _clockOutReminderTimer?.cancel();
+    _clockOutReminderTimer = null;
+    final user = currentUser;
+    if (user == null || role != 'Student Assistant') return null;
+    final now = at ?? DateTime.now();
+
+    AppNotification? sent;
+    DateTime? next;
+    for (final record in filteredAttendance) {
+      if (!record.isActive || record.isInvalid || record.isArchived) continue;
+      final remindAt = clockOutReminderTime(record);
+      if (remindAt == null) continue;
+      final end = remindAt.add(clockOutReminderLead);
+      if (now.isBefore(remindAt)) {
+        if (next == null || remindAt.isBefore(next)) next = remindAt;
+      } else if (now.isBefore(end)) {
+        sent ??= _sendClockOutReminder(user, record, end);
+      }
+      // Past its end it's a missed time-out, which staff sessions void.
+    }
+
+    if (next != null) {
+      _clockOutReminderTimer = Timer(
+        next.difference(now),
+        () => remindToClockOutIfDue(),
+      );
+    }
+    return sent;
+  }
+
+  AppNotification? _sendClockOutReminder(
+    User user,
+    AttendanceRecord record,
+    DateTime end,
+  ) {
+    final id = clockOutReminderId(record.id);
+    if (!_clockOutRemindersHandled.add(id) ||
+        notifications.any((n) => n.id == id)) {
+      return null;
+    }
+
+    final session = attendanceQrSessionLabel(end) ?? 'Session';
+    final hour = end.hour % 12 == 0 ? 12 : end.hour % 12;
+    final clock =
+        '$hour:${end.minute.toString().padLeft(2, '0')} '
+        '${end.hour < 12 ? 'AM' : 'PM'}';
+    final reminder = AppNotification(
+      id: id,
+      userId: user.id,
+      title: 'Time to Clock Out',
+      message:
+          'Your ${session.toLowerCase()} ends at $clock. Scan the attendance '
+          'QR code to clock out before then, or this session won\'t count '
+          'toward your hours.',
+      type: 'attendance',
+      createdAt: _formattedToday(),
+    );
+    // Not pushed from here: the clockout-reminders job pushes it to the
+    // student's devices on its own schedule.
+    _addNotification(reminder, id: id, push: false);
+    notifyListeners();
+    if (!_clockOutReminderAlerts.isClosed) {
+      _clockOutReminderAlerts.add(reminder);
+    }
+    return reminder;
+  }
+
+  // ─── Push notifications ────────────────────────────
+  // Every notification is also pushed to the recipient's registered
+  // browsers, reaching a phone with SAIS closed: the clockout-reminders
+  // function sends the clock-out reminder on a schedule, and every other
+  // notification as soon as it's saved (_queuePush).
+  final PushService _push;
+  StreamSubscription<Map<String, dynamic>>? _pushMessagesSub;
+
+  /// The token saved for this browser. Deleted at sign-out, so the next
+  /// person on this browser doesn't get this account's reminders.
+  String? _pushToken;
+
+  /// Whether this browser may show SAIS's notifications; null until a
+  /// Student Assistant's sign-in has checked.
+  PushPermission? pushPermission;
+
+  /// Whether pushed notifications reach this browser.
+  bool get pushOn => _pushToken != null;
+
+  /// Set while [registerForPush] runs.
+  bool pushBusy = false;
+
+  /// Registers this browser for push notifications: once the browser
+  /// allows them, saves its token under the signed-in account. Asks for
+  /// that permission only when [ask] is set, from a Turn on button:
+  /// browsers refuse, or hold it against the site, when a page asks without
+  /// a tap. Runs at every sign-in, which also saves a token the browser has
+  /// since replaced. Not for the Admin, who has no notifications to get.
+  Future<void> registerForPush({bool ask = false}) async {
+    final user = currentUser;
+    if (user == null || role == 'Admin' || pushBusy) return;
+    pushBusy = true;
+    notifyListeners();
+    try {
+      final permission = ask
+          ? await _push.requestPermission()
+          : await _push.permission();
+      if (currentUser?.id != user.id) return;
+      pushPermission = permission;
+      if (permission != PushPermission.granted) return;
+      final token = await _push.token();
+      if (token == null || currentUser?.id != user.id) return;
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.savePushToken(token, user.id);
+      _pushToken = token;
+      _listenForPushMessages();
+    } catch (error) {
+      debugPrint('Could not register for push notifications: $error');
+    } finally {
+      pushBusy = false;
+      notifyListeners();
+    }
+  }
+
+  /// A push that arrives while SAIS is open and showing reaches the page
+  /// rather than the notification tray, so it pops up like the reminder the
+  /// app raises itself — unless that one already did.
+  void _listenForPushMessages() {
+    _pushMessagesSub ??= _push.foregroundMessages.listen((data) {
+      final user = currentUser;
+      final id = data['notificationId']?.toString();
+      if (user == null || id == null) return;
+      if (data['type'] != 'clockout' && data['type'] != 'test') return;
+      if (!_clockOutRemindersHandled.add(id)) return;
+      if (_clockOutReminderAlerts.isClosed) return;
+      _clockOutReminderAlerts.add(
+        AppNotification(
+          id: id,
+          userId: user.id,
+          title: data['title']?.toString() ?? 'Time to Clock Out',
+          message: data['body']?.toString() ?? '',
+          type: 'attendance',
+          createdAt: _formattedToday(),
+        ),
+      );
+    });
+  }
+
+  Future<void> _forgetPushToken() async {
+    final token = _pushToken;
+    _pushToken = null;
+    pushPermission = null;
+    await _pushMessagesSub?.cancel();
+    _pushMessagesSub = null;
+    if (token == null) return;
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!
+          .deletePushToken(token)
+          .timeout(const Duration(seconds: 5));
+    } catch (error) {
+      debugPrint('Could not remove this browser from push: $error');
+    }
+  }
+
+  /// Seconds the test notification waits, so there's time to lock the
+  /// phone or switch apps and see it arrive like a real reminder.
+  static const pushTestDelaySeconds = 10;
+
+  /// Asks the clockout-reminders function to send this account's devices a
+  /// test notification. Returns what to tell the user.
+  Future<({bool ok, String message})> sendTestPush() async {
+    final result = await _push.sendTest(delaySeconds: pushTestDelaySeconds);
+    return (
+      ok: result.ok,
+      message: result.ok
+          ? 'A test notification arrives in about $pushTestDelaySeconds '
+                'seconds. Lock your phone or switch apps to see it.'
+          : result.error ?? 'The reminder server could not send a test.',
     );
   }
 

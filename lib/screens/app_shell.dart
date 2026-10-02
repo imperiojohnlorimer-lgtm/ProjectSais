@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_state.dart';
@@ -35,12 +37,102 @@ import './supervisor/dtr_accomplishment_report_screen.dart';
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
+  /// The pages [role] has in the sidebar, which are the ones it may open
+  /// (AppRoutes gives each a web address from its label).
+  static List<({String id, String label})> pagesFor(String role) => [
+    for (final item in _AppShellState._filteredNav(role))
+      (id: item.id, label: item.label),
+  ];
+
   @override
   State<AppShell> createState() => _AppShellState();
 }
 
 class _AppShellState extends State<AppShell> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  StreamSubscription<AppNotification>? _clockOutReminderSub;
+
+  @override
+  void initState() {
+    super.initState();
+    _clockOutReminderSub = context
+        .read<AppState>()
+        .clockOutReminderAlerts
+        .listen(_showClockOutReminder);
+  }
+
+  @override
+  void dispose() {
+    _clockOutReminderSub?.cancel();
+    super.dispose();
+  }
+
+  /// A clock-out reminder sent while the app is open pops up on screen too,
+  /// not only in the notifications list. So does a test notification that
+  /// arrives while SAIS is showing, which needs no way onward.
+  void _showClockOutReminder(AppNotification reminder) {
+    if (!mounted) return;
+    final state = context.read<AppState>();
+    final isReminder = reminder.id.startsWith('clockout_');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              isReminder
+                  ? Icons.alarm_rounded
+                  : Icons.notifications_active_rounded,
+              color: AppTheme.amber500,
+              size: 22,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    reminder.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    reminder.message,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      height: 1.4,
+                      color: AppTheme.slate200,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        backgroundColor: AppTheme.slate900,
+        duration: const Duration(seconds: 20),
+        showCloseIcon: true,
+        closeIconColor: AppTheme.slate300,
+        action: isReminder
+            ? SnackBarAction(
+                label: 'Open Attendance',
+                textColor: AppTheme.amber500,
+                onPressed: () {
+                  state.markNotificationRead(reminder.id);
+                  state.setTab('attendance');
+                },
+              )
+            : null,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
 
   static const _navItems = [
     (
@@ -233,7 +325,7 @@ class _AppShellState extends State<AppShell> {
     ),
   ];
 
-  List<({String id, String label, IconData icon, IconData activeIcon})>
+  static List<({String id, String label, IconData icon, IconData activeIcon})>
   _filteredNav(String role) {
     final result =
         <({String id, String label, IconData icon, IconData activeIcon})>[];

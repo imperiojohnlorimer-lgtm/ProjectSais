@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/notification_tile.dart';
+import '../../widgets/push_notifications_card.dart';
 import '../../widgets/shared_widgets.dart';
 
 Future<void> _confirmClearAll(BuildContext context, AppState state) async {
@@ -172,6 +173,12 @@ class AdminNotificationsScreen extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                const PushNotificationsCard(
+                  title: 'Phone notifications',
+                  offText: 'Get these notifications on this device, even with SAIS closed.',
+                  onText: 'On for this device: new notifications arrive even with SAIS closed.',
+                ),
+                const SizedBox(height: 16),
                 if (notifs.isEmpty)
                   Center(
                     child: Padding(

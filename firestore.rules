@@ -556,6 +556,23 @@ service cloud.firestore {
         && resource.data.userId == request.auth.uid;
     }
 
+    // The browsers each user gets push notifications on (clock-out
+    // reminders), one per Firebase Cloud Messaging token. The
+    // clockout-reminders function reads them with a service account; the
+    // app only saves and removes its own. Signing in on a browser another
+    // account used takes its token over, so that browser stops getting the
+    // other account's reminders.
+    match /pushTokens/{token} {
+      allow read, delete: if signedIn()
+        && resource.data.userId == request.auth.uid;
+
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['userId', 'token', 'updatedAt'])
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.token == token
+        && request.resource.data.updatedAt == request.time;
+    }
+
     // Offices decide which students each Supervisor may change, so only the
     // Head (who runs the Offices screen) edits them.
     match /offices/{id} {

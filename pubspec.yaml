@@ -30,6 +30,9 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Clean web addresses (/tasks, not /#/tasks): usePathUrlStrategy in main.
+  flutter_web_plugins:
+    sdk: flutter
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
@@ -50,6 +53,7 @@ dependencies:
   url_launcher: ^6.3.1
   archive: ^4.2.0
   http: ^1.6.0
+  firebase_messaging: ^16.7.0
 
 dev_dependencies:
   flutter_test:
