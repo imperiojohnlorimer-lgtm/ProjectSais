@@ -6,11 +6,22 @@ import '../screens/student_portal/student_portal_shell.dart';
 /// The web address of every page. A signed-in page's address comes from
 /// its sidebar label, so it reads like what was clicked: "Sent to Head" is
 /// /sent-to-head, and each role's Notifications page is /notifications.
+/// The Academic Year page adds the year it shows: /academic-year/2026-2027.
 /// The signed-out pages are /, /login and /register.
 abstract final class AppRoutes {
   static const landing = '/';
   static const login = '/login';
   static const register = '/register';
+
+  static const _academicYear = '/academic-year';
+  static final _academicYearPath = RegExp(r'^/academic-year/(\d{4}-\d{4})$');
+
+  /// The address of the Academic Year page showing [year].
+  static String academicYearPath(String year) => '$_academicYear/$year';
+
+  /// The year an Academic Year page's address names, or null.
+  static String? academicYearAt(String path) =>
+      _academicYearPath.firstMatch(normalize(path))?.group(1);
 
   static final _pagesByRole = <String, List<({String id, String label})>>{};
 
@@ -37,7 +48,9 @@ abstract final class AppRoutes {
 
   /// [role]'s page at [path], or null when [role] has none there.
   static String? tabAt(String role, String path) {
-    final wanted = normalize(path);
+    final wanted = academicYearAt(path) == null
+        ? normalize(path)
+        : _academicYear;
     for (final page in pagesFor(role)) {
       if ('/${_slug(page.label)}' == wanted) return page.id;
     }
@@ -124,16 +137,29 @@ class AppRouterDelegate extends RouterDelegate<String>
             PublicPage.register => AppRoutes.register,
           };
     }
-    return AppRoutes.pathFor(state.role, _currentTab);
+    final tab = _currentTab;
+    return tab == AppState.academicYearTab
+        ? AppRoutes.academicYearPath(state.academicYearShown)
+        : AppRoutes.pathFor(state.role, tab);
+  }
+
+  /// Opens [state.role]'s page at [path], or its first page when it has
+  /// none there.
+  void _open(String path) {
+    final tab = AppRoutes.tabAt(state.role, path);
+    if (tab == AppState.academicYearTab) {
+      state.openAcademicYear(AppRoutes.academicYearAt(path));
+    } else {
+      state.setTab(tab ?? AppRoutes.homeTab(state.role));
+    }
   }
 
   void _onStateChanged() {
     if (state.isAuthenticated) {
       final wanted = _wanted;
       _wanted = null;
-      final tab = wanted == null ? null : AppRoutes.tabAt(state.role, wanted);
-      if (tab != null && tab != state.activeTab) {
-        state.setTab(tab); // notifies again
+      if (wanted != null && AppRoutes.tabAt(state.role, wanted) != null) {
+        _open(wanted); // notifies again
         return;
       }
       if (_currentTab != state.activeTab) {
@@ -172,9 +198,7 @@ class AppRouterDelegate extends RouterDelegate<String>
           state.showPublicPage(PublicPage.login);
       }
     } else {
-      state.setTab(
-        AppRoutes.tabAt(state.role, path) ?? AppRoutes.homeTab(state.role),
-      );
+      _open(path);
     }
     // The browser shows [path] now. Where that isn't the page opened (a
     // signed-in /login, a page this role doesn't have), _report puts the

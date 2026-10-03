@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/academic_year_archive_dialog.dart';
 import '../../widgets/shared_widgets.dart';
 
 class AcademicYearSettingsScreen extends StatefulWidget {
@@ -733,7 +732,7 @@ class _AcademicYearSettingsScreenState
                       ),
                 onTap: year == null
                     ? null
-                    : () => showAcademicYearArchiveDialog(context, year),
+                    : () => context.read<AppState>().openAcademicYear(year),
               );
             }),
         ],

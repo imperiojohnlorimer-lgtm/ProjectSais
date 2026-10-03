@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../models/models.dart';
 import '../theme/app_theme.dart';
-import '../widgets/academic_year_archive_dialog.dart';
 import '../widgets/shared_widgets.dart';
 import './dashboard/dashboard_screen.dart';
 import './students/students_screen.dart';
@@ -22,6 +21,7 @@ import './accounts/programs_screen.dart';
 import './accounts/payroll_screen.dart';
 import './accounts/skills_screen.dart';
 import './profile/profile_screen.dart';
+import './settings/academic_year_archive_screen.dart';
 import './settings/academic_year_settings_screen.dart';
 import './accounts/offices_screen.dart';
 import './calendar/calendar_screen.dart';
@@ -38,11 +38,15 @@ import './supervisor/dtr_accomplishment_report_screen.dart';
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
-  /// The pages [role] has in the sidebar, which are the ones it may open
-  /// (AppRoutes gives each a web address from its label).
+  /// The pages [role] may open (AppRoutes gives each a web address from its
+  /// label): those in its sidebar, and for the Admin and the Head the
+  /// Academic Year page, which opens from a notification, the Head's
+  /// banner or the Admin's Settings.
   static List<({String id, String label})> pagesFor(String role) => [
     for (final item in _AppShellState._filteredNav(role))
       (id: item.id, label: item.label),
+    if (role == 'Admin' || role == 'Head')
+      (id: AppState.academicYearTab, label: 'Academic Year'),
   ];
 
   @override
@@ -410,6 +414,8 @@ class _AppShellState extends State<AppShell> {
         return const StudentDocumentsScreen();
       case 'document_folders':
         return const DocumentFoldersScreen();
+      case AppState.academicYearTab:
+        return const AcademicYearArchiveScreen();
       default:
         return const DashboardScreen();
     }
@@ -465,6 +471,8 @@ class _AppShellState extends State<AppShell> {
         return 'Student Documents';
       case 'document_folders':
         return 'Document Folders';
+      case AppState.academicYearTab:
+        return 'Academic Year';
       default:
         return 'SAIS';
     }
@@ -645,7 +653,7 @@ class _AppShellState extends State<AppShell> {
           ),
           const SizedBox(width: 8),
           TextButton(
-            onPressed: () => showAcademicYearArchiveDialog(context, year),
+            onPressed: () => state.openAcademicYear(year),
             child: const Text('Preview'),
           ),
         ],
@@ -699,6 +707,16 @@ class _AppShellState extends State<AppShell> {
     final role = state.role;
     final nav = _filteredNav(role);
     final activeTab = state.activeTab;
+    final onAcademicYear = activeTab == AppState.academicYearTab;
+    // The Academic Year page isn't in the sidebar; the page it was opened
+    // from stays highlighted.
+    final highlighted = onAcademicYear
+        ? state.academicYearOpenedFrom ?? ''
+        : activeTab;
+    final archiveNoticeYear = role != 'Head'
+        ? null
+        : state.pendingArchive?.year ??
+              (state.academicYearEndingSoon ? state.academicYear : null);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 900;
     final isCompact = screenWidth < 480;
@@ -711,7 +729,7 @@ class _AppShellState extends State<AppShell> {
       key: _scaffoldKey,
       backgroundColor: AppTheme.slate50,
       drawer: isMobile
-          ? _Drawer(nav: nav, activeTab: activeTab, state: state)
+          ? _Drawer(nav: nav, activeTab: highlighted, state: state)
           : null,
       body: Row(
         children: [
@@ -719,7 +737,7 @@ class _AppShellState extends State<AppShell> {
           if (!isMobile)
             SizedBox(
               width: 280,
-              child: _Sidebar(nav: nav, activeTab: activeTab, state: state),
+              child: _Sidebar(nav: nav, activeTab: highlighted, state: state),
             ),
           // Main content area
           Expanded(
@@ -969,9 +987,10 @@ class _AppShellState extends State<AppShell> {
                 if (role == 'Admin' &&
                     state.daysUntilAcademicYearEnds <= _yearEndReminderDays)
                   _yearEndBanner(state, onSettings: activeTab == 'settings'),
-                if (role == 'Head' &&
-                    (state.pendingArchive != null ||
-                        state.academicYearEndingSoon))
+                // Not over the page it opens, which says the same.
+                if (archiveNoticeYear != null &&
+                    !(onAcademicYear &&
+                        state.academicYearShown == archiveNoticeYear))
                   _archiveBanner(state),
                 // Main content
                 Expanded(

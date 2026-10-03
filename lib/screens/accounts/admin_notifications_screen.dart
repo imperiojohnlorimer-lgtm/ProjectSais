@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/academic_year_archive_dialog.dart';
 import '../../widgets/notification_tile.dart';
 import '../../widgets/push_notifications_card.dart';
 import '../../widgets/shared_widgets.dart';
@@ -216,7 +215,7 @@ class AdminNotificationsScreen extends StatelessWidget {
                       onTap: () {
                         if (!n.isRead) state.markNotificationRead(n.id);
                         if (archiveYear != null) {
-                          showAcademicYearArchiveDialog(context, archiveYear);
+                          state.openAcademicYear(archiveYear);
                         } else if (tab != null) {
                           state.setTab(tab);
                         }

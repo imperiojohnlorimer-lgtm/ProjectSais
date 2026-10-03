@@ -7,8 +7,8 @@ import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
 import 'package:projectsais/screens/accounts/admin_notifications_screen.dart';
 import 'package:projectsais/screens/app_shell.dart';
+import 'package:projectsais/screens/settings/academic_year_archive_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
-import 'package:projectsais/widgets/academic_year_archive_dialog.dart';
 
 /// Keeps the academic year settings, the archive list and the notifications
 /// the app saves in memory, records which records it copies into an
@@ -598,7 +598,7 @@ void main() {
     );
   });
 
-  group('the archive dialog', () {
+  group('the Academic Year page', () {
     const toArchive = {
       'reports': 42,
       'applications': 65,
@@ -628,23 +628,15 @@ void main() {
       tester.view.physicalSize = size;
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
+      state.openAcademicYear('2026-2027');
       await tester.pumpWidget(
         ChangeNotifierProvider<AppState>.value(
           value: state,
-          child: MaterialApp(
-            home: Scaffold(
-              body: Builder(
-                builder: (context) => TextButton(
-                  onPressed: () =>
-                      showAcademicYearArchiveDialog(context, '2026-2027'),
-                  child: const Text('open'),
-                ),
-              ),
-            ),
+          child: const MaterialApp(
+            home: Scaffold(body: AcademicYearArchiveScreen()),
           ),
         ),
       );
-      await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
     }
 
@@ -676,17 +668,16 @@ void main() {
         find.text('Will be archived after Oct 5, 3:00 PM.'),
         findsOneWidget,
       );
-      expect(find.text('WILL BE SAVED'), findsOneWidget);
+      expect(find.text('Will be saved'), findsOneWidget);
       expect(find.text('120'), findsOneWidget);
       expect(find.text('Attendance logs'), findsOneWidget);
       expect(find.text('2 applications not decided yet'), findsOneWidget);
-      expect(find.text('STUDENT ASSISTANTS AT CLOSE'), findsOneWidget);
-      expect(find.text('25 in all'), findsOneWidget);
+      expect(find.text('Student assistants at close'), findsOneWidget);
+      expect(find.text('25 in all, by campus'), findsOneWidget);
 
       await tester.tap(find.text('Open Applications'));
-      await tester.pumpAndSettle();
+      await tester.pump();
 
-      expect(find.text('WILL BE SAVED'), findsNothing);
       expect(state.activeTab, 'applications');
     });
 
@@ -715,6 +706,24 @@ void main() {
         find.text('1 student assistant request waiting for your approval'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('puts the records and the headcount side by side on a wide '
+        'screen', (tester) async {
+      final state =
+          AppState(firestoreService: _ArchiveFirestore()..toArchive = toArchive)
+            ..currentUser = _head
+            ..academicYear = '2027-2028'
+            ..academicYearArchives = [waiting()];
+      await open(tester, state, size: const Size(1100, 900));
+
+      expect(tester.takeException(), isNull);
+      final records = tester.getTopLeft(find.text('Will be saved'));
+      final students = tester.getTopLeft(
+        find.text('Student assistants at close'),
+      );
+      expect(students.dy, records.dy);
+      expect(students.dx, greaterThan(records.dx));
     });
 
     testWidgets('tells the Head when nothing is left open', (tester) async {
@@ -757,7 +766,7 @@ void main() {
       await open(tester, state);
 
       expect(find.text('Archived on Oct 5, 2026 at 3:12 PM.'), findsOneWidget);
-      expect(find.text('RECORDS SAVED'), findsOneWidget);
+      expect(find.text('Records saved'), findsOneWidget);
       expect(find.text('65'), findsOneWidget);
       expect(find.text('Not archived'), findsOneWidget);
       expect(
@@ -767,7 +776,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('STILL OPEN'), findsNothing);
+      expect(find.text('Still open'), findsNothing);
       expect(find.text('Term when it closed'), findsOneWidget);
       expect(find.text('Summer'), findsOneWidget);
       expect(find.text('Off'), findsOneWidget);
@@ -795,7 +804,7 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(find.text('STILL OPEN'), findsNothing);
+      expect(find.text('Still open'), findsNothing);
     });
   });
 
@@ -825,7 +834,7 @@ void main() {
       );
     });
 
-    testWidgets('carry a banner while a year waits, which opens the preview', (
+    testWidgets('carry a banner while a year waits, which opens its page', (
       tester,
     ) async {
       final state = AppState(firestoreService: _ArchiveFirestore())
@@ -849,7 +858,40 @@ void main() {
       );
       await tester.tap(find.text('Preview'));
       await tester.pumpAndSettle();
-      expect(find.text('WILL BE SAVED'), findsOneWidget);
+      expect(state.activeTab, AppState.academicYearTab);
+      expect(state.academicYearShown, '2026-2027');
+      expect(find.text('Will be saved'), findsOneWidget);
+      // The page says what the banner did.
+      expect(find.text('Preview'), findsNothing);
+
+      await tester.tap(find.text('Back'));
+      await tester.pumpAndSettle();
+      expect(state.activeTab, 'dashboard');
+      expect(find.text('Preview'), findsOneWidget);
+    });
+
+    testWidgets('keep the banner over the page for another year', (
+      tester,
+    ) async {
+      final state = AppState(firestoreService: _ArchiveFirestore())
+        ..currentUser = _head
+        ..academicYear = '2027-2028'
+        ..academicYearEnd = _day(300)
+        ..academicYearArchives = [
+          {
+            'academicYear': '2026-2027',
+            'archivedAt': DateTime(2026, 10, 4, 15),
+            'dataArchived': false,
+          },
+          {'academicYear': '2025-2026', 'dataArchived': true},
+        ];
+      await pumpShell(tester, state);
+
+      state.openAcademicYear('2025-2026');
+      await tester.pumpAndSettle();
+
+      expect(find.text('AY 2025-2026'), findsOneWidget);
+      expect(find.text('Preview'), findsOneWidget);
     });
 
     testWidgets('carry no banner otherwise', (tester) async {
@@ -861,7 +903,7 @@ void main() {
       expect(find.text('Preview'), findsNothing);
     });
 
-    testWidgets('open the preview from its notification', (tester) async {
+    testWidgets('open the year from its notification', (tester) async {
       tester.view.physicalSize = const Size(600, 1400);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
@@ -897,10 +939,13 @@ void main() {
       await tester.pump();
 
       expect(find.byIcon(Icons.inventory_2_outlined), findsOneWidget);
+      state.setTab('admin_notifications');
       await tester.tap(find.text('Academic Year Closing'));
       await tester.pumpAndSettle();
 
-      expect(find.text('AY 2026-2027'), findsOneWidget);
+      expect(state.activeTab, AppState.academicYearTab);
+      expect(state.academicYearShown, '2026-2027');
+      expect(state.academicYearOpenedFrom, 'admin_notifications');
       expect(state.myNotifications.single.isRead, isTrue);
     });
   });

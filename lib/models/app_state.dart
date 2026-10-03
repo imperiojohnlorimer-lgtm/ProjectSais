@@ -1448,6 +1448,8 @@ class AppState extends ChangeNotifier {
     _stopRealtimeListeners();
     currentUser = null;
     activeTab = 'dashboard';
+    _academicYearShown = null;
+    academicYearOpenedFrom = null;
     notifyListeners();
   }
 
@@ -1470,6 +1472,30 @@ class AppState extends ChangeNotifier {
 
   void setTab(String tab) {
     activeTab = tab;
+    notifyListeners();
+  }
+
+  /// The Academic Year page's tab: what archiving one year saves. It isn't
+  /// in the sidebar; [openAcademicYear] opens it.
+  static const academicYearTab = 'academic_year';
+
+  String? _academicYearShown;
+
+  /// The page the Academic Year page was opened from, which its Back
+  /// button returns to and the sidebar keeps highlighted.
+  String? academicYearOpenedFrom;
+
+  /// The year the Academic Year page shows: the one opened, else the one
+  /// waiting to be archived, else the year in effect.
+  String get academicYearShown =>
+      _academicYearShown ?? pendingArchive?.year ?? academicYear;
+
+  /// Opens the Academic Year page on [year], or on [academicYearShown]'s
+  /// default when null.
+  void openAcademicYear(String? year) {
+    if (activeTab != academicYearTab) academicYearOpenedFrom = activeTab;
+    _academicYearShown = year;
+    activeTab = academicYearTab;
     notifyListeners();
   }
 

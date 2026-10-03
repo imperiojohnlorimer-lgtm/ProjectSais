@@ -84,6 +84,27 @@ void main() {
     test('ignore letter case and a trailing slash', () {
       expect(AppRoutes.tabAt('Head', '/Tasks/'), 'tasks');
     });
+
+    test("the Academic Year page's names the year, for the Admin and the "
+        'Head only', () {
+      expect(
+        AppRoutes.academicYearPath('2026-2027'),
+        '/academic-year/2026-2027',
+      );
+      expect(
+        AppRoutes.academicYearAt('/academic-year/2026-2027/'),
+        '2026-2027',
+      );
+      expect(AppRoutes.academicYearAt('/academic-year/next'), isNull);
+      for (final role in ['Admin', 'Head']) {
+        expect(
+          AppRoutes.tabAt(role, '/academic-year/2026-2027'),
+          AppState.academicYearTab,
+        );
+      }
+      expect(AppRoutes.tabAt('Supervisor', '/academic-year/2026-2027'), isNull);
+      expect(AppRoutes.tabAt('Head', '/academic-year/next'), isNull);
+    });
   });
 
   group('signed out', () {
@@ -179,6 +200,55 @@ void main() {
       await router.setNewRoutePath('/login');
 
       expect(router.currentConfiguration, '/dashboard');
+    });
+
+    test('opening an academic year puts it in the address', () {
+      signIn('Head');
+      state.setTab('admin_notifications');
+
+      state.openAcademicYear('2025-2026');
+
+      expect(router.currentConfiguration, '/academic-year/2025-2026');
+      expect(state.academicYearOpenedFrom, 'admin_notifications');
+    });
+
+    test('an academic year address opens that year', () async {
+      signIn('Admin');
+
+      await router.setNewRoutePath('/academic-year/2025-2026');
+
+      expect(state.activeTab, AppState.academicYearTab);
+      expect(state.academicYearShown, '2025-2026');
+      expect(router.currentConfiguration, '/academic-year/2025-2026');
+    });
+
+    test('/academic-year alone opens the year in effect', () async {
+      signIn('Head');
+
+      await router.setNewRoutePath('/academic-year');
+
+      expect(state.activeTab, AppState.academicYearTab);
+      expect(router.currentConfiguration, '/academic-year/2026-2027');
+    });
+
+    test('other roles get their first page instead', () async {
+      signIn('Supervisor');
+
+      await router.setNewRoutePath('/academic-year/2026-2027');
+
+      expect(state.activeTab, 'dashboard');
+      expect(router.currentConfiguration, '/dashboard');
+    });
+
+    test('an academic year waits on Login, then opens after sign-in', () async {
+      await router.setNewRoutePath('/academic-year/2025-2026');
+      expect(router.currentConfiguration, '/academic-year/2025-2026');
+
+      signIn('Head');
+
+      expect(state.activeTab, AppState.academicYearTab);
+      expect(state.academicYearShown, '2025-2026');
+      expect(router.currentConfiguration, '/academic-year/2025-2026');
     });
 
     test('a student lands on Announcements and moves between its pages', () {
