@@ -230,6 +230,48 @@ void main() {
       expect(hoursPaid()['sa3'], 2);
     });
 
+    test('lists an assistant with no office as unassigned', () {
+      const department = 'College of Information and Computing Sciences';
+      state
+        ..users = [
+          User(
+            id: 'sa1',
+            name: 'Ana Reyes',
+            email: 'sa1@example.com',
+            role: 'Student Assistant',
+            department: department,
+          ),
+          User(
+            id: 'sa2',
+            name: 'Ben Cruz',
+            email: 'sa2@example.com',
+            role: 'Student Assistant',
+            department: department,
+          ),
+        ]
+        ..offices = [
+          const Office(
+            id: 'o1',
+            name: 'CICS Office',
+            code: 'CICS',
+            assistantIds: ['sa2'],
+            assistantNames: ['Ben Cruz'],
+          ),
+        ];
+
+      final preview = state.buildPayrollPreview(
+        start: DateTime(2026, 9, 1),
+        endInclusive: DateTime(2026, 9, 30),
+        periodLabel: 'September 2026',
+      );
+
+      // Not under an "office" named after the department.
+      expect(
+        {for (final p in preview) p.studentId: p.office},
+        {'sa1': '', 'sa2': 'CICS Office'},
+      );
+    });
+
     test('pays someone no longer an assistant for hours they worked', () {
       state
         ..users = [

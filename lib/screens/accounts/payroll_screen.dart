@@ -56,6 +56,10 @@ class _PayrollScreenState extends State<PayrollScreen> {
   String _departmentFilter = 'All';
   String _officeFilter = 'All';
 
+  /// The Office filter's choice for assistants not in an office: their
+  /// records' office is blank.
+  static const _unassignedOffice = '';
+
   static const _semesters = RehireRecord.terms;
 
   @override
@@ -332,6 +336,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         for (final p in allPreview)
           if (p.office.trim().isNotEmpty) p.office.trim(),
       }.toList()..sort(),
+      if (allPreview.any((p) => p.office.trim().isEmpty)) _unassignedOffice,
     ];
     if (!campusOptions.contains(_campusFilter)) _campusFilter = 'All';
     if (!departmentOptions.contains(_departmentFilter))
@@ -566,7 +571,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
             (o) => DropdownMenuItem(
               value: o,
               child: Text(
-                o == 'All' ? 'All $plural' : o,
+                o == 'All'
+                    ? 'All $plural'
+                    : o == _unassignedOffice
+                    ? 'Unassigned'
+                    : o,
                 overflow: TextOverflow.ellipsis,
               ),
             ),

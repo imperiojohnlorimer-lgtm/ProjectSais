@@ -6452,10 +6452,13 @@ class AppState extends ChangeNotifier {
         start,
         endInclusive,
       );
+      // Left blank for an assistant not in an office, so Payroll shows
+      // them as unassigned instead of under an "office" named after their
+      // department.
       final assignedOffices = officesForUser(user);
       final office = assignedOffices.isNotEmpty
           ? assignedOffices.first.name
-          : (user.department ?? '');
+          : '';
 
       final overlapping = overlappingByStudent[user.id];
 
