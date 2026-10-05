@@ -536,34 +536,79 @@ class AuthSectionHeading extends StatelessWidget {
 class AuthErrorBanner extends StatelessWidget {
   final String message;
 
-  const AuthErrorBanner({super.key, required this.message});
+  /// A button under the message, such as Login's "Send a new link".
+  final Widget? action;
+
+  const AuthErrorBanner({super.key, required this.message, this.action});
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuthBanner(
+      message: message,
+      icon: Icons.error_outline_rounded,
+      color: AppTheme.red500,
+      background: AppTheme.red50,
+      action: action,
+    );
+  }
+}
+
+/// Green counterpart of [AuthErrorBanner], for something that worked.
+class AuthNoticeBanner extends StatelessWidget {
+  final String message;
+
+  const AuthNoticeBanner({super.key, required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    return _AuthBanner(
+      message: message,
+      icon: Icons.mark_email_read_outlined,
+      color: const Color(0xFF047857),
+      background: AppTheme.emerald50,
+    );
+  }
+}
+
+class _AuthBanner extends StatelessWidget {
+  final String message;
+  final IconData icon;
+  final Color color;
+  final Color background;
+  final Widget? action;
+
+  const _AuthBanner({
+    required this.message,
+    required this.icon,
+    required this.color,
+    required this.background,
+    this.action,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.red50,
-        border: Border.all(color: AppTheme.red500.withValues(alpha: 0.25)),
+        color: background,
+        border: Border.all(color: color.withValues(alpha: 0.25)),
         borderRadius: BorderRadius.circular(14),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
-            Icons.error_outline_rounded,
-            color: AppTheme.red500,
-            size: 18,
-          ),
+          Icon(icon, color: color, size: 18),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              message,
-              style: const TextStyle(
-                color: AppTheme.red500,
-                fontSize: 13,
-                height: 1.45,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  message,
+                  style: TextStyle(color: color, fontSize: 13, height: 1.45),
+                ),
+                if (action != null) ...[const SizedBox(height: 10), action!],
+              ],
             ),
           ),
         ],

@@ -1070,6 +1070,14 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// What [signInWithEmailAndPassword] returns when the password is right
+  /// but the email isn't verified yet. The Login page shows a "Send a new
+  /// link" button with it.
+  static const unverifiedEmailMessage =
+      'Your email address isn\'t verified yet. Open the link in the newest '
+      'verification email we sent (check Spam too), then log in again. If '
+      'the link says it has expired or was already used, send a new one.';
+
   Future<String?> signInWithEmailAndPassword(
     String email,
     String password,
@@ -1085,21 +1093,12 @@ class AppState extends ChangeNotifier {
       }
 
       if (!authUser.emailVerified) {
-        // Send a fresh link: the first one may have expired or been lost,
-        // and accounts made by the Admin before links were sent never got
-        // one at all.
-        var sent = true;
-        try {
-          await authUser.sendEmailVerification();
-        } catch (error) {
-          // Usually Firebase's limit on how often links can be sent.
-          sent = false;
-          debugPrint('Failed to send verification email: $error');
-        }
+        // No new link here: each one makes the earlier ones stop working,
+        // so sending one on every attempt broke the link people were
+        // about to open. The Login page offers "Send a new link"
+        // (sendNewVerificationLink) instead.
         await fb_auth.FirebaseAuth.instance.signOut();
-        return sent
-            ? 'Please verify your email address before logging in. A new verification link was sent.'
-            : 'Please verify your email address before logging in, using the link we sent earlier.';
+        return unverifiedEmailMessage;
       }
 
       User? existing = await _loadUserProfile(uid: authUser.uid);
@@ -1143,6 +1142,89 @@ class AppState extends ChangeNotifier {
     } catch (error) {
       return 'Login failed: $error';
     }
+  }
+
+  /// For the Login page's "Send a new link": emails [email] a new
+  /// verification link. Firebase sends links only to a signed-in account,
+  /// so this signs in with [password] and straight back out. If the email
+  /// turns out to be verified already (the link worked after all, or a
+  /// mail scanner opened it first), nothing is sent: logging in works.
+  Future<({bool ok, String message})> sendNewVerificationLink(
+    String email,
+    String password,
+  ) async {
+    final auth = fb_auth.FirebaseAuth.instance;
+    try {
+      final credential = await auth.signInWithEmailAndPassword(
+        email: email,
+        password: password,
+      );
+      final authUser = credential.user;
+      if (authUser == null) {
+        return (ok: false, message: 'Unable to send a new link. Try again.');
+      }
+      if (authUser.emailVerified) {
+        await auth.signOut();
+        return (
+          ok: true,
+          message:
+              'Your email address is already verified. You can log in now.',
+        );
+      }
+      await _sendVerificationEmail(authUser);
+      await auth.signOut();
+      return (
+        ok: true,
+        message:
+            'A new verification link was sent to ${authUser.email ?? email}. '
+            'Open it from the newest email (earlier links no longer work), '
+            'then log in here.',
+      );
+    } on fb_auth.FirebaseAuthException catch (e) {
+      await _signOutQuietly();
+      if (e.code == 'too-many-requests') {
+        return (
+          ok: false,
+          message:
+              'Too many links were sent. Wait a few minutes, then try again.',
+        );
+      }
+      return (
+        ok: false,
+        message: e.message ?? 'Unable to send a new link: ${e.code}',
+      );
+    } catch (error) {
+      await _signOutQuietly();
+      return (ok: false, message: 'Unable to send a new link: $error');
+    }
+  }
+
+  Future<void> _signOutQuietly() async {
+    try {
+      await fb_auth.FirebaseAuth.instance.signOut();
+    } catch (_) {}
+  }
+
+  /// Emails [authUser] a verification link. Firebase's "email verified"
+  /// page then has a Continue button back to this app's Login page. Each
+  /// new link makes the earlier ones stop working, so send one only when
+  /// an account is made or someone asks for it.
+  Future<void> _sendVerificationEmail(fb_auth.User authUser) async {
+    final base = Uri.base;
+    if (kIsWeb && (base.scheme == 'http' || base.scheme == 'https')) {
+      try {
+        await authUser.sendEmailVerification(
+          // AppRoutes.login.
+          fb_auth.ActionCodeSettings(url: '${base.origin}/login'),
+        );
+        return;
+      } on fb_auth.FirebaseAuthException catch (e) {
+        // A domain missing from Firebase's authorized list: send the link
+        // without a Continue button rather than not at all.
+        if (!e.code.contains('continue-uri')) rethrow;
+      }
+    }
+    await authUser.sendEmailVerification();
   }
 
   Future<String?> signInWithGoogle() async {
@@ -1362,7 +1444,7 @@ class AppState extends ChangeNotifier {
           return 'This Student ID is already registered to another account.';
         }
       }
-      await authUser.sendEmailVerification();
+      await _sendVerificationEmail(authUser);
     } catch (error) {
       await _undoRegistration(
         authUser,
@@ -5571,7 +5653,7 @@ class AppState extends ChangeNotifier {
       // Login requires a verified email, and nothing else would send the
       // new user a link.
       try {
-        await authUser.sendEmailVerification();
+        await _sendVerificationEmail(authUser);
       } catch (error) {
         debugPrint('Failed to send verification email: $error');
       }

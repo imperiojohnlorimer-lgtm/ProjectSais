@@ -24,7 +24,27 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
   String? _error;
 
+  /// The password was right but the email isn't verified: the error banner
+  /// offers "Send a new link".
+  bool _unverified = false;
+  bool _sendingLink = false;
+
+  /// What "Send a new link" did, in green.
+  String? _notice;
+
+  void _clearMessages() {
+    if (_error == null && _notice == null) return;
+    setState(() {
+      _error = null;
+      _notice = null;
+      _unverified = false;
+    });
+  }
+
   void _handleLogin() async {
+    // The keyboard's Enter key still gets here while the button is
+    // disabled.
+    if (_isLoading) return;
     final email = _emailCtrl.text.trim();
     final password = _passwordCtrl.text;
 
@@ -36,6 +56,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _notice = null;
+      _unverified = false;
     });
     await Future.delayed(const Duration(milliseconds: 800));
 
@@ -64,8 +86,31 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() {
         _isLoading = false;
         _error = authError;
+        _unverified = authError == AppState.unverifiedEmailMessage;
       });
     }
+  }
+
+  Future<void> _sendNewLink() async {
+    if (_sendingLink) return;
+    setState(() => _sendingLink = true);
+    final result = await context.read<AppState>().sendNewVerificationLink(
+      _emailCtrl.text.trim(),
+      _passwordCtrl.text,
+    );
+    if (!mounted) return;
+    setState(() {
+      _sendingLink = false;
+      if (result.ok) {
+        // The button goes with the error banner, so a second link (which
+        // would replace this one) takes another Log In first.
+        _error = null;
+        _unverified = false;
+        _notice = result.message;
+      } else {
+        _error = result.message;
+      }
+    });
   }
 
   void _handleForgotPassword() {
@@ -197,6 +242,8 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() {
       _isLoading = true;
       _error = null;
+      _notice = null;
+      _unverified = false;
     });
 
     final appState = context.read<AppState>();
@@ -248,7 +295,14 @@ class _LoginScreenState extends State<LoginScreen> {
   List<Widget> _buildFormFields() {
     return [
       if (_error != null) ...[
-        AuthErrorBanner(message: _error!),
+        AuthErrorBanner(
+          message: _error!,
+          action: _unverified ? _buildSendLinkButton() : null,
+        ),
+        const SizedBox(height: 18),
+      ],
+      if (_notice != null) ...[
+        AuthNoticeBanner(message: _notice!),
         const SizedBox(height: 18),
       ],
 
@@ -257,9 +311,7 @@ class _LoginScreenState extends State<LoginScreen> {
         child: TextField(
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
-          onChanged: (_) {
-            if (_error != null) setState(() => _error = null);
-          },
+          onChanged: (_) => _clearMessages(),
           decoration: const InputDecoration(
             hintText: 'name@univ.edu',
             prefixIcon: Icon(
@@ -278,9 +330,7 @@ class _LoginScreenState extends State<LoginScreen> {
           controller: _passwordCtrl,
           obscureText: _obscurePassword,
           onSubmitted: (_) => _handleLogin(),
-          onChanged: (_) {
-            if (_error != null) setState(() => _error = null);
-          },
+          onChanged: (_) => _clearMessages(),
           decoration: InputDecoration(
             hintText: '••••••••',
             prefixIcon: const Icon(
@@ -378,6 +428,31 @@ class _LoginScreenState extends State<LoginScreen> {
         onTap: widget.onShowRegister,
       ),
     ];
+  }
+
+  Widget _buildSendLinkButton() {
+    return OutlinedButton.icon(
+      onPressed: _sendingLink || _isLoading ? null : _sendNewLink,
+      icon: _sendingLink
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                color: AppTheme.maroon,
+                strokeWidth: 2,
+              ),
+            )
+          : const Icon(Icons.forward_to_inbox_rounded, size: 18),
+      label: Text(_sendingLink ? 'Sending…' : 'Send a new link'),
+      style: OutlinedButton.styleFrom(
+        foregroundColor: AppTheme.maroon,
+        backgroundColor: Colors.white,
+        side: const BorderSide(color: AppTheme.maroon200),
+        minimumSize: const Size(0, 36),
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    );
   }
 
   Widget _buildDivider() {
