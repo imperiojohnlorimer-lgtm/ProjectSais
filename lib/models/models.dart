@@ -1,7 +1,9 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'payroll_requirements.dart';
 import 'person_name.dart';
 export 'dtr_accomplishment_report.dart';
+export 'payroll_requirements.dart';
 export 'payroll_sheet.dart';
 export 'person_name.dart';
 
@@ -1614,6 +1616,36 @@ class HeadForward {
     reviewed: json['reviewed'] == true,
   );
 
+  static const _monthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+
+  /// The month a DTR/Accomplishment Report covers, as (year, month), read
+  /// from its title: "DTR/Accomplishment Report (September 2026)". Null for
+  /// anything else.
+  (int, int)? get dtrMonth {
+    if (type != 'dtr_report') return null;
+    final match = RegExp(r'\(([A-Za-z]+) (\d{4})\)\s*$').firstMatch(title);
+    if (match == null) return null;
+    final name = match.group(1)!.toLowerCase();
+    final index = _monthNames.indexWhere(
+      (m) => m.toLowerCase() == name || m.substring(0, 3).toLowerCase() == name,
+    );
+    if (index < 0) return null;
+    return (int.parse(match.group(2)!), index + 1);
+  }
+
   Map<String, dynamic> toJson() => {
     'type': type,
     'studentId': studentId,
@@ -2080,6 +2112,15 @@ class RehireRecord {
     }
   }
 
+  /// Last day of a term, the usual pay period's end: December 31, May 31,
+  /// or July 31 for Summer.
+  static DateTime? termEnd(String academicYear, String semester) {
+    final start = termStart(academicYear, semester);
+    if (start == null) return null;
+    final months = semester == 'Summer' ? 2 : 5;
+    return DateTime(start.year, start.month + months, 0);
+  }
+
   factory RehireRecord.fromJson(Map<String, dynamic> json) => RehireRecord(
     id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
     studentId: json['studentId']?.toString() ?? '',
@@ -2325,10 +2366,17 @@ class PayrollRecord {
   // Whether the System found and could verify DTR (attendance) records for
   // this student in this period at all.
   final bool dtrVerified;
-  // Whether the System found an approved accomplishment report (and, more
-  // generally, the payroll requirements it stands in for) for this period.
+  // Whether the Head has checked every payroll requirement for this period
+  // (see [requirements]). Records approved before the Head's checklist
+  // existed meant an approved accomplishment report.
   final bool reportVerified;
-  // 'Ready' | 'Incomplete' — computed-only preview states, never persisted.
+  // Computed-only preview states, never persisted:
+  // 'Ready' — hours worked and every requirement checked.
+  // 'Incomplete' — a requirement isn't checked yet, or some of these days
+  //   were already paid; the whole period waits for it.
+  // 'Excluded' — the Head left them out of this period's payroll.
+  // 'No hours' — nothing to pay; doesn't hold the period up.
+  // Saved:
   // 'Approved' — an Admin reviewed and approved this amount; recorded in
   // payroll records, but not yet paid out.
   // 'Released' — the Admin released the payout; this is the moment the
@@ -2343,6 +2391,13 @@ class PayrollRecord {
   /// student under another period that shares days with this one. Those
   /// days are paid, so this period can't be approved as it stands.
   final PayrollRecord? overlappingPayroll;
+
+  /// Preview only, never saved: this period's checklist, as the Head has
+  /// checked it so far.
+  final List<PayrollRequirement> requirements;
+
+  /// Preview only: set when the Head left this student out of the period.
+  final PayrollExclusion? exclusion;
 
   const PayrollRecord({
     required this.id,
@@ -2364,7 +2419,17 @@ class PayrollRecord {
     this.releasedAt,
     this.releasedBy,
     this.overlappingPayroll,
+    this.requirements = const [],
+    this.exclusion,
   });
+
+  /// Whether this row is paid in the period: on its way or already done.
+  bool get isPayable =>
+      status == 'Ready' || status == 'Approved' || status == 'Released';
+
+  /// The requirements the Head still has to check.
+  List<PayrollRequirement> get unchecked =>
+      requirements.where((r) => !r.isChecked).toList();
 
   /// One record per student per pay period, so approving the same period
   /// twice — from two sessions, say — can't pay anyone twice.
@@ -2406,6 +2471,8 @@ class PayrollRecord {
     releasedAt: releasedAt ?? this.releasedAt,
     releasedBy: releasedBy ?? this.releasedBy,
     overlappingPayroll: overlappingPayroll,
+    requirements: requirements,
+    exclusion: exclusion,
   );
 
   factory PayrollRecord.fromJson(Map<String, dynamic> json) => PayrollRecord(

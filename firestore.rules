@@ -657,6 +657,21 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    // The Head's check of each Student Assistant's payroll requirements,
+    // one document per student (their account id). The Admin reads it to
+    // see whether a term's payroll can be approved.
+    match /payrollChecks/{studentId} {
+      allow read: if isHead() || isAdmin();
+      allow create, update: if isHead()
+        && request.resource.data.keys().hasOnly(
+          ['studentId', 'studentName', 'items', 'exclusions', 'updatedAt']
+        )
+        && request.resource.data.studentId == studentId
+        && request.resource.data.get('items', {}) is map
+        && request.resource.data.get('exclusions', {}) is map;
+      allow delete: if isHead();
+    }
+
     // Applicant Screening is Head-exclusive.
     match /screeningRecords/{id} {
       allow read, write: if isHead();

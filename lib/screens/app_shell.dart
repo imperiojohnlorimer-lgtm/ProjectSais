@@ -19,6 +19,7 @@ import './accounts/admin_announcements_screen.dart';
 import './accounts/create_department_screen.dart';
 import './accounts/programs_screen.dart';
 import './accounts/payroll_screen.dart';
+import './accounts/payroll_requirements_screen.dart';
 import './accounts/skills_screen.dart';
 import './profile/profile_screen.dart';
 import './settings/academic_year_archive_screen.dart';
@@ -308,6 +309,13 @@ class _AppShellState extends State<AppShell> {
       roles: ['Head'],
     ),
     (
+      id: 'payroll_requirements',
+      label: 'Payroll Requirements',
+      icon: Icons.rule_folder_outlined,
+      activeIcon: Icons.rule_folder,
+      roles: ['Head'],
+    ),
+    (
       id: 'document_folders',
       label: 'Document Folders',
       icon: Icons.folder_outlined,
@@ -412,6 +420,8 @@ class _AppShellState extends State<AppShell> {
         return const HeadForwardsScreen();
       case 'student_documents':
         return const StudentDocumentsScreen();
+      case 'payroll_requirements':
+        return const PayrollRequirementsScreen();
       case 'document_folders':
         return const DocumentFoldersScreen();
       case AppState.academicYearTab:
@@ -469,6 +479,8 @@ class _AppShellState extends State<AppShell> {
         return 'Sent to Head';
       case 'student_documents':
         return 'Student Documents';
+      case 'payroll_requirements':
+        return 'Payroll Requirements';
       case 'document_folders':
         return 'Document Folders';
       case AppState.academicYearTab:

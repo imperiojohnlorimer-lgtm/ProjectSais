@@ -11,10 +11,13 @@ import 'payroll_sheet_editor.dart';
 ///
 /// For every active Student Assistant — and anyone else with hours in the
 /// period, such as a student not rehired before payroll ran — the System
-/// retrieves and verifies their DTR (attendance) records and an approved
-/// accomplishment report before they can be approved. Anyone missing
-/// either, or already paid for some of these days under another period, is
-/// left 'Incomplete'. The payable amount is computed from total hours rendered
+/// retrieves their DTR (attendance) hours and the Head's check of their
+/// payroll requirements (application requirements, Endorsement Letter,
+/// Contract of Appointment, a DTR/Accomplishment Report for each month
+/// worked). Anyone with a requirement not yet checked, or already paid for
+/// some of these days under another period, is 'Incomplete' — and the
+/// period's payroll, approved for everyone at once, waits for them unless
+/// the Head leaves them out. The payable amount is computed from total hours rendered
 /// at a flat ₱25.00/hour; since a semester spans several months, the
 /// 25.0–40.0 hour/month rule (see [PayrollRecord]) is applied one calendar
 /// month at a time and the capped monthly amounts are summed into the
@@ -124,26 +127,28 @@ class _PayrollScreenState extends State<PayrollScreen> {
     });
   }
 
+  /// [preview] is the whole period, whatever the filters show: the payroll
+  /// is approved for everyone in it at once.
   Future<void> _confirmApprove(
     BuildContext context,
     AppState state,
     List<PayrollRecord> preview,
   ) async {
     final ready = preview.where((p) => p.status == 'Ready').toList();
-    if (ready.isEmpty) return;
+    if (ready.isEmpty || AppState.payrollHeldBy(preview).isNotEmpty) return;
     final total = ready.fold<double>(0, (sum, p) => sum + p.grossPay);
-    final incomplete = preview.where((p) => p.status == 'Incomplete').length;
+    final excluded = preview.where((p) => p.status == 'Excluded').length;
 
     final confirmed = await showConfirmDialog(
       context,
       title: 'Approve Payroll',
       message:
-          'This will approve and record pay for ${ready.length} Student '
-          'Assistant(s) for $_periodLabel, totaling '
-          '${_peso(total)}. Payout is not released to students '
+          'This will approve and record pay for all ${ready.length} '
+          'Student Assistant(s) in $_periodLabel, every campus and office, '
+          'totaling ${_peso(total)}. Payout is not released to students '
           'until you separately click "Release".'
-          '${incomplete == 0 ? '' : '\n\n$incomplete student(s) that '
-                    'can\'t be approved yet will be skipped.'}',
+          '${excluded == 0 ? '' : '\n\n$excluded student(s) the Head left '
+                    'out of this payroll won\'t be paid in it.'}',
       confirmLabel: 'Approve',
       confirmColor: AppTheme.maroon,
     );
@@ -247,7 +252,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
 
   /// Rows for the printed payroll, straight from the system: every student
   /// in the period who can be paid (Ready, Approved or Released), across all
-  /// campuses. Incomplete students can't be paid, so they're left off.
+  /// campuses. Anyone not ready, left out, or with no hours isn't on it.
   /// Names are surname first, "Dela Cruz, Juan S.", from each account's
   /// name parts; an account whose name isn't split yet, or that's gone,
   /// keeps its name as saved.
@@ -267,7 +272,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
             endInclusive: _end,
             periodLabel: _periodLabel,
           )
-          .where((p) => p.status != 'Incomplete')
+          .where((p) => p.isPayable)
           .toList(),
     ).entries;
   }
@@ -357,11 +362,16 @@ class _PayrollScreenState extends State<PayrollScreen> {
       return true;
     }).toList();
 
+    // Approving is for the whole period at once, so it goes by everyone in
+    // it whatever the filters show; releasing goes by what's listed.
+    final allReady = allPreview.where((p) => p.status == 'Ready').toList();
+    final held = AppState.payrollHeldBy(allPreview);
     final ready = preview.where((p) => p.status == 'Ready').toList();
     final incomplete = preview.where((p) => p.status == 'Incomplete').toList();
+    final excluded = preview.where((p) => p.status == 'Excluded').toList();
     final approved = preview.where((p) => p.status == 'Approved').toList();
     final released = preview.where((p) => p.status == 'Released').toList();
-    final readyTotal = ready.fold<double>(0, (sum, p) => sum + p.grossPay);
+    final readyTotal = allReady.fold<double>(0, (sum, p) => sum + p.grossPay);
     final approvedTotal = approved.fold<double>(
       0,
       (sum, p) => sum + p.grossPay,
@@ -390,15 +400,22 @@ class _PayrollScreenState extends State<PayrollScreen> {
                 const SizedBox(height: 12),
                 _summaryCard(
                   state: state,
-                  preview: preview,
+                  allPreview: allPreview,
+                  allReady: allReady,
+                  held: held,
                   ready: ready,
                   incomplete: incomplete,
+                  excluded: excluded,
                   approved: approved,
                   released: released,
                   readyTotal: readyTotal,
                   approvedTotal: approvedTotal,
                   hasSavedSheet: hasSavedSheet,
                 ),
+                if (held.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  _HeldUpCard(held: held),
+                ],
                 const SizedBox(height: 22),
                 _listHeader(preview.length),
                 const SizedBox(height: 10),
@@ -801,9 +818,12 @@ class _PayrollScreenState extends State<PayrollScreen> {
 
   Widget _summaryCard({
     required AppState state,
-    required List<PayrollRecord> preview,
+    required List<PayrollRecord> allPreview,
+    required List<PayrollRecord> allReady,
+    required List<PayrollRecord> held,
     required List<PayrollRecord> ready,
     required List<PayrollRecord> incomplete,
+    required List<PayrollRecord> excluded,
     required List<PayrollRecord> approved,
     required List<PayrollRecord> released,
     required double readyTotal,
@@ -840,9 +860,13 @@ class _PayrollScreenState extends State<PayrollScreen> {
     // been paid already.
     final loaded = state.payrollRecordsLoaded;
     final approveButton = ElevatedButton.icon(
-      onPressed: (_busyAction != null || ready.isEmpty || !loaded)
+      onPressed:
+          (_busyAction != null ||
+              allReady.isEmpty ||
+              held.isNotEmpty ||
+              !loaded)
           ? null
-          : () => _confirmApprove(context, state, preview),
+          : () => _confirmApprove(context, state, allPreview),
       icon: approving
           ? spinner()
           : const Icon(Icons.check_circle_outline, size: 17),
@@ -937,7 +961,11 @@ class _PayrollScreenState extends State<PayrollScreen> {
                   child: stage(
                     'To approve',
                     readyTotal,
-                    loaded ? '${ready.length} ready' : 'Loading payroll…',
+                    !loaded
+                        ? 'Loading payroll…'
+                        : held.isNotEmpty
+                        ? 'Waiting on ${held.length} not ready'
+                        : '${allReady.length} ready · whole period',
                     approveButton,
                   ),
                 ),
@@ -962,7 +990,9 @@ class _PayrollScreenState extends State<PayrollScreen> {
             children: [
               count('Ready', ready.length, AppTheme.slate600),
               const SizedBox(width: 6),
-              count('Incomplete', incomplete.length, AppTheme.amber500),
+              count('Not ready', incomplete.length, AppTheme.amber500),
+              const SizedBox(width: 6),
+              count('Left out', excluded.length, AppTheme.slate400),
               const SizedBox(width: 6),
               count('To release', approved.length, AppTheme.blue500),
               const SizedBox(width: 6),
@@ -1045,6 +1075,226 @@ class _PayrollScreenState extends State<PayrollScreen> {
   );
 }
 
+/// Who the period's payroll is waiting for, and on what. Shown above the
+/// list while anyone in the period isn't ready.
+class _HeldUpCard extends StatefulWidget {
+  final List<PayrollRecord> held;
+  const _HeldUpCard({required this.held});
+
+  @override
+  State<_HeldUpCard> createState() => _HeldUpCardState();
+}
+
+class _HeldUpCardState extends State<_HeldUpCard> {
+  static const _shown = 6;
+  bool _all = false;
+
+  static String _initials(String name) {
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    return '${parts.first[0]}${parts.length > 1 ? parts.last[0] : ''}'
+        .toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final held = widget.held;
+    final visible = _all ? held : held.take(_shown).toList();
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.slate200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: const BoxDecoration(
+                  color: AppTheme.amber50,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.hourglass_top_rounded,
+                  size: 18,
+                  color: AppTheme.amber500,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Waiting on ${held.length} Student '
+                      'Assistant${held.length == 1 ? '' : 's'}',
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate900,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    const Text(
+                      'The payroll is approved for everyone at once. It can '
+                      'be approved when the Head has checked these '
+                      'requirements, or has left the student out of this '
+                      'payroll.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        height: 1.4,
+                        color: AppTheme.slate500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final p in visible) ...[
+            const Divider(height: 20, color: AppTheme.slate100),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppTheme.maroon.withValues(alpha: 0.08),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    _initials(p.studentName),
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.maroon,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        p.studentName,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.slate800,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 6,
+                        children: [
+                          if (p.overlappingPayroll != null)
+                            const _RequirementPill(
+                              label: 'Some days already paid',
+                              returned: true,
+                            ),
+                          for (final r in p.unchecked)
+                            _RequirementPill(
+                              label: r.label,
+                              returned: r.isReturned,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ],
+          if (held.length > _shown)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton(
+                  onPressed: () => setState(() => _all = !_all),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.maroon,
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                    minimumSize: const Size(0, 32),
+                  ),
+                  child: Text(
+                    _all ? 'Show fewer' : 'Show all ${held.length}',
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// A requirement the Head hasn't checked: amber while it waits, red once
+/// returned.
+class _RequirementPill extends StatelessWidget {
+  final String label;
+  final bool returned;
+  const _RequirementPill({required this.label, required this.returned});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+    decoration: BoxDecoration(
+      color: returned ? AppTheme.red50 : AppTheme.amber50,
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          returned ? Icons.reply_rounded : Icons.hourglass_top_rounded,
+          size: 12,
+          color: returned ? AppTheme.red500 : AppTheme.amber500,
+        ),
+        const SizedBox(width: 5),
+        Flexible(
+          child: Text(
+            returned ? '$label · returned' : label,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.slate700,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 /// "₱3,937.50" — pesos with thousands separators.
 String _peso(double amount) {
   final parts = amount.toStringAsFixed(2).split('.');
@@ -1080,8 +1330,15 @@ class _PayrollRow extends StatelessWidget {
       'Released' => AppTheme.emerald500,
       'Approved' => AppTheme.blue500,
       'Ready' => AppTheme.slate600,
+      'Excluded' || 'No hours' => AppTheme.slate400,
       _ => AppTheme.amber500,
     };
+    final statusLabel = switch (record.status) {
+      'Incomplete' => 'Not ready',
+      'Excluded' => 'Left out',
+      final status => status,
+    };
+    final unchecked = record.unchecked;
     final capped = record.payableHours < record.hoursWorked;
     final anyMonthOff = record.monthlyBreakdown.any(
       (m) => !(m.meetsMinimumHours && m.withinMaximumHours),
@@ -1162,7 +1419,7 @@ class _PayrollRow extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  record.status,
+                  statusLabel,
                   style: TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,
@@ -1206,14 +1463,46 @@ class _PayrollRow extends StatelessWidget {
                 record.dtrVerified,
                 record.dtrVerified ? 'DTR verified' : 'No DTR records',
               ),
-              _check(
-                record.reportVerified,
-                record.reportVerified
-                    ? 'Report verified'
-                    : 'No approved report',
-              ),
+              if (record.status != 'No hours' && record.status != 'Excluded')
+                _check(
+                  record.reportVerified,
+                  record.reportVerified
+                      ? 'Requirements checked'
+                      : '${unchecked.length} requirement'
+                            '${unchecked.length == 1 ? '' : 's'} not checked',
+                ),
             ],
           ),
+          if (record.status == 'Incomplete' && unchecked.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final r in unchecked)
+                  Tooltip(
+                    message: r.isReturned && (r.mark?.note ?? '').isNotEmpty
+                        ? 'Returned: "${r.mark!.note}"'
+                        : r.shortStatus,
+                    child: _RequirementPill(
+                      label: r.label,
+                      returned: r.isReturned,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (record.exclusion case final left?) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Left out by ${left.by}: "${left.reason}"',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.slate500,
+              ),
+            ),
+          ],
           if (record.overlappingPayroll case final paid?) ...[
             const SizedBox(height: 8),
             Row(

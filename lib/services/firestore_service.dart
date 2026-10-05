@@ -1442,6 +1442,42 @@ class FirestoreService {
     await _payrollSheets.doc(sheet.id).set(sheet.toJson());
   }
 
+  // Payroll checks: the Head's check of each Student Assistant's payroll
+  // requirements, one document per student (see PayrollCheck).
+  CollectionReference get _payrollChecks => _db.collection('payrollChecks');
+
+  /// Saves the Head's [mark] on one requirement, or clears it when null.
+  /// Other requirements on the student's document are left as they are.
+  Future<void> setPayrollCheckItem({
+    required String studentId,
+    required String studentName,
+    required String key,
+    required PayrollCheckMark? mark,
+  }) async {
+    await _payrollChecks.doc(studentId).set({
+      'studentId': studentId,
+      'studentName': studentName,
+      'items': {key: mark?.toJson() ?? FieldValue.delete()},
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
+  /// Leaves a student out of one term's payroll, or brings them back when
+  /// [exclusion] is null.
+  Future<void> setPayrollExclusion({
+    required String studentId,
+    required String studentName,
+    required String termLabel,
+    required PayrollExclusion? exclusion,
+  }) async {
+    await _payrollChecks.doc(studentId).set({
+      'studentId': studentId,
+      'studentName': studentName,
+      'exclusions': {termLabel: exclusion?.toJson() ?? FieldValue.delete()},
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+  }
+
   // Performance Evaluations
   CollectionReference get _evaluations => _db.collection('evaluations');
 

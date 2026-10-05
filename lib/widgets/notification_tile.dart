@@ -25,6 +25,7 @@ class NotificationTile extends StatelessWidget {
     'head_forward' => (Icons.forward_to_inbox_outlined, AppTheme.maroon),
     'office' => (Icons.apartment_outlined, AppTheme.violet500),
     'payroll' => (Icons.payments_outlined, AppTheme.emerald500),
+    'payroll_requirement' => (Icons.rule_folder_outlined, AppTheme.amber500),
     'evaluation' => (Icons.fact_check_outlined, AppTheme.amber500),
     'rehire' => (Icons.autorenew_rounded, AppTheme.maroon),
     'attendance' => (Icons.alarm_rounded, AppTheme.amber500),

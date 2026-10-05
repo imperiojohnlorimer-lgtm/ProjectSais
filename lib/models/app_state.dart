@@ -244,6 +244,10 @@ class AppState extends ChangeNotifier {
   // been paid, so payroll can't be approved.
   bool payrollRecordsLoaded = false;
   List<PayrollSheet> payrollSheets = [];
+
+  /// The Head's check of each Student Assistant's payroll requirements
+  /// (Head and Admin).
+  List<PayrollCheck> payrollChecks = [];
   List<Announcement> announcements = [];
   List<Application> applications = [];
   List<ScreeningRecord> screeningRecords = [];
@@ -668,6 +672,16 @@ class AppState extends ChangeNotifier {
         'Reports',
         fs.collectionStream('reports'),
         (list) => reports = list.map(Report.fromJson).toList(),
+      );
+    }
+
+    // The Head checks the payroll requirements; the Admin's payroll waits
+    // for them.
+    if (isHead || isAdmin) {
+      listen(
+        'Payroll checks',
+        fs.collectionStream('payrollChecks'),
+        (list) => payrollChecks = list.map(PayrollCheck.fromJson).toList(),
       );
     }
 
@@ -4057,6 +4071,8 @@ class AppState extends ChangeNotifier {
       ('office', 'Head') => 'offices',
       ('office', 'Supervisor') => 'students',
       ('attendance', 'Student Assistant') => 'attendance',
+      // A returned or missing DTR is sent again from there.
+      ('payroll_requirement', 'Supervisor') => 'dtr_accomplishment_report',
       // Role changes: the profile shows the new role.
       ('system', _) => 'profile',
       _ => null,
@@ -6418,37 +6434,191 @@ class AppState extends ChangeNotifier {
     }).toList();
   }
 
-  /// How many days after a pay period ends its report may still be handed
-  /// in. Reports cover a whole semester, so they often come in once it's
-  /// over.
-  static const payrollReportGraceDays = 30;
+  static const _fullMonthNames = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
 
-  /// Whether an approved accomplishment report — standing in for the
-  /// broader "payroll requirements" (the DTR/Accomplishment Report bundle
-  /// a supervisor forwards to the Head) — was handed in by this student
-  /// during the given period or within [payrollReportGraceDays] after it.
-  bool hasApprovedReportInPeriod(
-    Set<String> studentIds,
-    Set<String> studentNameKeys,
-    DateTime start,
-    DateTime endInclusive,
-  ) {
-    final dueBy = DateTime(
-      endInclusive.year,
-      endInclusive.month,
-      endInclusive.day + payrollReportGraceDays,
+  /// A date saved in any of the shapes the app writes (ISO, "Sep 19,
+  /// 2026", "9/19/2026"), for sorting newest first.
+  DateTime _anyDate(String? raw) =>
+      DateTime.tryParse(raw ?? '') ??
+      _parsePayrollDate(raw) ??
+      DateTime.fromMillisecondsSinceEpoch(0);
+
+  static bool _isContractFile(ApplicationDocument doc) =>
+      doc.requirementName == 'Contract of Appointment' ||
+      doc.fileName.toLowerCase().contains('contract-of-appointment');
+
+  static bool _isEndorsementFile(ApplicationDocument doc) =>
+      doc.requirementName == 'Endorsement Letter' ||
+      doc.fileName.toLowerCase().contains('endorsement-letter');
+
+  /// A Student Assistant's payroll checklist for the term [termLabel]:
+  /// their application requirements, Endorsement Letter, the term's
+  /// Contract of Appointment, and a DTR/Accomplishment Report for each
+  /// month in [breakdown] they worked, each with the Head's mark from
+  /// [check]. The files are only found in a Head's session; the Admin
+  /// can't read them and goes by the marks alone.
+  List<PayrollRequirement> _payrollRequirementsFor(
+    User user, {
+    required Set<String> ids,
+    required Set<String> names,
+    required List<PayrollMonthBreakdown> breakdown,
+    required String termLabel,
+    required PayrollCheck? check,
+  }) {
+    PayrollRequirement requirement(
+      String key,
+      PayrollRequirementKind kind,
+      String label,
+      List<PayrollRequirementFile> files, {
+      String? ref,
+    }) => PayrollRequirement(
+      key: key,
+      kind: kind,
+      label: label,
+      mark: check?.items[key],
+      files: files,
+      ref: ref ?? files.firstOrNull?.ref,
     );
-    return reports.any(
-      (r) =>
-          _payrollRowMatches(
-            r.applicantId,
-            r.studentName,
-            studentIds,
-            studentNameKeys,
-          ) &&
-          r.status == 'Approved' &&
-          _dateWithinRange(r.submittedAt, start, dueBy),
-    );
+
+    PayrollRequirementFile appFile(ApplicationDocument doc, Application app) =>
+        PayrollRequirementFile(
+          ref: doc.id.isNotEmpty ? doc.id : doc.fileName,
+          name: doc.requirementName.isNotEmpty
+              ? doc.requirementName
+              : doc.fileName,
+          detail: doc.fileName,
+          storagePath: doc.storagePath,
+          downloadUrl: doc.downloadUrl,
+          date: doc.uploadedAt.isEmpty ? app.appliedAt : doc.uploadedAt,
+        );
+
+    // The application they were hired from: the newest approved one.
+    final hiredFrom =
+        applications
+            .where(
+              (a) =>
+                  ids.contains(a.applicantId) &&
+                  (a.status == 'Approved' || a.status == 'Accepted'),
+            )
+            .toList()
+          ..sort(
+            (a, b) => _anyDate(b.appliedAt).compareTo(_anyDate(a.appliedAt)),
+          );
+    final application = hiredFrom.firstOrNull;
+    final appDocs = application?.submittedDocuments ?? const [];
+
+    // This term's contract comes with its rehire decision; a student hired
+    // during the term has the one made when their application was approved.
+    final rehireContracts = [
+      for (final r in rehireRecords)
+        if (ids.contains(r.studentId) &&
+            r.termLabel == termLabel &&
+            r.isRehired &&
+            r.hasContract)
+          PayrollRequirementFile(
+            ref: r.contractDocumentId ?? r.id,
+            name: 'Contract of Appointment',
+            detail: r.contractFileName ?? r.termLabel,
+            storagePath: r.contractStoragePath,
+            downloadUrl: r.contractDownloadUrl,
+            date: r.decidedAt,
+          ),
+    ];
+    final contracts = rehireContracts.isNotEmpty
+        ? rehireContracts
+        : [
+            for (final doc in appDocs)
+              if (_isContractFile(doc)) appFile(doc, application!),
+          ];
+
+    final forwardedDtrs = <(int, int), List<HeadForward>>{};
+    for (final f in headForwards) {
+      final month = f.dtrMonth;
+      if (month == null) continue;
+      if (!_payrollRowMatches(f.studentId, f.studentName, ids, names)) {
+        continue;
+      }
+      forwardedDtrs.putIfAbsent(month, () => []).add(f);
+    }
+
+    // Newest first. Forwards carry only a date, so on the day a returned
+    // copy is sent again, the returned one goes behind the new one.
+    List<PayrollRequirementFile> dtrFiles(int year, int month) {
+      final returnedRef = check?.items[PayrollRequirement.dtrKey(year, month)];
+      final returned = returnedRef?.isReturned == true
+          ? returnedRef!.fileRef
+          : null;
+      final forwards = [...?forwardedDtrs[(year, month)]]
+        ..sort((a, b) {
+          final byDate = _anyDate(b.sentAt).compareTo(_anyDate(a.sentAt));
+          if (byDate != 0) return byDate;
+          return (a.id == returned ? 1 : 0) - (b.id == returned ? 1 : 0);
+        });
+      return [
+        for (final f in forwards)
+          PayrollRequirementFile(
+            ref: f.id,
+            name: f.fileName,
+            detail: 'From ${f.sentByName}',
+            storagePath: f.storagePath,
+            downloadUrl: f.downloadUrl,
+            date: f.sentAt,
+          ),
+      ];
+    }
+
+    return [
+      requirement(
+        PayrollRequirement.requirementsKey,
+        PayrollRequirementKind.requirements,
+        'Application requirements',
+        [
+          for (final doc in appDocs)
+            if (!_isContractFile(doc) && !_isEndorsementFile(doc))
+              appFile(doc, application!),
+        ],
+        // The set as a whole: a corrected copy is handed to the Head, not
+        // sent through SAIS.
+        ref: application?.id,
+      ),
+      requirement(
+        PayrollRequirement.endorsementKey,
+        PayrollRequirementKind.endorsement,
+        'Endorsement Letter',
+        [
+          for (final doc in appDocs)
+            if (_isEndorsementFile(doc)) appFile(doc, application!),
+        ],
+      ),
+      requirement(
+        PayrollRequirement.contractKey(termLabel),
+        PayrollRequirementKind.contract,
+        'Contract of Appointment',
+        contracts,
+      ),
+      for (final m in breakdown)
+        if (m.hoursWorked > 0)
+          requirement(
+            PayrollRequirement.dtrKey(m.year, m.month),
+            PayrollRequirementKind.dtr,
+            'DTR/Accomplishment Report (${_fullMonthNames[m.month - 1]} '
+            '${m.year})',
+            dtrFiles(m.year, m.month),
+          ),
+    ];
   }
 
   /// Builds a payroll preview for the pay period [start]..[endInclusive]
@@ -6459,10 +6629,16 @@ class AppState extends ChangeNotifier {
   /// a student has a persisted [PayrollRecord] for this exact period
   /// (status 'Approved' or 'Released'), that persisted record is returned
   /// as-is instead of recomputing, so an approved amount stays fixed even
-  /// if attendance data changes afterward. Retrieves and verifies each
-  /// student's DTR records and accomplishment report before marking them
-  /// 'Ready' to approve; anyone missing either, or already paid under
-  /// another period that shares days with this one, is 'Incomplete'.
+  /// if attendance data changes afterward.
+  ///
+  /// [periodLabel] is the term, "1st Semester, AY 2026-2027": the Head's
+  /// exclusions and contract checks are kept under it. A student is
+  /// 'Ready' once they have hours and the Head has checked every
+  /// requirement on their checklist; 'Excluded' if the Head left them out
+  /// of the term; 'No hours' if there's nothing to pay; otherwise — a
+  /// requirement unchecked, or some of these days already paid under
+  /// another period — 'Incomplete', which holds up the whole period (see
+  /// [payrollHeldBy]).
   List<PayrollRecord> buildPayrollPreview({
     required DateTime start,
     required DateTime endInclusive,
@@ -6500,6 +6676,7 @@ class AppState extends ChangeNotifier {
     final studentsByEmail = {
       for (final s in students) s.email.trim().toLowerCase(): s,
     };
+    final checksByStudent = {for (final c in payrollChecks) c.studentId: c};
 
     final rows = <PayrollRecord>[];
     for (final user in users) {
@@ -6528,12 +6705,17 @@ class AppState extends ChangeNotifier {
         endInclusive,
       );
       final dtrVerified = breakdown.any((m) => m.hoursWorked > 0);
-      final reportVerified = hasApprovedReportInPeriod(
-        identity.ids,
-        identity.names,
-        start,
-        endInclusive,
+      final check = checksByStudent[user.id];
+      final requirements = _payrollRequirementsFor(
+        user,
+        ids: identity.ids,
+        names: identity.names,
+        breakdown: breakdown,
+        termLabel: periodLabel,
+        check: check,
       );
+      final reportVerified = requirements.every((r) => r.isChecked);
+      final exclusion = check?.exclusions[periodLabel];
       // Left blank for an assistant not in an office, so Payroll shows
       // them as unassigned instead of under an "office" named after their
       // department.
@@ -6559,10 +6741,16 @@ class AppState extends ChangeNotifier {
           monthlyBreakdown: breakdown,
           dtrVerified: dtrVerified,
           reportVerified: reportVerified,
-          status: dtrVerified && reportVerified && overlapping == null
+          status: exclusion != null
+              ? 'Excluded'
+              : !dtrVerified
+              ? 'No hours'
+              : reportVerified && overlapping == null
               ? 'Ready'
               : 'Incomplete',
           overlappingPayroll: overlapping,
+          requirements: requirements,
+          exclusion: exclusion,
         ),
       );
     }
@@ -6605,16 +6793,31 @@ class AppState extends ChangeNotifier {
     return saved;
   }
 
+  /// The students holding up a period's payroll: anyone in [preview] —
+  /// the whole period, not a filtered part of it — still 'Incomplete'.
+  /// The payroll is approved for everyone at once, so until this is empty
+  /// it can't be approved at all.
+  static List<PayrollRecord> payrollHeldBy(List<PayrollRecord> preview) =>
+      preview.where((p) => p.status == 'Incomplete').toList();
+
   /// Administrators approve payroll: computes the payable amount from
   /// total hours rendered for every currently-'Ready' entry in [preview]
   /// and records it in the payroll records with status 'Approved' —
-  /// skipping anything 'Incomplete', already 'Approved', or 'Released'.
+  /// skipping anyone excluded, with no hours, already 'Approved', or
+  /// 'Released'. [preview] must be the whole period; while anyone in it is
+  /// 'Incomplete' ([payrollHeldBy]), nobody is approved.
   /// Each is saved under [PayrollRecord.idFor] and only if nothing is there
   /// yet, so a period approved elsewhere in the meantime isn't paid twice.
   /// Does not notify students yet; that happens on [releasePayroll].
   Future<(int count, double total)> approvePayroll(
     List<PayrollRecord> preview,
   ) async {
+    final held = payrollHeldBy(preview);
+    if (held.isNotEmpty) {
+      throw StateError(
+        '${held.length} Student Assistant(s) aren\'t ready to be paid yet.',
+      );
+    }
     _firestoreService ??= FirestoreService();
     final today = _formattedToday();
     var count = 0;
@@ -6698,6 +6901,235 @@ class AppState extends ChangeNotifier {
 
     notifyListeners();
     return (count, total);
+  }
+
+  // ─── Payroll requirements (Head) ───────────────────────
+  // The Head checks each Student Assistant's requirements; the Admin's
+  // payroll waits until every one is checked (see buildPayrollPreview).
+
+  /// Applies a saved change to the local copy, ahead of the live feed.
+  void _setLocalPayrollCheck(
+    String studentId,
+    String studentName, {
+    Map<String, PayrollCheckMark?> items = const {},
+    Map<String, PayrollExclusion?> exclusions = const {},
+  }) {
+    final old = payrollChecks
+        .where((c) => c.studentId == studentId)
+        .firstOrNull;
+    final newItems = {...?old?.items};
+    items.forEach(
+      (key, mark) => mark == null ? newItems.remove(key) : newItems[key] = mark,
+    );
+    final newExclusions = {...?old?.exclusions};
+    exclusions.forEach(
+      (term, exclusion) => exclusion == null
+          ? newExclusions.remove(term)
+          : newExclusions[term] = exclusion,
+    );
+    final updated = PayrollCheck(
+      studentId: studentId,
+      studentName: studentName,
+      items: newItems,
+      exclusions: newExclusions,
+    );
+    payrollChecks = [
+      ...payrollChecks.where((c) => c.studentId != studentId),
+      updated,
+    ];
+  }
+
+  Future<void> _savePayrollMark(
+    PayrollRecord row,
+    String key,
+    PayrollCheckMark? mark,
+  ) async {
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setPayrollCheckItem(
+      studentId: row.studentId,
+      studentName: row.studentName,
+      key: key,
+      mark: mark,
+    );
+    _setLocalPayrollCheck(row.studentId, row.studentName, items: {key: mark});
+    notifyListeners();
+  }
+
+  PayrollCheckMark _payrollMark(
+    String status,
+    PayrollRequirement requirement, {
+    String? note,
+  }) => PayrollCheckMark(
+    status: status,
+    note: note,
+    by: currentUser?.name ?? 'Head',
+    byId: currentUser?.id,
+    at: DateTime.now().toIso8601String(),
+    fileRef: requirement.ref,
+  );
+
+  /// The supervisors of [studentId]'s office, who send their DTRs.
+  Set<String> _payrollSupervisorIds(String studentId) {
+    final user = users.where((u) => u.id == studentId).firstOrNull;
+    if (user == null) return {};
+    return {
+      for (final office in officesForUser(user))
+        for (final id in office.headIds)
+          if (id.isNotEmpty) id,
+    };
+  }
+
+  void _notifyPayroll(String userId, String title, String message) =>
+      _addNotification(
+        AppNotification(
+          id: '',
+          userId: userId,
+          title: title,
+          message: message,
+          type: 'payroll_requirement',
+          createdAt: _formattedToday(),
+        ),
+      );
+
+  /// Head: [requirement] of [row]'s student is in order.
+  Future<void> checkPayrollRequirement(
+    PayrollRecord row,
+    PayrollRequirement requirement,
+  ) => _savePayrollMark(
+    row,
+    requirement.key,
+    _payrollMark(PayrollCheckMark.checked, requirement),
+  );
+
+  /// Head: undoes a check or a return; [requirement] waits again.
+  Future<void> clearPayrollRequirement(
+    PayrollRecord row,
+    PayrollRequirement requirement,
+  ) => _savePayrollMark(row, requirement.key, null);
+
+  /// Head: sends [requirement] back with [note] — only this one, the rest
+  /// stay checked. The student and their office's supervisors are told
+  /// what to correct; for a DTR, so is the supervisor who sent it.
+  Future<void> returnPayrollRequirement(
+    PayrollRecord row,
+    PayrollRequirement requirement,
+    String note,
+  ) async {
+    final reason = note.trim();
+    await _savePayrollMark(
+      row,
+      requirement.key,
+      _payrollMark(PayrollCheckMark.returned, requirement, note: reason),
+    );
+
+    final isDtr = requirement.kind == PayrollRequirementKind.dtr;
+    final supervisors = _payrollSupervisorIds(row.studentId);
+    if (isDtr) {
+      final sender = headForwards
+          .where((f) => f.id == requirement.ref)
+          .firstOrNull
+          ?.sentById;
+      if (sender != null && sender.isNotEmpty) supervisors.add(sender);
+    }
+    _notifyPayroll(
+      row.studentId,
+      'Payroll Requirement Returned',
+      'The Head returned your ${requirement.label} for the '
+          '${row.periodLabel} payroll: "$reason". '
+          '${isDtr ? 'Please check it with your supervisor.' : 'Please give the Head a corrected copy.'}',
+    );
+    for (final supervisorId in supervisors) {
+      _notifyPayroll(
+        supervisorId,
+        'Payroll Requirement Returned',
+        'The Head returned ${row.studentName}\'s ${requirement.label}: '
+            '"$reason".'
+            '${isDtr ? ' Please correct it and send it to the Head again.' : ''}',
+      );
+    }
+    notifyListeners();
+  }
+
+  /// Head: leaves [row]'s student out of their term's payroll, which then
+  /// no longer waits for them. They aren't paid in it.
+  Future<void> excludeFromPayroll(PayrollRecord row, String reason) async {
+    final exclusion = PayrollExclusion(
+      reason: reason.trim(),
+      by: currentUser?.name ?? 'Head',
+      byId: currentUser?.id,
+      at: DateTime.now().toIso8601String(),
+    );
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setPayrollExclusion(
+      studentId: row.studentId,
+      studentName: row.studentName,
+      termLabel: row.periodLabel,
+      exclusion: exclusion,
+    );
+    _setLocalPayrollCheck(
+      row.studentId,
+      row.studentName,
+      exclusions: {row.periodLabel: exclusion},
+    );
+    _notifyPayroll(
+      row.studentId,
+      'Left Out of Payroll',
+      'The Head left you out of the ${row.periodLabel} payroll: '
+          '"${exclusion.reason}".',
+    );
+    notifyListeners();
+  }
+
+  /// Head: puts [row]'s student back in their term's payroll.
+  Future<void> includeInPayroll(PayrollRecord row) async {
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setPayrollExclusion(
+      studentId: row.studentId,
+      studentName: row.studentName,
+      termLabel: row.periodLabel,
+      exclusion: null,
+    );
+    _setLocalPayrollCheck(
+      row.studentId,
+      row.studentName,
+      exclusions: {row.periodLabel: null},
+    );
+    _notifyPayroll(
+      row.studentId,
+      'Back in the Payroll',
+      'The Head put you back in the ${row.periodLabel} payroll.',
+    );
+    notifyListeners();
+  }
+
+  /// Head: tells each student in [rows] still holding up the payroll, and
+  /// their office's supervisors, what's needed from them — requirements
+  /// not on file yet, or returned. Ones only waiting for the Head's own
+  /// check aren't mentioned. Returns how many students were reminded.
+  int remindPayrollRequirements(List<PayrollRecord> rows) {
+    var reminded = 0;
+    for (final row in rows) {
+      if (row.status != 'Incomplete') continue;
+      final needed = row.requirements.where((r) => r.needsAction).toList();
+      if (needed.isEmpty) continue;
+      final list = needed.map((r) => r.label).join(', ');
+      _notifyPayroll(
+        row.studentId,
+        'Payroll Requirements Needed',
+        'Still needed for the ${row.periodLabel} payroll: $list.',
+      );
+      for (final supervisorId in _payrollSupervisorIds(row.studentId)) {
+        _notifyPayroll(
+          supervisorId,
+          'Payroll Requirements Needed',
+          'Still needed from ${row.studentName} for the ${row.periodLabel} '
+              'payroll: $list.',
+        );
+      }
+      reminded++;
+    }
+    notifyListeners();
+    return reminded;
   }
 
   /// This student's saved weekly class schedule rows (used to auto-fill

@@ -130,6 +130,25 @@ User _assistant(String id, String name) => User(
   role: 'Student Assistant',
 );
 
+/// The Head has checked every requirement [studentId] has for the
+/// "September 2026" period these tests pay.
+PayrollCheck _allChecked(String studentId) {
+  const mark = PayrollCheckMark(
+    status: PayrollCheckMark.checked,
+    by: 'Hana Head',
+    at: '2026-10-01T09:00:00.000',
+  );
+  return PayrollCheck(
+    studentId: studentId,
+    items: {
+      PayrollRequirement.requirementsKey: mark,
+      PayrollRequirement.endorsementKey: mark,
+      PayrollRequirement.contractKey('September 2026'): mark,
+      PayrollRequirement.dtrKey(2026, 9): mark,
+    },
+  );
+}
+
 void main() {
   late _FakeFirestore fake;
   late AppState state;
@@ -190,23 +209,17 @@ void main() {
       expect(hoursPaid(), {'sa1': 4, 'sa2': 3});
     });
 
-    test("an approved report only verifies its own author's pay", () {
+    test("the Head's checks only count for their own student", () {
       state
         ..users = [
           _assistant('sa1', 'Juan Dela Cruz'),
           _assistant('sa2', 'Juan Dela Cruz'),
         ]
-        ..reports = [
-          Report(
-            id: 'rep1',
-            applicantId: 'sa1',
-            title: 'September',
-            content: '',
-            studentName: 'Juan Dela Cruz',
-            status: 'Approved',
-            submittedAt: '9/20/2026',
-          ),
-        ];
+        ..attendance = [
+          _record('r1', studentId: 'sa1', studentName: 'Juan Dela Cruz'),
+          _record('r2', studentId: 'sa2', studentName: 'Juan Dela Cruz'),
+        ]
+        ..payrollChecks = [_allChecked('sa1')];
 
       final preview = state.buildPayrollPreview(
         start: DateTime(2026, 9, 1),
@@ -317,35 +330,6 @@ void main() {
       expect(hoursPaid()['sa1'], 4);
     });
 
-    test('a report handed in shortly after the period still counts', () {
-      bool verifiedWhenSubmitted(String submittedAt) {
-        state
-          ..users = [_assistant('sa1', 'Ana Reyes')]
-          ..reports = [
-            Report(
-              id: 'rep1',
-              applicantId: 'sa1',
-              title: '1st Semester report',
-              content: '',
-              studentName: 'Ana Reyes',
-              status: 'Approved',
-              submittedAt: submittedAt,
-            ),
-          ];
-        return state
-            .buildPayrollPreview(
-              start: DateTime(2026, 9, 1),
-              endInclusive: DateTime(2026, 9, 30),
-              periodLabel: 'September 2026',
-            )
-            .single
-            .reportVerified;
-      }
-
-      expect(verifiedWhenSubmitted('10/30/2026'), isTrue);
-      expect(verifiedWhenSubmitted('10/31/2026'), isFalse);
-    });
-
     group('approving and releasing', () {
       PayrollRecord approved(
         String studentId, {
@@ -376,17 +360,7 @@ void main() {
               date: 'Sep 20, 2026',
             ),
           ]
-          ..reports = [
-            Report(
-              id: 'rep1',
-              applicantId: 'sa1',
-              title: 'September',
-              content: '',
-              studentName: 'Ana Reyes',
-              status: 'Approved',
-              submittedAt: '9/20/2026',
-            ),
-          ];
+          ..payrollChecks = [_allChecked('sa1')];
       });
 
       List<PayrollRecord> preview({DateTime? start, DateTime? end}) =>
