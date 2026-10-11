@@ -251,11 +251,11 @@ void main() {
       expect(router.currentConfiguration, '/academic-year/2025-2026');
     });
 
-    test('a student lands on Announcements and moves between its pages', () {
+    test('a student lands on Apply and moves between its pages', () {
       signIn('Student');
 
       expect(state.activeTab, 'announcements');
-      expect(router.currentConfiguration, '/announcements');
+      expect(router.currentConfiguration, '/apply');
 
       state.setTab('profile');
       expect(router.currentConfiguration, '/profile');

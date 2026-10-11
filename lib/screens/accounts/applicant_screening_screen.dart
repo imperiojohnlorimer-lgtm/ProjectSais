@@ -9,7 +9,9 @@ import '../../theme/app_theme.dart';
 import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
+import '../../widgets/application_status.dart';
 import '../../widgets/shared_widgets.dart';
+import 'applications_screen.dart';
 import '../../services/screening_document_service.dart';
 
 /// What the screening form starts with for an applicant: their saved
@@ -43,6 +45,10 @@ import '../../services/screening_document_service.dart';
   );
 }
 
+/// The Head's Applications & Screening page, in one place: the applicants
+/// (matched to office requests by skill, picked for screening, rejected
+/// when a document is wrong), the interview and assessment form opened
+/// from them, and the screening records.
 class ApplicantScreeningScreen extends StatefulWidget {
   const ApplicantScreeningScreen({super.key});
   @override
@@ -66,7 +72,6 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     'Potential for Growth',
     'Overall Impression',
   ];
-  final search = TextEditingController();
   final name = TextEditingController();
   final studentNumber = TextEditingController();
   final program = TextEditingController();
@@ -78,9 +83,15 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   final ratings = <String, int>{};
   final notes = <String, String>{};
   String view = 'queue';
-  String roleFilter = 'All';
-  String screenedFilter = 'All';
-  String statusFilter = 'All';
+
+  /// What the search box holds: part of a name or a skill.
+  String _search = '';
+
+  /// The page scrolls as one, so switching between the list, the form and
+  /// the records goes back to the top: the form opened from a card far
+  /// down the list would otherwise open half way through.
+  final _scroll = ScrollController();
+  String _shownView = 'queue';
   String recommendation = 'Recommended';
   String targetOfficeId = '';
   String targetOfficeName = '';
@@ -96,8 +107,8 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     for (final controller in [
-      search,
       name,
       studentNumber,
       program,
@@ -115,204 +126,128 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final screenedApplicationIds = state.screeningRecords
-        .map((record) => record.applicationId)
-        .toSet();
-
-    final applications = state.applications.where((application) {
-      final value =
-          '${application.applicantName} ${application.announcementTitle}'
-              .toLowerCase();
-      if (!value.contains(search.text.toLowerCase())) return false;
-
-      if (roleFilter != 'All') {
-        final applicantUser = _user(state, application);
-        final role = (applicantUser?.role ?? 'Student').trim();
-        if (roleFilter == 'Student Assistant' && role != 'Student Assistant') {
-          return false;
-        }
-        if (roleFilter == 'Student' && role == 'Student Assistant') {
-          return false;
-        }
-      }
-
-      if (screenedFilter != 'All') {
-        final isScreened = screenedApplicationIds.contains(application.id);
-        if (screenedFilter == 'Screened' && !isScreened) return false;
-        if (screenedFilter == 'Not Screened' && isScreened) return false;
-      }
-
-      if (statusFilter != 'All' && application.status != statusFilter) {
-        return false;
-      }
-
-      return true;
-    }).toList();
-
     final isMobile = MediaQuery.of(context).size.width < 700;
     final hPad = isMobile ? 16.0 : 28.0;
+    final apps = state.currentApplications;
+    String count(bool Function(Application) test) =>
+        '${apps.where(test).length}';
+    final query = _search.trim().toLowerCase();
+    final records = query.isEmpty
+        ? state.screeningRecords
+        : state.screeningRecords
+              .where((r) => r.fullName.toLowerCase().contains(query))
+              .toList();
 
+    if (view != _shownView) {
+      _shownView = view;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scroll.hasClients) _scroll.jumpTo(0);
+      });
+    }
+
+    // One scroll, header included, so on a phone the header moves out of
+    // the way of the list and the form.
     return Container(
       color: AppTheme.slate50,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _header(state),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(hPad, 18, hPad, 30),
-              child: view == 'form'
-                  ? _form(state)
-                  : view == 'print'
-                  ? _print()
-                  : view == 'records'
-                  ? _records(state.screeningRecords)
-                  : _queue(state, applications, screenedApplicationIds),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _header(AppState state) {
-    final isMobile = MediaQuery.of(context).size.width < 700;
-    final hPad = isMobile ? 16.0 : 28.0;
-
-    final badge = Container(
-      width: isMobile ? 40.0 : 46.0,
-      height: isMobile ? 40.0 : 46.0,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppTheme.maroon, AppTheme.maroonDark],
-        ),
-        borderRadius: BorderRadius.circular(13),
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.maroon.withValues(alpha: 0.25),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Icon(
-        Icons.fact_check_outlined,
-        color: Colors.white,
-        size: isMobile ? 19 : 22,
-      ),
-    );
-
-    final titleBlock = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Student Applicant Screening & Assessment',
-          style: TextStyle(
-            fontSize: isMobile ? 15.5 : 20,
-            fontWeight: FontWeight.w800,
-            color: AppTheme.slate900,
-            letterSpacing: -0.2,
-            height: 1.25,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          isMobile
-              ? 'Office of the VP for Student Affairs & Services'
-              : 'Office of the Vice President for Student Affairs & Services · Official MSU Form',
-          style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
-        ),
-      ],
-    );
-
-    final newButton = FilledButton.icon(
-      onPressed: _newForm,
-      icon: const Icon(Icons.add, size: 18),
-      label: Text(isMobile ? 'New Screening' : 'New Applicant Screening'),
-      style: ButtonStyle(
-        backgroundColor: const WidgetStatePropertyAll(AppTheme.maroon),
-        padding: WidgetStatePropertyAll(
-          EdgeInsets.symmetric(horizontal: 18, vertical: isMobile ? 13 : 14),
-        ),
-        shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-        elevation: const WidgetStatePropertyAll(0),
-        textStyle: WidgetStatePropertyAll(
-          TextStyle(fontSize: isMobile ? 13 : 14, fontWeight: FontWeight.w700),
-        ),
-      ),
-    );
-
-    return Container(
-      padding: EdgeInsets.fromLTRB(hPad, isMobile ? 18 : 24, hPad, 16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: AppTheme.slate200)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (isMobile) ...[
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                badge,
-                const SizedBox(width: 12),
-                Expanded(child: titleBlock),
+      child: SingleChildScrollView(
+        controller: _scroll,
+        padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 30),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            HeroBanner(
+              isMobile: isMobile,
+              icon: Icons.assignment_turned_in_rounded,
+              title: 'Applications & Screening',
+              subtitle:
+                  'Match applicants to office requests by skill, pick who to '
+                  'screen, and record each interview',
+              addLabel: isMobile ? 'New Screening' : 'New Applicant Screening',
+              onAdd: _newForm,
+              searchHint: 'Search applicants or skills...',
+              onSearch: (value) => setState(() => _search = value),
+              filters: const [EndorsementSummaryButton()],
+              stats: [
+                HeroStatData(
+                  label: 'Total',
+                  value: '${apps.length}',
+                  icon: Icons.inbox_rounded,
+                ),
+                HeroStatData(
+                  label: 'Pending',
+                  value: count((a) => a.status == Application.pending),
+                  icon: Icons.pending_actions_rounded,
+                ),
+                HeroStatData(
+                  label: 'For Screening',
+                  value: count((a) => a.status == Application.forScreening),
+                  icon: Icons.how_to_reg_rounded,
+                ),
+                HeroStatData(
+                  label: 'Approved',
+                  value: count((a) => a.isApproved),
+                  icon: Icons.check_circle_rounded,
+                ),
+                HeroStatData(
+                  label: 'Waitlisted',
+                  value: count((a) => a.status == Application.waitlisted),
+                  icon: Icons.schedule_rounded,
+                ),
               ],
             ),
-            const SizedBox(height: 14),
-            SizedBox(width: double.infinity, child: newButton),
-          ] else
-            Row(
-              children: [
-                badge,
-                const SizedBox(width: 14),
-                Expanded(child: titleBlock),
-                newButton,
-              ],
-            ),
-          const SizedBox(height: 18),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                _tab(
-                  isMobile ? 'Queue' : 'Applying Students Queue',
-                  'queue',
-                  state.applications.length,
-                  Icons.person_add_alt_1_outlined,
-                ),
-                const SizedBox(width: 8),
-                _tab(
-                  isMobile ? 'Records' : 'Screening Results & Records',
-                  'records',
-                  state.screeningRecords.length,
-                  Icons.workspace_premium_outlined,
-                ),
-                const SizedBox(width: 8),
-                _tab(
-                  isMobile ? 'Evaluation Sheet' : 'Official Evaluation Sheet',
-                  'form',
-                  null,
-                  Icons.description_outlined,
-                ),
-                if (activeRecord != null) ...[
+            const SizedBox(height: 16),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [
+                  _tab(
+                    'Applicants',
+                    'queue',
+                    apps.length,
+                    Icons.person_add_alt_1_outlined,
+                  ),
                   const SizedBox(width: 8),
                   _tab(
-                    isMobile ? 'Print Form' : 'Print Official Form',
-                    'print',
-                    null,
-                    Icons.print_outlined,
+                    isMobile ? 'Records' : 'Screening Records',
+                    'records',
+                    state.screeningRecords.length,
+                    Icons.workspace_premium_outlined,
                   ),
+                  const SizedBox(width: 8),
+                  _tab(
+                    isMobile ? 'Evaluation Sheet' : 'Official Evaluation Sheet',
+                    'form',
+                    null,
+                    Icons.description_outlined,
+                  ),
+                  if (activeRecord != null) ...[
+                    const SizedBox(width: 8),
+                    _tab(
+                      isMobile ? 'Print Form' : 'Print Official Form',
+                      'print',
+                      null,
+                      Icons.print_outlined,
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-        ],
+            const SizedBox(height: 18),
+            // Kept while another tab shows, so its ticks and filters are
+            // still there on the way back.
+            Visibility(
+              visible: view == 'queue',
+              maintainState: true,
+              child: ApplicationsPanel(search: _search, onAssess: _start),
+            ),
+            if (view != 'queue')
+              switch (view) {
+                'form' => _form(state),
+                'print' => _print(),
+                _ => _records(records),
+              },
+          ],
+        ),
       ),
     );
   }
@@ -352,241 +287,6 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           ],
         ),
       ),
-    );
-  }
-
-  Widget _queue(
-    AppState state,
-    List<Application> applications,
-    Set<String> screenedApplicationIds,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _banner(
-          applications
-              .where((application) => application.status == 'Pending')
-              .length,
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.slate200),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.slate900.withValues(alpha: 0.03),
-                blurRadius: 10,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: search,
-                onChanged: (_) => setState(() {}),
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(Icons.search, size: 20),
-                  hintText:
-                      'Search by name, applicant number, program, or office...',
-                  isDense: true,
-                  filled: true,
-                  fillColor: AppTheme.slate50,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: BorderSide.none,
-                  ),
-                  contentPadding: const EdgeInsets.symmetric(vertical: 14),
-                ),
-              ),
-              const SizedBox(height: 14),
-              Wrap(
-                spacing: 20,
-                runSpacing: 12,
-                children: [
-                  _filterGroup(
-                    'Applicant Type',
-                    Icons.badge_outlined,
-                    roleFilter,
-                    const ['All', 'Student', 'Student Assistant'],
-                    (value) => setState(() => roleFilter = value),
-                  ),
-                  _filterGroup(
-                    'Screening Status',
-                    Icons.rule_outlined,
-                    screenedFilter,
-                    const ['All', 'Screened', 'Not Screened'],
-                    (value) => setState(() => screenedFilter = value),
-                  ),
-                  _filterGroup(
-                    'Application Status',
-                    Icons.flag_outlined,
-                    statusFilter,
-                    const ['All', 'Pending', 'Approved', 'Waitlisted', 'Rejected'],
-                    (value) => setState(() => statusFilter = value),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 24),
-        _grid(
-          applications.length,
-          (index) => _applicationCard(
-            state,
-            applications[index],
-            screenedApplicationIds.contains(applications[index].id),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _filterGroup(
-    String label,
-    IconData icon,
-    String selected,
-    List<String> options,
-    ValueChanged<String> onChanged,
-  ) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, size: 13, color: AppTheme.slate400),
-            const SizedBox(width: 5),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 10.5,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.slate400,
-                letterSpacing: 0.3,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Wrap(
-          spacing: 6,
-          runSpacing: 6,
-          children: options.map((option) {
-            final active = selected == option;
-            return InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: () => onChanged(option),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                decoration: BoxDecoration(
-                  color: active ? AppTheme.maroon : AppTheme.slate100,
-                  borderRadius: BorderRadius.circular(20),
-                ),
-                child: Text(
-                  option,
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: active ? Colors.white : AppTheme.slate600,
-                  ),
-                ),
-              ),
-            );
-          }).toList(),
-        ),
-      ],
-    );
-  }
-
-  Widget _banner(int count) {
-    final isMobile = MediaQuery.of(context).size.width < 700;
-    final icon = Container(
-      width: isMobile ? 36.0 : 42.0,
-      height: isMobile ? 36.0 : 42.0,
-      decoration: BoxDecoration(
-        color: AppTheme.gold,
-        shape: BoxShape.circle,
-        boxShadow: [
-          BoxShadow(
-            color: AppTheme.gold.withValues(alpha: 0.35),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Icon(
-        Icons.person_search_outlined,
-        color: AppTheme.slate900,
-        size: isMobile ? 18 : 24,
-      ),
-    );
-    final text = const Text(
-      'Student Applicant Pool (Candidates for SA Position)\nSelect a student below to conduct the official interview and competency assessment.',
-      style: TextStyle(
-        fontSize: 11.5,
-        color: AppTheme.slate600,
-        height: 1.4,
-      ),
-    );
-    final pill = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.2)),
-      ),
-      child: Text(
-        '$count Pending Interview',
-        style: const TextStyle(
-          color: AppTheme.maroon,
-          fontSize: 11.5,
-          fontWeight: FontWeight.w800,
-        ),
-      ),
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppTheme.gold50, Colors.white],
-        ),
-        border: Border.all(color: AppTheme.gold300),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: isMobile
-          ? Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    icon,
-                    const SizedBox(width: 12),
-                    Expanded(child: text),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                pill,
-              ],
-            )
-          : Row(
-              children: [
-                icon,
-                const SizedBox(width: 14),
-                Expanded(child: text),
-                const SizedBox(width: 12),
-                pill,
-              ],
-            ),
     );
   }
 
@@ -890,7 +590,11 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     );
   }
 
-  Widget _grid(int count, Widget Function(int) item) {
+  Widget _grid(
+    int count,
+    Widget Function(int) item, {
+    String emptyMessage = 'No records found',
+  }) {
     if (count == 0)
       return Container(
         padding: const EdgeInsets.symmetric(vertical: 60),
@@ -899,14 +603,19 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           borderRadius: BorderRadius.circular(16),
           border: Border.all(color: AppTheme.slate200),
         ),
-        child: const Center(
+        child: Center(
           child: Column(
             children: [
-              Icon(Icons.inbox_outlined, size: 34, color: AppTheme.slate300),
-              SizedBox(height: 10),
+              const Icon(
+                Icons.inbox_outlined,
+                size: 34,
+                color: AppTheme.slate300,
+              ),
+              const SizedBox(height: 10),
               Text(
-                'No records found',
-                style: TextStyle(color: AppTheme.slate500, fontSize: 13),
+                emptyMessage,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppTheme.slate500, fontSize: 13),
               ),
             ],
           ),
@@ -959,176 +668,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     );
   }
 
-  Widget _applicationCard(AppState state, Application app, bool isScreened) {
-    User? user;
-    for (final candidate in state.users) {
-      if (candidate.id == app.applicantId) user = candidate;
-    }
-    final role = (user?.role ?? 'Student').trim();
-    final isAssistant = role == 'Student Assistant';
-    final isWaitlisted = app.status == 'Waitlisted';
-
-    return _cardShell(
-      tabLabel: app.status,
-      tabColor: _statusColor(app.status),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'APP-${app.id}',
-                  style: const TextStyle(
-                    fontSize: 9,
-                    color: AppTheme.slate400,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              _statusBadge(app.status),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: isAssistant ? AppTheme.gold400 : AppTheme.slate200,
-                        width: 2,
-                      ),
-                    ),
-                    child: UserAvatar(
-                      avatarUrl: user?.avatar,
-                      initials: user?.initials ?? '?',
-                      size: 40,
-                    ),
-                  ),
-                  if (isScreened)
-                    Positioned(
-                      right: -2,
-                      bottom: -2,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: const BoxDecoration(
-                          color: Colors.white,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.check_circle,
-                          size: 15,
-                          color: AppTheme.emerald500,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      app.applicantName,
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.slate900,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 2),
-                    _roleChip(role),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '${user?.courseProgram ?? app.announcementTitle} · ${user?.yearLevel ?? 'Student'}',
-            style: const TextStyle(fontSize: 10.5, color: AppTheme.slate500),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Icon(Icons.apartment_outlined, size: 12, color: AppTheme.maroon),
-              const SizedBox(width: 4),
-              Expanded(
-                child: Text(
-                  user?.department ?? 'General Queue',
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: AppTheme.maroon,
-                    fontWeight: FontWeight.w700,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              Icon(
-                isScreened ? Icons.fact_check_outlined : Icons.hourglass_empty,
-                size: 12,
-                color: isScreened ? AppTheme.emerald500 : AppTheme.slate400,
-              ),
-              const SizedBox(width: 4),
-              Text(
-                isScreened ? 'Screened' : 'Not Screened',
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: FontWeight.w700,
-                  color: isScreened ? AppTheme.emerald500 : AppTheme.slate400,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Wrap(spacing: 5, runSpacing: 5, children: app.skills.map(_badge).toList()),
-          const SizedBox(height: 14),
-          _action(
-            app.status == 'Pending'
-                ? 'Conduct Interview & Assessment'
-                : 'Review / Edit Assessment',
-            Icons.person_search_outlined,
-            () => _start(app),
-          ),
-          if (isWaitlisted) ...[
-            const SizedBox(height: 8),
-            _outlineAction(
-              'Approve Anyway',
-              Icons.how_to_reg_outlined,
-              () => _approveWaitlisted(app),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  Color _statusColor(String status) {
-    switch (status) {
-      case 'Approved':
-        return AppTheme.emerald500;
-      case 'Rejected':
-        return AppTheme.red500;
-      case 'Waitlisted':
-        return AppTheme.amber500;
-      default:
-        return AppTheme.slate400;
-    }
-  }
+  Color _statusColor(String status) => applicationStatusColor(status);
 
   /// Lets an admin override a "Waitlisted" decision and approve the
   /// applicant directly from the queue, without re-running the whole
@@ -1139,8 +679,9 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Approve waitlisted applicant?'),
         content: Text(
-          '${app.applicantName} is currently waitlisted. Approving will move '
-          'them to "Approved" and notify the applicant.',
+          '${app.applicantName} is currently waitlisted. Approving makes them '
+          'a Student Assistant with an SA ID and no office yet (place them '
+          'from Offices), and notifies them.',
         ),
         actions: [
           TextButton(
@@ -1173,53 +714,6 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
         margin: const EdgeInsets.all(16),),
     );
     setState(() {});
-  }
-
-  Widget _roleChip(String role) {
-    final isAssistant = role == 'Student Assistant';
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-        color: isAssistant ? AppTheme.gold100 : AppTheme.blue50,
-        borderRadius: BorderRadius.circular(6),
-      ),
-      child: Text(
-        role,
-        style: TextStyle(
-          fontSize: 8.5,
-          fontWeight: FontWeight.w700,
-          color: isAssistant ? const Color(0xFF8A6D00) : AppTheme.blue500,
-        ),
-      ),
-    );
-  }
-
-  Widget _statusBadge(String status) {
-    Color color;
-    switch (status) {
-      case 'Approved':
-        color = AppTheme.emerald500;
-        break;
-      case 'Rejected':
-        color = AppTheme.red500;
-        break;
-      case 'Waitlisted':
-        color = AppTheme.amber500;
-        break;
-      default:
-        color = AppTheme.slate400;
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: color),
-      ),
-    );
   }
 
   Widget _badge(String text) => Container(
@@ -1921,9 +1415,9 @@ Widget _form(AppState state) {
         // A saved record's office may since have been deleted.
         initialValue: state.offices.any((o) => o.id == targetOfficeId)
             ? targetOfficeId
-            : null,
+            : '',
         decoration: InputDecoration(
-          labelText: 'Recommended / Applying for Office',
+          labelText: 'Recommended Office (optional)',
           isDense: true,
           filled: true,
           fillColor: AppTheme.slate50,
@@ -1932,12 +1426,19 @@ Widget _form(AppState state) {
             borderSide: BorderSide.none,
           ),
         ),
-        items: state.offices
-            .map(
-              (office) =>
-                  DropdownMenuItem(value: office.id, child: Text(office.name)),
-            )
-            .toList(),
+        // Applicants apply to be a Student Assistant, not to an office, and
+        // approval doesn't place them; this only records a suggestion.
+        items: [
+          const DropdownMenuItem(
+            value: '',
+            child: Text(
+              'None yet',
+              style: TextStyle(color: AppTheme.slate500),
+            ),
+          ),
+          for (final office in state.offices)
+            DropdownMenuItem(value: office.id, child: Text(office.name)),
+        ],
         onChanged: (value) {
           final office = state.offices
               .where((office) => office.id == value)
@@ -2562,7 +2063,7 @@ Widget _form(AppState state) {
     }).toList();
     
     final selectedOffice =
-        assignedOffices.isNotEmpty ? assignedOffices.first : (state.offices.isEmpty ? null : state.offices.first);
+        assignedOffices.isNotEmpty ? assignedOffices.first : null;
     
     yearLevel.text = (state.currentUser?.yearLevel ?? '').trim().isEmpty ? '1st Year' : state.currentUser!.yearLevel!;
     interviewer.text = state.currentUser?.name ?? '';
@@ -2755,30 +2256,27 @@ Widget _form(AppState state) {
   Future<void> _save() async {
     final state = context.read<AppState>();
     // Saving also decides the application from the recommendation, and an
-    // approval promotes the applicant and generates their documents.
-    if (activeApplication != null) {
+    // approval promotes the applicant. One already approved keeps that
+    // decision: they're a Student Assistant now.
+    final deciding =
+        activeApplication != null && !activeApplication!.isApproved;
+    if (deciding) {
       final applicant = activeApplication!.applicantName;
       final (title, message, label, color) = switch (recommendation) {
-        'Not Recommended' => (
-          'Save and reject?',
-          'With "Not Recommended", $applicant\'s application will be '
-              'rejected and they will be notified.',
-          'Save & Reject',
-          AppTheme.red500,
-        ),
-        'Recommended with Reservations' => (
+        'Not Recommended' || 'Recommended with Reservations' => (
           'Save and waitlist?',
-          'With "Recommended with Reservations", $applicant\'s application '
-              'will be waitlisted and they will be notified.',
+          'With "$recommendation", $applicant\'s application will be '
+              'waitlisted and they will be notified. You can still approve '
+              'them later.',
           'Save & Waitlist',
-          AppTheme.amber500,
+          AppTheme.blue500,
         ),
         _ => (
           'Save and approve?',
           'With "$recommendation", $applicant\'s application will be '
-              'approved: they become a Student Assistant, get an SA ID, and '
-              'their Contract of Appointment and Endorsement Letter are '
-              'generated.',
+              'approved: they become a Student Assistant with an SA ID and '
+              'no office yet. Place them in an office from Offices, matching '
+              'their skills.',
           'Save & Approve',
           AppTheme.emerald500,
         ),
@@ -2833,11 +2331,14 @@ Widget _form(AppState state) {
     );
     await state.saveScreeningRecord(record);
     if (activeApplication != null) {
-      final status = recommendation == 'Not Recommended'
-          ? 'Rejected'
-          : recommendation == 'Recommended with Reservations'
-          ? 'Waitlisted'
-          : 'Approved';
+      // Already approved stays approved; saving it again only finishes
+      // making them a Student Assistant if that was cut short.
+      final status = !deciding
+          ? activeApplication!.status
+          : recommendation == 'Not Recommended' ||
+                recommendation == 'Recommended with Reservations'
+          ? Application.waitlisted
+          : Application.approved;
       // The score and evaluator remarks stay in the screening record, which
       // only the Head can read. An application's remarks are shown to the
       // applicant, in their portal and in the decision notification.

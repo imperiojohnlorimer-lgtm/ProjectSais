@@ -132,6 +132,27 @@ final _assistant = User(
   email: 'sa@example.com',
   role: 'Student Assistant',
 );
+/// The Head's call students apply through.
+final _hiringCall = Announcement(
+  id: 'call1',
+  title: 'Student Assistant Hiring',
+  body: 'Body',
+  postedBy: 'Hana Head',
+  postedAt: '2026-09-27',
+);
+
+/// The student's application to be a Student Assistant, made through
+/// [_hiringCall].
+Application _application(AppState state) => Application(
+  id: Application.idFor(_student.id, state.academicYear),
+  announcementId: _hiringCall.id,
+  announcementTitle: Application.generalTitle,
+  applicantId: _student.id,
+  applicantName: _student.name,
+  appliedAt: '2026-09-27',
+  academicYear: state.academicYear,
+);
+
 final _student = User(
   id: 'stu1',
   name: 'Sam Student',
@@ -176,28 +197,36 @@ void main() {
   });
 
   group('applications', () {
-    final application = Application(
-      id: 'app1',
-      announcementId: 'ann1',
-      announcementTitle: 'Library Assistant',
-      applicantId: _student.id,
-      applicantName: _student.name,
-      appliedAt: '2026-09-27',
-    );
-
     test('a student applying alerts the Head', () async {
       // A Student can't list other profiles, so after loading, their own is
       // the only one the app knows about.
       fake.headIds = ['head1'];
       state
         ..currentUser = _student
-        ..users = [_student];
+        ..users = [_student]
+        ..announcements = [_hiringCall];
 
-      final ok = await state.submitApplication(application);
+      final ok = await state.submitApplication(_application(state));
 
       expect(ok, isTrue);
       expect(fake.sentTo('stu1').single['title'], 'Application Submitted');
-      expect(fake.sentTo('head1').single['title'], 'New Application');
+      expect(
+        fake.sentTo('head1').single['message'],
+        'Sam Student applied to be a Student Assistant.',
+      );
+    });
+
+    test('picking an applicant for screening tells them', () async {
+      state
+        ..currentUser = _head
+        ..users = [_head, _student]
+        ..applications = [_application(state)];
+
+      final sent = await state.sendToScreening([_application(state).id]);
+
+      expect(sent, 1);
+      expect(state.applications.single.status, Application.forScreening);
+      expect(fake.sentTo('stu1').single['title'], 'Selected for Screening');
     });
 
     test("a Head's session publishes the Heads for students", () async {
@@ -346,7 +375,7 @@ void main() {
       expect(fake.sentTo('sup1'), isEmpty);
     });
 
-    test('approving tells the supervisor who asked and the students', () async {
+    test('approving tells the supervisor who asked, not the students', () async {
       state
         ..currentUser = _head
         ..users = [_head, _supervisor, _student]
@@ -356,7 +385,8 @@ void main() {
 
       expect(ok, isTrue);
       expect(fake.sentTo('sup1').single['title'], 'Announcement Approved');
-      expect(fake.sentTo('stu1').single['title'], 'New Hiring Announcement');
+      // Students apply to be a Student Assistant, never to a request.
+      expect(fake.sentTo('stu1'), isEmpty);
     });
 
     test('rejecting tells the supervisor who asked', () async {
@@ -420,17 +450,9 @@ void main() {
       fake.headIds = ['head1'];
       state
         ..currentUser = _student
-        ..users = [_student];
-      await state.submitApplication(
-        Application(
-          id: 'app1',
-          announcementId: 'ann1',
-          announcementTitle: 'Library Assistant',
-          applicantId: _student.id,
-          applicantName: _student.name,
-          appliedAt: '2026-09-27',
-        ),
-      );
+        ..users = [_student]
+        ..announcements = [_hiringCall];
+      await state.submitApplication(_application(state));
 
       final local = state.myNotifications.single;
       expect(local.id, fake.sentTo('stu1').single['id']);

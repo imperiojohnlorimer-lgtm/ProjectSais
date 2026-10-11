@@ -713,8 +713,9 @@ class _LandingScreenState extends State<LandingScreen> {
       (
         Icons.how_to_reg_outlined,
         'Applications & screening',
-        'Post openings, collect applications and requirements online, and '
-            'score each interview on the official assessment form.',
+        'Open a hiring call, collect applications with skills and '
+            'requirements, match skills to office requests, and score each '
+            'interview on the official assessment form.',
       ),
       (
         Icons.account_balance_outlined,
@@ -929,14 +930,15 @@ class _LandingScreenState extends State<LandingScreen> {
       (
         '01',
         'Apply & screen',
-        'Students apply online with their requirements, and the Head '
-            'interviews them on the official assessment form.',
+        'Students apply to be a Student Assistant with their skills and '
+            'requirements; the Head matches skills to office requests and '
+            'picks who to interview.',
       ),
       (
         '02',
         'Appoint & place',
-        'Approved applicants get an SA ID, a contract, and an endorsement '
-            'letter, and are assigned to an office.',
+        'Approved applicants get an SA ID and are placed in an office that '
+            'fits their skills, with a contract and an endorsement letter.',
       ),
       (
         '03',

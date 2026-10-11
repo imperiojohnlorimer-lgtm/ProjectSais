@@ -12,7 +12,7 @@ class StudentPortalShell extends StatefulWidget {
 
   /// The portal's pages, in sidebar order (the order of [_navItems]' ids).
   static const pages = [
-    (id: 'announcements', label: 'Announcements'),
+    (id: 'announcements', label: 'Apply'),
     (id: 'notifications', label: 'Notifications'),
     (id: 'profile', label: 'Profile'),
   ];
@@ -34,7 +34,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
       context.read<AppState>().setTab(StudentPortalShell.pages[index].id);
 
   static const _navItems = [
-    (id: 0, label: 'Announcements', icon: Icons.campaign_outlined,       activeIcon: Icons.campaign),
+    (id: 0, label: 'Apply',          icon: Icons.badge_outlined,          activeIcon: Icons.badge),
     (id: 1, label: 'Notifications',  icon: Icons.notifications_outlined,  activeIcon: Icons.notifications),
     (id: 2, label: 'Profile',        icon: Icons.person_outline,           activeIcon: Icons.person),
   ];
@@ -61,7 +61,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
 
   String _title() {
     switch (_tab) {
-      case 0: return 'Announcements';
+      case 0: return 'Apply';
       case 1: return 'Notifications';
       case 2: return 'Profile';
       default: return 'Student Portal';

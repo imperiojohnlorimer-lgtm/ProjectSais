@@ -67,8 +67,9 @@ void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
     List<Announcement> announcements = const [],
+    Size size = const Size(1440, 1000),
   }) async {
-    tester.view.physicalSize = const Size(1440, 1000);
+    tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
     // The test font draws every glyph as a full square, so some of the
@@ -99,51 +100,129 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  Future<void> openDialog(WidgetTester tester) async {
-    await pumpScreen(tester);
+  Future<void> openDialog(
+    WidgetTester tester, [
+    Size size = const Size(1440, 1000),
+  ]) async {
+    await pumpScreen(tester, size: size);
     await tester.tap(find.text('Post Announcement').first);
     await tester.pumpAndSettle();
   }
 
   Finder field(String label) => find.widgetWithText(TextField, label);
 
-  testWidgets('a new announcement starts with no requirements, deadline '
-      'or office', (tester) async {
+  for (final (width, size) in [
+    (1440, const Size(1440, 1000)),
+    (390, const Size(390, 844)),
+  ]) {
+    testWidgets('a new hiring call asks for no office or slots at ${width}px', (
+      tester,
+    ) async {
+      await openDialog(tester, size);
+
+      expect(find.text('Hiring call'), findsOneWidget);
+      expect(find.text('Notice'), findsOneWidget);
+      expect(find.text('Last day to apply'), findsOneWidget);
+      expect(find.text('No deadline'), findsOneWidget);
+      expect(find.text('doc'), findsNothing);
+      expect(find.text('docpdf'), findsNothing);
+      // Students apply to be a Student Assistant, never to one office, and
+      // aren't hired for a number of places.
+      expect(find.text('Any office'), findsNothing);
+      expect(find.text('Available Slots'), findsNothing);
+      expect(find.text('Position Title'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+  }
+
+  testWidgets('missing details are shown on the form', (tester) async {
     await openDialog(tester);
 
-    expect(find.text('doc'), findsNothing);
-    expect(find.text('docpdf'), findsNothing);
+    await tester.tap(find.text('Post Hiring Call'));
+    await tester.pumpAndSettle();
+
     expect(
-      tester.widget<TextField>(field('Deadline')).controller!.text,
-      isEmpty,
+      find.text('Enter a title of at least 3 characters.'),
+      findsOneWidget,
     );
-    expect(find.text('Any office'), findsOneWidget);
+    expect(find.text('Write at least 10 characters.'), findsOneWidget);
+    expect(store.saved, isEmpty);
   });
 
-  testWidgets('the office chosen is posted with the announcement', (
+  testWidgets('a hiring call is posted with its requirements and no slots', (
     tester,
   ) async {
     await openDialog(tester);
 
-    await tester.enterText(field('Position Title'), 'Office Aide');
+    await tester.enterText(field('Title'), 'Student Assistant Hiring');
     await tester.enterText(
       field('Description'),
-      'Help file records and answer walk-in students.',
+      'Apply to be a Student Assistant for the first semester.',
     );
-    await tester.tap(find.text('Any office'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Registrar').last);
-    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(TextField, 'e.g. Certificate of Registration'),
+      'Certificate of Registration',
+    );
+    for (final target in [
+      find.text('PDF'),
+      find.byTooltip('Add requirement'),
+    ]) {
+      await tester.ensureVisible(target);
+      await tester.pumpAndSettle();
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Certificate of Registration (PDF)'), findsOneWidget);
 
-    final post = find.text('Post Announcement').last;
+    final post = find.text('Post Hiring Call');
     await tester.ensureVisible(post);
     await tester.tap(post);
     await tester.pumpAndSettle();
 
     final posted = store.saved.single;
-    expect(posted['title'], 'Office Aide');
-    expect(posted['officeId'], 'o2');
-    expect(posted['officeName'], 'Registrar');
+    expect(posted['title'], 'Student Assistant Hiring');
+    expect(posted['acceptsApplications'], isTrue);
+    expect(posted['requirements'], ['Certificate of Registration::pdf']);
+    expect(posted['slots'], isNull);
+    expect(posted['officeId'], isNull);
+    expect(posted['deadline'], isNull);
+  });
+
+  testWidgets('a long requirement fits on a phone', (tester) async {
+    await openDialog(tester, const Size(390, 844));
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'e.g. Certificate of Registration'),
+      'Certificate of Registration for the First Semester of the Year',
+    );
+    final add = find.byTooltip('Add requirement');
+    await tester.ensureVisible(add);
+    await tester.pumpAndSettle();
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a notice takes no applications, deadline or requirements', (
+    tester,
+  ) async {
+    await openDialog(tester);
+
+    await tester.tap(find.text('Notice'));
+    await tester.pumpAndSettle();
+    expect(find.text('Last day to apply'), findsNothing);
+
+    await tester.enterText(field('Title'), 'Orientation');
+    await tester.enterText(
+      field('Description'),
+      'Orientation for new Student Assistants on Monday.',
+    );
+    await tester.tap(find.text('Post Notice'));
+    await tester.pumpAndSettle();
+
+    final posted = store.saved.single;
+    expect(posted['acceptsApplications'], isFalse);
     expect(posted['requirements'], isEmpty);
     expect(posted['deadline'], isNull);
   });

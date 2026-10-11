@@ -546,7 +546,10 @@ class AnnouncementDetailsDialog extends StatelessWidget {
                             'Due ${announcement.deadline!}',
                             AppTheme.amber500,
                           ),
-                        if (announcement.slots != null)
+                        // Only a supervisor's request is for a number of
+                        // student assistants; a hiring call has no slots.
+                        if (announcement.slots != null &&
+                            !announcement.isHiringCall)
                           _Chip(
                             Icons.people_rounded,
                             '${announcement.slots} slots',
@@ -836,12 +839,16 @@ class RequirementChip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            spec.label,
-            style: const TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.maroon,
+          // A long name is cut short instead of running off a phone.
+          Flexible(
+            child: Text(
+              spec.label,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.maroon,
+              ),
             ),
           ),
           if (spec.fileTypeLabel != null) ...[

@@ -6,6 +6,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
+import '../../widgets/application_status.dart';
 import '../../widgets/avatar_editor.dart';
 import '../../widgets/profile_widgets.dart';
 
@@ -489,18 +490,7 @@ class _AppRow extends StatelessWidget {
   final Application application;
   const _AppRow({required this.application});
 
-  Color get _statusColor {
-    switch (application.status) {
-      case 'Approved':
-        return AppTheme.emerald500;
-      case 'Waitlisted':
-        return AppTheme.blue500;
-      case 'Rejected':
-        return AppTheme.red500;
-      default:
-        return AppTheme.amber500;
-    }
-  }
+  Color get _statusColor => applicationStatusColor(application.status);
 
   @override
   Widget build(BuildContext context) {
@@ -526,7 +516,9 @@ class _AppRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  application.announcementTitle,
+                  application.announcementTitle.isEmpty
+                      ? Application.generalTitle
+                      : application.announcementTitle,
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,

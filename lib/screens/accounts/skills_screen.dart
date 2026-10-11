@@ -117,6 +117,12 @@ class _SkillsScreenState extends State<SkillsScreen> {
         subtitle: 'Skills appear as choices on the student application form',
         icon: Icons.add_rounded,
         controller: controller,
+        problem: (name) {
+          final existing = state.findSkill(name);
+          return existing == null
+              ? null
+              : '"$existing" is already on the list.';
+        },
         onSave: () => state.addSkill(controller.text.trim()),
       ),
     );
@@ -149,6 +155,12 @@ class _SkillsScreenState extends State<SkillsScreen> {
         subtitle: 'Renaming updates this skill everywhere it is used',
         icon: Icons.edit_outlined,
         controller: controller,
+        problem: (name) {
+          final existing = state.findSkill(name);
+          return existing == null || existing == skill
+              ? null
+              : '"$existing" is already on the list.';
+        },
         onSave: () => state.updateSkill(skill, controller.text.trim()),
       ),
     );
@@ -489,12 +501,17 @@ class _SkillDialog extends StatefulWidget {
   final TextEditingController controller;
   final Future<bool> Function() onSave;
 
+  /// Why [name] can't be saved (another skill has it, in any case), or
+  /// null when it can.
+  final String? Function(String name)? problem;
+
   const _SkillDialog({
     required this.title,
     required this.subtitle,
     required this.icon,
     required this.controller,
     required this.onSave,
+    this.problem,
   });
 
   @override
@@ -503,16 +520,29 @@ class _SkillDialog extends StatefulWidget {
 
 class _SkillDialogState extends State<_SkillDialog> {
   bool _saving = false;
+  String? _error;
 
   Future<void> _save() async {
-    if (widget.controller.text.trim().isEmpty || _saving) return;
-    setState(() => _saving = true);
+    final name = widget.controller.text.trim();
+    if (name.isEmpty || _saving) return;
+    final problem = widget.problem?.call(name);
+    if (problem != null) {
+      setState(() => _error = problem);
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     final ok = await widget.onSave();
     if (!mounted) return;
     if (ok) {
       Navigator.pop(context, true);
     } else {
-      setState(() => _saving = false);
+      setState(() {
+        _saving = false;
+        _error = "The skill couldn't be saved. Please try again.";
+      });
     }
   }
 
@@ -568,10 +598,15 @@ class _SkillDialogState extends State<_SkillDialog> {
           controller: widget.controller,
           autofocus: true,
           onSubmitted: (_) => _save(),
-          decoration: const InputDecoration(
+          onChanged: (_) {
+            if (_error != null) setState(() => _error = null);
+          },
+          decoration: InputDecoration(
             labelText: 'SKILL NAME',
             hintText: 'e.g. Data encoding',
-            prefixIcon: Icon(Icons.star_outline_rounded, size: 19),
+            prefixIcon: const Icon(Icons.star_outline_rounded, size: 19),
+            errorText: _error,
+            errorMaxLines: 2,
           ),
         ),
       ),

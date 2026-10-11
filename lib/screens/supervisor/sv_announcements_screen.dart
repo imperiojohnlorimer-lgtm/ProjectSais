@@ -119,7 +119,7 @@ class SvAnnouncementsScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            'Request a student assistant for your office; the Head approves it before students see it.',
+                            'Request a student assistant for your office. The Head approves it and matches Student Assistants to it by their skills.',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppTheme.slate300,
@@ -157,8 +157,10 @@ class SvAnnouncementsScreen extends StatelessWidget {
 }
 
 /// The supervisor's request for a student assistant, laid out like the
-/// Head's Post Announcement dialog. It's saved as a Pending announcement;
-/// once the Head approves it, students see it and can apply.
+/// Head's Post Announcement dialog. It's saved as a Pending announcement
+/// and ends with the Head approving it: students never see it or apply to
+/// it, they apply to be a Student Assistant, and the Head matches their
+/// skills to the skills asked for here.
 class _RequestDialog extends StatefulWidget {
   const _RequestDialog();
 
@@ -189,13 +191,9 @@ class _RequestDialogState extends State<_RequestDialog> {
   final _body = TextEditingController();
   final _deadline = TextEditingController();
   final _slots = TextEditingController();
-  final _requirement = TextEditingController();
-  final _requirements = <String>[];
   final _skills = <String>[];
   final _office = _OfficeSelection();
   late final List<Office> _offices;
-  String _fileType = 'any'; // 'any' | 'word' | 'pdf' | 'image'
-  bool _acceptsApplications = true;
   PlatformFile? _attachment;
   // Kept once uploaded, so trying again after a failed send doesn't
   // upload the file twice.
@@ -213,7 +211,7 @@ class _RequestDialogState extends State<_RequestDialog> {
 
   @override
   void dispose() {
-    for (final controller in [_title, _body, _deadline, _slots, _requirement]) {
+    for (final controller in [_title, _body, _deadline, _slots]) {
       controller.dispose();
     }
     super.dispose();
@@ -239,19 +237,6 @@ class _RequestDialogState extends State<_RequestDialog> {
       () => _deadline.text =
           '${_months[picked.month - 1]} ${picked.day}, ${picked.year}',
     );
-  }
-
-  void _addRequirement() {
-    final label = _requirement.text.trim();
-    if (label.isEmpty) return;
-    final spec = RequirementSpec(label, _fileType == 'any' ? null : _fileType);
-    setState(() {
-      if (!_requirements.contains(spec.encoded)) {
-        _requirements.add(spec.encoded);
-      }
-      _requirement.clear();
-      _fileType = 'any';
-    });
   }
 
   Future<void> _pickAttachment() async {
@@ -330,8 +315,8 @@ class _RequestDialogState extends State<_RequestDialog> {
             state.currentUser?.id ??
             'user';
         final name = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-        // The same public root as the Head's announcement attachments, so
-        // students can download it once the request is approved.
+        // The same root as the Head's announcement attachments, which any
+        // signed-in viewer can open.
         final path =
             'announcements/$uid/${DateTime.now().millisecondsSinceEpoch}/$name';
         final extension = file.extension?.toLowerCase();
@@ -369,9 +354,8 @@ class _RequestDialogState extends State<_RequestDialog> {
         postedAt: '${now.month}/${now.day}/${now.year}',
         deadline: deadline.isEmpty ? null : deadline,
         slots: slots.isEmpty ? null : slots,
-        requirements: List.of(_requirements),
         skills: List.of(_skills),
-        acceptsApplications: _acceptsApplications,
+        acceptsApplications: false,
         isOpen: false,
         officeId: _office.office?.id,
         officeName: _office.resolvedName,
@@ -396,7 +380,7 @@ class _RequestDialogState extends State<_RequestDialog> {
     navigator.pop();
     AppSnackBar.showWithMessenger(
       messenger,
-      'Request sent. The Head will review it before students see it.',
+      'Request sent. The Head will review it.',
       type: SnackType.success,
     );
   }
@@ -513,7 +497,7 @@ class _RequestDialogState extends State<_RequestDialog> {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Sent to the Head for approval before students see it',
+                        'Sent to the Head for approval',
                         style: TextStyle(fontSize: 12.5, color: Colors.white70),
                       ),
                     ],
@@ -677,15 +661,9 @@ class _RequestDialogState extends State<_RequestDialog> {
                 ),
         ),
         const SizedBox(height: 20),
-        _acceptApplicationsCard(),
-        const SizedBox(height: 20),
         _sectionLabel('NEEDED SKILLS'),
         const SizedBox(height: 10),
         _skillsBox(),
-        const SizedBox(height: 20),
-        _sectionLabel('REQUIREMENTS'),
-        const SizedBox(height: 10),
-        _requirementsBox(),
         const SizedBox(height: 20),
         _sectionLabel('ATTACHMENT'),
         const SizedBox(height: 10),
@@ -790,206 +768,6 @@ class _RequestDialogState extends State<_RequestDialog> {
                 ),
               ),
             ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _acceptApplicationsCard() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: _acceptsApplications
-            ? AppTheme.maroon.withValues(alpha: 0.06)
-            : AppTheme.slate50,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(
-          color: _acceptsApplications
-              ? AppTheme.maroon.withValues(alpha: 0.25)
-              : AppTheme.slate200,
-        ),
-      ),
-      child: Row(
-        children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Accept applications',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slate800,
-                  ),
-                ),
-                Text(
-                  'Turn off for a normal announcement',
-                  style: TextStyle(fontSize: 11, color: AppTheme.slate500),
-                ),
-              ],
-            ),
-          ),
-          Switch(
-            value: _acceptsApplications,
-            activeThumbColor: AppTheme.maroon,
-            onChanged: (value) => setState(() => _acceptsApplications = value),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _requirementsBox() {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: AppTheme.slate50,
-        borderRadius: BorderRadius.circular(13),
-        border: Border.all(color: AppTheme.slate200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (_requirements.isNotEmpty) ...[
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final (index, raw) in _requirements.indexed)
-                  _requirementChip(RequirementSpec.parse(raw), index),
-              ],
-            ),
-            const SizedBox(height: 10),
-          ],
-          TextField(
-            controller: _requirement,
-            onSubmitted: (_) => _addRequirement(),
-            decoration: InputDecoration(
-              hintText: 'Add requirement (press Enter)',
-              fillColor: Colors.white,
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 12,
-              ),
-              border: _smallBorder(AppTheme.slate200),
-              enabledBorder: _smallBorder(AppTheme.slate200),
-              focusedBorder: _smallBorder(AppTheme.maroon, width: 1.5),
-              suffixIcon: IconButton(
-                tooltip: 'Add requirement',
-                onPressed: _addRequirement,
-                icon: const Icon(
-                  Icons.add_rounded,
-                  size: 18,
-                  color: AppTheme.maroon,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const Text(
-                'File type:',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.slate500,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final (value, label) in const [
-                        ('any', 'Any file'),
-                        ('word', 'Word (.doc/.docx)'),
-                        ('pdf', 'PDF'),
-                        ('image', 'Image'),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 6),
-                          child: _fileTypeChip(value, label),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  static OutlineInputBorder _smallBorder(Color color, {double width = 1}) =>
-      OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: color, width: width),
-      );
-
-  Widget _requirementChip(RequirementSpec spec, int index) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.maroon.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.2)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Flexible(
-            child: Text(
-              spec.fileTypeLabel == null
-                  ? spec.label
-                  : '${spec.label} (${spec.fileTypeLabel})',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.maroon,
-              ),
-            ),
-          ),
-          const SizedBox(width: 4),
-          Tooltip(
-            message: 'Remove',
-            child: GestureDetector(
-              onTap: () => setState(() => _requirements.removeAt(index)),
-              child: const Icon(
-                Icons.close_rounded,
-                size: 12,
-                color: AppTheme.maroon,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _fileTypeChip(String value, String label) {
-    final selected = _fileType == value;
-    return GestureDetector(
-      onTap: () => setState(() => _fileType = value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.maroon : Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: selected ? AppTheme.maroon : AppTheme.slate200,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w700,
-            color: selected ? Colors.white : AppTheme.slate600,
           ),
         ),
       ),

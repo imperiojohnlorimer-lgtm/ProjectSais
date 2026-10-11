@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter/services.dart';
-import 'package:file_picker/file_picker.dart';
-import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import '../../models/app_state.dart';
 import '../../models/models.dart';
-import '../../services/supabase_storage_service.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/shared_widgets.dart';
+import 'post_announcement_dialog.dart';
 
 class AdminAnnouncementsScreen extends StatefulWidget {
   const AdminAnnouncementsScreen({super.key});
@@ -19,7 +16,9 @@ class AdminAnnouncementsScreen extends StatefulWidget {
 }
 
 class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
-  String filterStatus = 'All'; // 'All', 'Open', 'Closed', 'Pending'
+  // 'All', 'Hiring Calls', 'SA Requests', 'Office Memos', 'Open',
+  // 'Closed', 'Pending'
+  String filterStatus = 'All';
   String searchQuery = '';
 
   @override
@@ -35,11 +34,15 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
     } else if (filterStatus == 'Pending') {
       anns = anns.where((a) => a.isPending).toList();
     } else if (filterStatus == 'Hiring Calls') {
-      // Filter by notice category or type
-      anns = anns.where((a) => a.acceptsApplications).toList();
+      // The Head's calls students apply through.
+      anns = anns.where((a) => a.isHiringCall).toList();
+    } else if (filterStatus == 'SA Requests') {
+      // Supervisors' requests for a student assistant.
+      anns = anns.where((a) => a.isSupervisorRequest).toList();
     } else if (filterStatus == 'Office Memos') {
-      // Filter by memo type
-      anns = anns.where((a) => !a.acceptsApplications).toList();
+      anns = anns
+          .where((a) => !a.isSupervisorRequest && !a.acceptsApplications)
+          .toList();
     }
     
     // Apply search
@@ -133,7 +136,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                       width: double.infinity,
                       child: ElevatedButton.icon(
                         onPressed: () =>
-                            _showPostAnnouncementDialog(context, state),
+                            showPostAnnouncementDialog(context),
                         icon: const Icon(Icons.add_rounded, size: 15),
                         label: const Text(
                           'Post Announcement',
@@ -218,7 +221,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                     ),
                     ElevatedButton.icon(
                       onPressed: () =>
-                          _showPostAnnouncementDialog(context, state),
+                          showPostAnnouncementDialog(context),
                       icon: const Icon(Icons.add_rounded, size: 15),
                       label: const Text(
                         'Post Announcement',
@@ -301,6 +304,35 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         color: filterStatus == 'Hiring Calls'
+                            ? Colors.white
+                            : AppTheme.slate600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                GestureDetector(
+                  onTap: () => setState(() => filterStatus = 'SA Requests'),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: filterStatus == 'SA Requests' ? AppTheme.maroon : Colors.white,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: filterStatus == 'SA Requests'
+                            ? AppTheme.maroon
+                            : AppTheme.slate200,
+                      ),
+                    ),
+                    child: Text(
+                      'SA Requests',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: filterStatus == 'SA Requests'
                             ? Colors.white
                             : AppTheme.slate600,
                       ),
@@ -406,7 +438,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                           ),
                           const SizedBox(height: 6),
                           const Text(
-                            'Use "Post Announcement" to notify students of hiring opportunities.',
+                            'Use "Post Announcement" to open Student Assistant applications or post a notice.',
                             style: TextStyle(
                               fontSize: 12,
                               color: AppTheme.slate300,
@@ -433,1139 +465,6 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
     );
   }
 
-  Widget _buildMentionTab(String label, [bool isSelected = false]) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? AppTheme.maroon : AppTheme.slate50,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(
-            color: isSelected ? AppTheme.maroon : AppTheme.slate200,
-          ),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            color: isSelected ? Colors.white : AppTheme.slate600,
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showPostAnnouncementDialog(BuildContext context, AppState state) {
-    final titleCtrl = TextEditingController();
-    final bodyCtrl = TextEditingController();
-    // Empty until picked: the picker saves "Oct 1, 2026", the only form
-    // the deadline check reads.
-    final deadlineCtrl = TextEditingController();
-    final slotsCtrl = TextEditingController(text: '3');
-    final reqs = <String>[];
-    final reqCtrl = TextEditingController();
-    String reqFileType = 'any'; // 'any' | 'word' | 'pdf' | 'image'
-    var acceptsApplications = true;
-    // '' = not for one office in particular.
-    var selectedOfficeId = '';
-    PlatformFile? attachedFile;
-    bool uploadingAttachment = false;
-    String? attachmentUrl;
-    String? attachmentPath;
-
-    Future<void> pickAttachment(void Function(void Function()) setDialogState) async {
-      final result = await FilePicker.platform.pickFiles(
-        type: FileType.any,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final file = result.files.single;
-      if (file.bytes == null) return;
-      setDialogState(() {
-        attachedFile = file;
-        attachmentUrl = null;
-        attachmentPath = null;
-      });
-    }
-
-    String mentionQuery = '';
-    String selectedMentionTab = 'All';
-    List<String> suggestions = const [];
-    bool isShowingMentions = false;
-
-    String extractMentionQuery(String value, int cursor) {
-      final beforeCursor = value.substring(0, cursor.clamp(0, value.length));
-      final lastAt = beforeCursor.lastIndexOf('@');
-      if (lastAt == -1) return '';
-      final fragment = beforeCursor.substring(lastAt + 1);
-      if (fragment.contains(' ') || fragment.contains('\n')) return '';
-      return fragment;
-    }
-
-    void applyMention(String mention) {
-      final text = bodyCtrl.text;
-      final cursor = bodyCtrl.selection.baseOffset;
-      final beforeCursor = text.substring(0, cursor.clamp(0, text.length));
-      final lastAt = beforeCursor.lastIndexOf('@');
-      if (lastAt == -1) return;
-      final prefix = beforeCursor.substring(0, lastAt);
-      final suffix = text.substring(cursor.clamp(0, text.length));
-      final replacement = '$mention ';
-      final nextText = '$prefix$replacement$suffix';
-      bodyCtrl.value = TextEditingValue(
-        text: nextText,
-        selection: TextSelection.collapsed(offset: prefix.length + replacement.length),
-      );
-    }
-
-    final mentionableNames = <String>{
-      for (final user in state.users)
-        if (user.role == 'Student' || user.role == 'Student Assistant' || user.role == 'Supervisor') '@${user.name}',
-    }.toList()
-      ..sort();
-
-    final mentionRoles = <String, String>{
-      for (final user in state.users)
-        if (user.role == 'Student' || user.role == 'Student Assistant' || user.role == 'Supervisor') '@${user.name}': user.role,
-    };
-    
-    final studentMentions = <String>{
-      for (final user in state.users)
-        if (user.role == 'Student') '@${user.name}',
-    }.toList()
-      ..sort();
-    
-    final assistantMentions = <String>{
-      for (final user in state.users)
-        if (user.role == 'Student Assistant') '@${user.name}',
-    }.toList()
-      ..sort();
-    
-    final supervisorMentions = <String>{
-      for (final user in state.users)
-        if (user.role == 'Supervisor') '@${user.name}',
-    }.toList()
-      ..sort();
-
-    showDialog(
-      context: context,
-      builder: (_) => StatefulBuilder(
-        builder: (dialogContext, setDialogState) {
-          mentionQuery = extractMentionQuery(
-            bodyCtrl.text,
-            bodyCtrl.selection.baseOffset,
-          );
-          isShowingMentions = bodyCtrl.text.contains('@');
-          
-          List<String> tabFilteredMentions = mentionableNames;
-          if (selectedMentionTab == 'Students') {
-            tabFilteredMentions = studentMentions;
-          } else if (selectedMentionTab == 'Student Assistants') {
-            tabFilteredMentions = assistantMentions;
-          } else if (selectedMentionTab == 'Supervisors') {
-            tabFilteredMentions = supervisorMentions;
-          }
-          
-          suggestions = isShowingMentions
-              ? tabFilteredMentions
-                    .where((item) => item.toLowerCase().contains(
-                      mentionQuery.toLowerCase(),
-                    ))
-                    .take(6)
-                    .toList()
-              : const [];
-
-          final mentionedPeople = RegExp(r'@([A-Za-z0-9 _-]+)')
-              .allMatches(bodyCtrl.text)
-              .map((m) => m.group(1)!.trim())
-              .where((name) => name.isNotEmpty)
-              .toSet()
-              .toList();
-
-          return Dialog(
-            insetPadding: const EdgeInsets.all(16),
-            backgroundColor: Colors.transparent,
-            child: Container(
-              width: 560,
-              constraints: const BoxConstraints(maxHeight: 760),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(26),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.maroon.withValues(alpha: 0.18),
-                    blurRadius: 40,
-                    offset: const Offset(0, 16),
-                  ),
-                ],
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ClipRRect(
-                    borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-                    child: Stack(
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                              colors: [AppTheme.maroon, AppTheme.maroonDark],
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              Container(
-                                width: 44,
-                                height: 44,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: 0.16),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: const Icon(
-                                  Icons.campaign_rounded,
-                                  color: Colors.white,
-                                  size: 22,
-                                ),
-                              ),
-                              const SizedBox(width: 14),
-                              const Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'Post Announcement',
-                                      style: TextStyle(
-                                        fontSize: 19,
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.white,
-                                        letterSpacing: -0.3,
-                                      ),
-                                    ),
-                                    SizedBox(height: 2),
-                                    Text(
-                                      'Create a new hiring announcement',
-                                      style: TextStyle(
-                                        fontSize: 12.5,
-                                        color: Colors.white70,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              GestureDetector(
-                                onTap: () => Navigator.pop(context),
-                                child: Container(
-                                  width: 32,
-                                  height: 32,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withValues(alpha: 0.14),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.close_rounded,
-                                    color: Colors.white,
-                                    size: 18,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Positioned(
-                          right: -30,
-                          top: -30,
-                          child: IgnorePointer(
-                            child: Container(
-                              width: 110,
-                              height: 110,
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.white.withValues(alpha: 0.06),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Flexible(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
-                      child: Theme(
-                        data: Theme.of(context).copyWith(
-                          inputDecorationTheme: InputDecorationTheme(
-                            filled: true,
-                            fillColor: AppTheme.slate50,
-                            labelStyle: const TextStyle(
-                              color: AppTheme.slate600,
-                              fontWeight: FontWeight.w700,
-                              fontSize: 13,
-                            ),
-                            hintStyle: const TextStyle(
-                              color: AppTheme.slate400,
-                              fontSize: 13,
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 14,
-                            ),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide: const BorderSide(color: AppTheme.slate200),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide: const BorderSide(color: AppTheme.slate200),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(13),
-                              borderSide: const BorderSide(color: AppTheme.maroon, width: 1.7),
-                            ),
-                          ),
-                        ),
-                        child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _sectionLabel('BASIC INFORMATION'),
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: titleCtrl,
-                            decoration: const InputDecoration(
-                              labelText: 'Position Title',
-                              prefixIcon: Icon(
-                                Icons.work_outline_rounded,
-                                color: AppTheme.maroon,
-                                size: 18,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          TextField(
-                            controller: bodyCtrl,
-                            maxLines: 5,
-                            onChanged: (_) => setDialogState(() {}),
-                            decoration: const InputDecoration(
-                              labelText: 'Description',
-                              hintText: 'Describe the role... type @ to mention a student, assistant, or supervisor',
-                              hintMaxLines: 3,
-                              alignLabelWithHint: true,
-                              prefixIcon: Padding(
-                                padding: EdgeInsets.only(bottom: 90),
-                                child: Icon(
-                                  Icons.description_outlined,
-                                  color: AppTheme.maroon,
-                                  size: 18,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.only(top: 6, left: 4),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.alternate_email_rounded,
-                                  size: 13,
-                                  color: AppTheme.slate400,
-                                ),
-                                SizedBox(width: 5),
-                                Expanded(
-                                  child: Text(
-                                    'Tip: type @ in the description to mention and notify a specific person.',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: AppTheme.slate400,
-                                      fontStyle: FontStyle.italic,
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          if (suggestions.isNotEmpty) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: AppTheme.slate200),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  SingleChildScrollView(
-                                    scrollDirection: Axis.horizontal,
-                                    child: Row(
-                                      children: [
-                                        GestureDetector(
-                                          onTap: () => setDialogState(() => selectedMentionTab = 'All'),
-                                          child: _buildMentionTab('All (${mentionableNames.length})', selectedMentionTab == 'All'),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        GestureDetector(
-                                          onTap: () => setDialogState(() => selectedMentionTab = 'Students'),
-                                          child: _buildMentionTab('Students (${studentMentions.length})', selectedMentionTab == 'Students'),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        GestureDetector(
-                                          onTap: () => setDialogState(() => selectedMentionTab = 'Student Assistants'),
-                                          child: _buildMentionTab('Student Assistants (${assistantMentions.length})', selectedMentionTab == 'Student Assistants'),
-                                        ),
-                                        const SizedBox(width: 6),
-                                        GestureDetector(
-                                          onTap: () => setDialogState(() => selectedMentionTab = 'Supervisors'),
-                                          child: _buildMentionTab('Supervisors (${supervisorMentions.length})', selectedMentionTab == 'Supervisors'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Divider(color: AppTheme.slate200, height: 1),
-                                  Container(
-                                    constraints: const BoxConstraints(maxHeight: 200),
-                                    child: ListView.separated(
-                                      shrinkWrap: true,
-                                      itemCount: suggestions.length,
-                                      separatorBuilder: (context, index) => Divider(
-                                        color: AppTheme.slate100,
-                                        height: 1,
-                                      ),
-                                      itemBuilder: (context, index) {
-                                        final mention = suggestions[index];
-                                        return InkWell(
-                                          onTap: () {
-                                            applyMention(mention);
-                                            setDialogState(() {});
-                                          },
-                                          child: Padding(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 12,
-                                              vertical: 10,
-                                            ),
-                                            child: Row(
-                                              children: [
-                                                Container(
-                                                  width: 32,
-                                                  height: 32,
-                                                  decoration: BoxDecoration(
-                                                    color: AppTheme.maroon,
-                                                    shape: BoxShape.circle,
-                                                  ),
-                                                  child: Center(
-                                                    child: Text(
-                                                      mention[1].toUpperCase(),
-                                                      style: const TextStyle(
-                                                        color: Colors.white,
-                                                        fontWeight: FontWeight.w700,
-                                                        fontSize: 13,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 10),
-                                                Expanded(
-                                                  child: Column(
-                                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                                    children: [
-                                                      Text(
-                                                        mention,
-                                                        style: const TextStyle(
-                                                          fontSize: 12,
-                                                          fontWeight: FontWeight.w600,
-                                                          color: AppTheme.slate800,
-                                                        ),
-                                                      ),
-                                                      const SizedBox(height: 2),
-                                                      Text(
-                                                        mentionRoles[mention] ?? 'Student',
-                                                        style: const TextStyle(
-                                                          fontSize: 10,
-                                                          color: AppTheme.slate500,
-                                                        ),
-                                                      ),
-                                                    ],
-                                                  ),
-                                                ),
-                                                TextButton(
-                                                  onPressed: () {
-                                                    applyMention(mention);
-                                                    setDialogState(() {});
-                                                  },
-                                                  child: const Text(
-                                                    'Enter',
-                                                    style: TextStyle(
-                                                      fontSize: 11,
-                                                      fontWeight: FontWeight.w700,
-                                                      color: AppTheme.maroon,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                          if (mentionedPeople.isNotEmpty) ...[
-                            const SizedBox(height: 10),
-                            Wrap(
-                              spacing: 8,
-                              runSpacing: 8,
-                              children: mentionedPeople
-                                  .map(
-                                    (person) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 8,
-                                        vertical: 5,
-                                      ),
-                                      decoration: BoxDecoration(
-                                        color: AppTheme.maroon.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                        borderRadius: BorderRadius.circular(20),
-                                        border: Border.all(
-                                          color: AppTheme.maroon.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                        ),
-                                      ),
-                                      child: Text(
-                                        '@$person',
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppTheme.maroon,
-                                        ),
-                                      ),
-                                    ),
-                                  )
-                                  .toList(),
-                            ),
-                          ],
-                          const SizedBox(height: 20),
-                          _sectionLabel('AUDIENCE & SCHEDULE'),
-                          const SizedBox(height: 10),
-                          DropdownButtonFormField<String>(
-                            initialValue: selectedOfficeId,
-                            isExpanded: true,
-                            icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
-                            decoration: const InputDecoration(
-                              labelText: 'Office',
-                              prefixIcon: Icon(
-                                Icons.account_balance_outlined,
-                                color: AppTheme.maroon,
-                                size: 18,
-                              ),
-                            ),
-                            onChanged: (String? value) {
-                              setDialogState(() => selectedOfficeId = value ?? '');
-                            },
-                            items: [
-                              const DropdownMenuItem(
-                                value: '',
-                                child: Text(
-                                  'Any office',
-                                  style: TextStyle(color: AppTheme.slate500),
-                                ),
-                              ),
-                              for (final office in state.offices)
-                                if (office.isActive)
-                                  DropdownMenuItem(
-                                    value: office.id,
-                                    child: Text(
-                                      office.name,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(color: AppTheme.slate800),
-                                    ),
-                                  ),
-                            ],
-                          ),
-                          const SizedBox(height: 14),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: TextField(
-                                  controller: deadlineCtrl,
-                                  readOnly: true,
-                                  onTap: () async {
-                                    final now = DateTime.now();
-                                    final picked = await showDatePicker(
-                                      context: context,
-                                      initialDate: now,
-                                      firstDate: DateTime(now.year - 1),
-                                      lastDate: DateTime(now.year + 5),
-                                    );
-                                    if (picked == null) return;
-                                    final months = const [
-                                      'Jan',
-                                      'Feb',
-                                      'Mar',
-                                      'Apr',
-                                      'May',
-                                      'Jun',
-                                      'Jul',
-                                      'Aug',
-                                      'Sep',
-                                      'Oct',
-                                      'Nov',
-                                      'Dec',
-                                    ];
-                                    deadlineCtrl.text =
-                                        '${months[picked.month - 1]} ${picked.day}, ${picked.year}';
-                                  },
-                                  decoration: const InputDecoration(
-                                    labelText: 'Deadline',
-                                    prefixIcon: Icon(
-                                      Icons.event_rounded,
-                                      color: AppTheme.maroon,
-                                      size: 18,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: TextField(
-                                  controller: slotsCtrl,
-                                  keyboardType: TextInputType.number,
-                                  inputFormatters: [
-                                    FilteringTextInputFormatter.digitsOnly,
-                                  ],
-                                  decoration: const InputDecoration(
-                                    labelText: 'Available Slots',
-                                    prefixIcon: Icon(
-                                      Icons.people_outline_rounded,
-                                      color: AppTheme.maroon,
-                                      size: 18,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            decoration: BoxDecoration(
-                              color: acceptsApplications
-                                  ? AppTheme.maroon.withValues(alpha: 0.06)
-                                  : AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(13),
-                              border: Border.all(
-                                color: acceptsApplications
-                                    ? AppTheme.maroon.withValues(alpha: 0.25)
-                                    : AppTheme.slate200,
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: const [
-                                      Text(
-                                        'Accept applications',
-                                        style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: FontWeight.w700,
-                                          color: AppTheme.slate800,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Turn off for a normal announcement',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: AppTheme.slate500,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Switch(
-                                  value: acceptsApplications,
-                                  activeThumbColor: AppTheme.maroon,
-                                  onChanged: (value) =>
-                                      setDialogState(() => acceptsApplications = value),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          _sectionLabel('REQUIREMENTS'),
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(13),
-                              border: Border.all(color: AppTheme.slate200),
-                            ),
-                            child: Column(
-                              children: [
-                                if (reqs.isNotEmpty)
-                                  Wrap(
-                                    spacing: 8,
-                                    runSpacing: 8,
-                                    children: reqs.asMap().entries.map((entry) {
-                                      final spec = RequirementSpec.parse(entry.value);
-                                      return Container(
-                                        padding: const EdgeInsets.symmetric(
-                                          horizontal: 8,
-                                          vertical: 6,
-                                        ),
-                                        decoration: BoxDecoration(
-                                          color: AppTheme.maroon.withValues(
-                                            alpha: 0.08,
-                                          ),
-                                          borderRadius: BorderRadius.circular(20),
-                                          border: Border.all(
-                                            color: AppTheme.maroon.withValues(
-                                              alpha: 0.2,
-                                            ),
-                                          ),
-                                        ),
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            Text(
-                                              spec.fileTypeLabel == null
-                                                  ? spec.label
-                                                  : '${spec.label} (${spec.fileTypeLabel})',
-                                              style: const TextStyle(
-                                                fontSize: 10,
-                                                fontWeight: FontWeight.w700,
-                                                color: AppTheme.maroon,
-                                              ),
-                                            ),
-                                            const SizedBox(width: 4),
-                                            GestureDetector(
-                                              onTap: () => setDialogState(() {
-                                                reqs.removeAt(entry.key);
-                                              }),
-                                              child: const Icon(
-                                                Icons.close_rounded,
-                                                size: 12,
-                                                color: AppTheme.maroon,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      );
-                                    }).toList(),
-                                  ),
-                                const SizedBox(height: 10),
-                                TextField(
-                                  controller: reqCtrl,
-                                  onSubmitted: (value) {
-                                    final clean = value.trim();
-                                    if (clean.isEmpty) return;
-                                    final spec = RequirementSpec(
-                                      clean,
-                                      reqFileType == 'any' ? null : reqFileType,
-                                    );
-                                    if (reqs.contains(spec.encoded)) return;
-                                    setDialogState(() {
-                                      reqs.add(spec.encoded);
-                                      reqCtrl.clear();
-                                      reqFileType = 'any';
-                                    });
-                                  },
-                                  decoration: InputDecoration(
-                                    hintText: 'Add requirement (press Enter)',
-                                    filled: true,
-                                    fillColor: Colors.white,
-                                    border: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.slate200,
-                                      ),
-                                    ),
-                                    enabledBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.slate200,
-                                      ),
-                                    ),
-                                    focusedBorder: OutlineInputBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                      borderSide: const BorderSide(
-                                        color: AppTheme.maroon,
-                                        width: 1.5,
-                                      ),
-                                    ),
-                                    contentPadding: const EdgeInsets.symmetric(
-                                      horizontal: 12,
-                                      vertical: 12,
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 8),
-                                Row(
-                                  children: [
-                                    const Text(
-                                      'File type:',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppTheme.slate500,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: SingleChildScrollView(
-                                        scrollDirection: Axis.horizontal,
-                                        child: Row(
-                                          children: [
-                                            ('any', 'Any file'),
-                                            ('word', 'Word (.doc/.docx)'),
-                                            ('pdf', 'PDF'),
-                                            ('image', 'Image'),
-                                          ].map((opt) {
-                                            final selected = reqFileType == opt.$1;
-                                            return Padding(
-                                              padding: const EdgeInsets.only(right: 6),
-                                              child: GestureDetector(
-                                                onTap: () => setDialogState(
-                                                  () => reqFileType = opt.$1,
-                                                ),
-                                                child: Container(
-                                                  padding: const EdgeInsets.symmetric(
-                                                    horizontal: 10,
-                                                    vertical: 6,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: selected
-                                                        ? AppTheme.maroon
-                                                        : Colors.white,
-                                                    borderRadius: BorderRadius.circular(16),
-                                                    border: Border.all(
-                                                      color: selected
-                                                          ? AppTheme.maroon
-                                                          : AppTheme.slate200,
-                                                    ),
-                                                  ),
-                                                  child: Text(
-                                                    opt.$2,
-                                                    style: TextStyle(
-                                                      fontSize: 10.5,
-                                                      fontWeight: FontWeight.w700,
-                                                      color: selected
-                                                          ? Colors.white
-                                                          : AppTheme.slate600,
-                                                    ),
-                                                  ),
-                                                ),
-                                              ),
-                                            );
-                                          }).toList(),
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 20),
-                          _sectionLabel('ATTACHMENT'),
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: AppTheme.slate50,
-                              borderRadius: BorderRadius.circular(13),
-                              border: Border.all(color: AppTheme.slate200),
-                            ),
-                            child: attachedFile == null
-                                ? OutlinedButton.icon(
-                                    onPressed: () => pickAttachment(setDialogState),
-                                    icon: const Icon(
-                                      Icons.attach_file_rounded,
-                                      size: 16,
-                                    ),
-                                    label: const Text('Attach a file for download'),
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: AppTheme.maroon,
-                                      side: const BorderSide(color: AppTheme.maroon),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
-                                    ),
-                                  )
-                                : Row(
-                                    children: [
-                                      const Icon(
-                                        Icons.description_outlined,
-                                        size: 18,
-                                        color: AppTheme.maroon,
-                                      ),
-                                      const SizedBox(width: 8),
-                                      Expanded(
-                                        child: Text(
-                                          attachedFile!.name,
-                                          style: const TextStyle(
-                                            fontSize: 12.5,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppTheme.slate700,
-                                          ),
-                                          overflow: TextOverflow.ellipsis,
-                                        ),
-                                      ),
-                                      if (uploadingAttachment)
-                                        const SizedBox(
-                                          width: 16,
-                                          height: 16,
-                                          child: CircularProgressIndicator(strokeWidth: 2),
-                                        )
-                                      else
-                                        GestureDetector(
-                                          onTap: () => setDialogState(() {
-                                            attachedFile = null;
-                                            attachmentUrl = null;
-                                            attachmentPath = null;
-                                          }),
-                                          child: const Icon(
-                                            Icons.close_rounded,
-                                            size: 16,
-                                            color: AppTheme.slate400,
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                          ),
-                        ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                    decoration: BoxDecoration(
-                      border: Border(top: BorderSide(color: AppTheme.slate100)),
-                    ),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          boxShadow: [
-                            BoxShadow(
-                              color: AppTheme.maroon.withValues(alpha: 0.3),
-                              blurRadius: 16,
-                              offset: const Offset(0, 6),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton.icon(
-                        onPressed: () async {
-                          final title = titleCtrl.text.trim();
-                          final body = bodyCtrl.text.trim();
-                          final slotsText = slotsCtrl.text.trim();
-                          final errors = <String>[];
-                          if (title.isEmpty) errors.add('Title is required.');
-                          if (title.length < 3) {
-                            errors.add('Title must be at least 3 characters.');
-                          }
-                          if (title.length > 100) {
-                            errors.add('Title must be at most 100 characters.');
-                          }
-                          if (body.isEmpty) errors.add('Description is required.');
-                          if (body.length < 10) {
-                            errors.add('Description must be at least 10 characters.');
-                          }
-                          if (body.length > 2000) {
-                            errors.add('Description is too long.');
-                          }
-                          if (slotsText.isNotEmpty) {
-                            final slots = int.tryParse(slotsText);
-                            if (slots == null || slots <= 0) {
-                              errors.add('Available slots must be a positive number.');
-                            }
-                          }
-                          if (errors.isNotEmpty) {
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(errors.join('\n')),
-                                backgroundColor: AppTheme.red500,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                margin: const EdgeInsets.all(16),
-                              ),
-                            );
-                            return;
-                          }
-
-                          final messenger = ScaffoldMessenger.of(context);
-                          if (attachedFile != null && attachmentUrl == null) {
-                            setDialogState(() => uploadingAttachment = true);
-                            try {
-                              final bytes = attachedFile!.bytes!;
-                              final uid = fb_auth
-                                      .FirebaseAuth.instance.currentUser?.uid ??
-                                  state.currentUser?.id ??
-                                  'user';
-                              final timestamp =
-                                  DateTime.now().millisecondsSinceEpoch;
-                              final sanitizedName = attachedFile!.name
-                                  .replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
-                              // 'announcements' is a public root in the
-                              // upload-document edge function: any signed-in
-                              // user (not just the uploader or Head/
-                              // Supervisor staff) can refresh a download
-                              // link for it once the original signed URL
-                              // expires, which matters since Students view
-                              // announcements posted under the Head's uid.
-                              final path =
-                                  'announcements/$uid/$timestamp/$sanitizedName';
-                              final extension =
-                                  attachedFile!.extension?.toLowerCase();
-                              final url =
-                                  await SupabaseStorageService.instance
-                                      .uploadDocument(
-                                bytes: bytes,
-                                path: path,
-                                contentType: extension == null
-                                    ? null
-                                    : SupabaseStorageService
-                                        .contentTypeForExtension(extension),
-                              );
-                              attachmentUrl = url;
-                              attachmentPath = path;
-                            } catch (e) {
-                              setDialogState(() => uploadingAttachment = false);
-                              messenger.showSnackBar(
-                                SnackBar(
-                                  content: Text('Attachment upload failed: $e'),
-                                  backgroundColor: AppTheme.red500,
-                                  behavior: SnackBarBehavior.floating,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                  margin: const EdgeInsets.all(16),
-                                ),
-                              );
-                              return;
-                            }
-                            setDialogState(() => uploadingAttachment = false);
-                          }
-
-                          final today =
-                              '${DateTime.now().month}/${DateTime.now().day}/${DateTime.now().year}';
-                          final office = state.offices
-                              .where((o) => o.id == selectedOfficeId)
-                              .firstOrNull;
-                          final ok = await state.postAnnouncement(
-                            Announcement(
-                              id: 'ann_${DateTime.now().millisecondsSinceEpoch}',
-                              title: title,
-                              body: body,
-                              postedBy: state.currentUser?.name ?? 'Admin',
-                              postedAt: today,
-                              deadline: deadlineCtrl.text.trim().isEmpty
-                                  ? null
-                                  : deadlineCtrl.text.trim(),
-                              slots: slotsText.isEmpty ? null : slotsText,
-                              requirements: reqs,
-                              acceptsApplications: acceptsApplications,
-                              officeId: office?.id,
-                              officeName: office?.name,
-                              attachmentName: attachedFile?.name,
-                              attachmentUrl: attachmentUrl,
-                              attachmentPath: attachmentPath,
-                              attachmentSize: attachedFile == null
-                                  ? null
-                                  : attachedFile!.size / (1024 * 1024),
-                            ),
-                          );
-                          if (!context.mounted) return;
-                          Navigator.pop(context);
-                          if (ok) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text(
-                                  'Announcement posted! Students have been notified.',
-                                ),
-                                backgroundColor: AppTheme.emerald500,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                margin: const EdgeInsets.all(16),
-                              ),
-                            );
-                          } else {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: const Text(
-                                  'Failed to post announcement. Please try again.',
-                                ),
-                                backgroundColor: AppTheme.red500,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                margin: const EdgeInsets.all(16),
-                              ),
-                            );
-                          }
-                        },
-                        icon: const Icon(Icons.send_rounded, size: 16),
-                        label: const Text(
-                          'Post Announcement',
-                          style: TextStyle(
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.maroon,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                          elevation: 0,
-                        ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _sectionLabel(String text) => Text(
-    text,
-    style: const TextStyle(
-      fontSize: 11,
-      fontWeight: FontWeight.w800,
-      color: AppTheme.slate500,
-      letterSpacing: 1,
-    ),
-  );
 }
 
 class _AdminAnnouncementCard extends StatelessWidget {
@@ -1580,9 +479,18 @@ class _AdminAnnouncementCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext ctx) {
-    final appCount = state.applications
-        .where((a) => a.announcementId == ann.id)
-        .length;
+    // Nobody applies to a supervisor's request: count the applicants whose
+    // skills match it instead.
+    final appCount = ann.isSupervisorRequest
+        ? state.applications
+              .where(
+                (a) =>
+                    (a.academicYear == null ||
+                        a.academicYear == state.academicYear) &&
+                    SkillMatch.of(ann, state.applicantSkills(a)).hasMatch,
+              )
+              .length
+        : state.applications.where((a) => a.announcementId == ann.id).length;
     final isMobile = MediaQuery.of(ctx).size.width < 700;
 
     final (statusLabel, statusColor, statusBackground) = ann.isPending
@@ -1807,17 +715,24 @@ class _AdminAnnouncementCard extends StatelessWidget {
                     'Due ${ann.deadline!}',
                     AppTheme.amber500,
                   ),
-                if (ann.slots != null)
+                if (ann.slots != null && !ann.isHiringCall)
                   _Chip(
                     Icons.people_rounded,
                     '${ann.slots} slots',
                     AppTheme.blue500,
                   ),
-                _Chip(
-                  Icons.assignment_turned_in_rounded,
-                  '$appCount applied',
-                  AppTheme.maroon,
-                ),
+                if (ann.isSupervisorRequest && ann.skills.isNotEmpty)
+                  _Chip(
+                    Icons.join_inner_rounded,
+                    '$appCount applicant${appCount == 1 ? '' : 's'} match',
+                    AppTheme.maroon,
+                  )
+                else if (!ann.isSupervisorRequest && ann.acceptsApplications)
+                  _Chip(
+                    Icons.assignment_turned_in_rounded,
+                    '$appCount applied',
+                    AppTheme.maroon,
+                  ),
               ],
             ),
           ),
@@ -1974,9 +889,9 @@ class _AdminAnnouncementCard extends StatelessWidget {
   }
 
   Future<void> _confirmDelete(BuildContext ctx) async {
-    final appCount = state.applications
-        .where((a) => a.announcementId == ann.id)
-        .length;
+    final appCount = ann.isSupervisorRequest
+        ? 0
+        : state.applications.where((a) => a.announcementId == ann.id).length;
     final ok = await showConfirmDialog(
       ctx,
       title: 'Delete announcement?',
@@ -2003,9 +918,12 @@ class _AdminAnnouncementCard extends StatelessWidget {
     final ok = await showConfirmDialog(
       ctx,
       title: 'Close announcement?',
-      message:
-          '"${ann.title}" will stop accepting applications and be hidden '
-          'from students. You can re-open it later.',
+      message: ann.isSupervisorRequest
+          ? '"${ann.title}" will no longer be matched against applicants. '
+                'You can re-open it later.'
+          : '"${ann.title}" will be hidden from students'
+                '${ann.acceptsApplications ? ' and stop taking applications' : ''}. '
+                'You can re-open it later.',
       confirmLabel: 'Close',
       confirmColor: AppTheme.slate600,
     );
@@ -2026,9 +944,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
     final ok = await showConfirmDialog(
       ctx,
       title: 'Re-open announcement?',
-      message:
-          '"${ann.title}" will be visible to students and accept '
-          'applications again. Students will be notified.',
+      message: ann.isSupervisorRequest
+          ? 'Applicants will be matched against "${ann.title}" again.'
+          : '"${ann.title}" will be visible to students'
+                '${ann.acceptsApplications ? ' and take applications' : ''} '
+                'again. Students will be notified.',
       confirmLabel: 'Re-open',
       confirmColor: AppTheme.emerald500,
     );
@@ -2281,7 +1201,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                             'Due ${ann.deadline!}',
                             AppTheme.amber500,
                           ),
-                        if (ann.slots != null)
+                        if (ann.slots != null && !ann.isHiringCall)
                           _Chip(
                             Icons.people_rounded,
                             '${ann.slots} slots',
@@ -2374,7 +1294,7 @@ class _ApproveActionState extends State<_ApproveAction> {
     AppSnackBar.showWithMessenger(
       messenger,
       ok
-          ? '"${widget.ann.title}" approved and posted to students.$officeNote'
+          ? '"${widget.ann.title}" approved.$officeNote'
           : 'Could not approve "${widget.ann.title}". Check your connection '
                 'and try again.',
       type: ok ? SnackType.success : SnackType.error,
@@ -2430,7 +1350,7 @@ class _ApproveConfirmDialogState extends State<_ApproveConfirmDialog> {
     final details = [
       if (ann.officeName != null) (Icons.apartment_rounded, ann.officeName!),
       (Icons.person_rounded, 'Requested by ${ann.postedBy}'),
-      if (ann.slots != null) (Icons.people_rounded, '${ann.slots} slots'),
+      if (ann.slots != null && !ann.isHiringCall) (Icons.people_rounded, '${ann.slots} slots'),
       if (ann.deadline != null) (Icons.event_rounded, 'Due ${ann.deadline}'),
     ];
     return AlertDialog(
@@ -2496,8 +1416,9 @@ class _ApproveConfirmDialogState extends State<_ApproveConfirmDialog> {
             ],
             const SizedBox(height: 14),
             Text(
-              'Once approved, it is posted to students and they can start '
-              'applying. ${ann.postedBy} will be notified.',
+              'Students never see a request: once approved, applicants are '
+              'matched to it by their skills on Applications. '
+              '${ann.postedBy} will be notified.',
               style: const TextStyle(
                 fontSize: 13,
                 height: 1.45,

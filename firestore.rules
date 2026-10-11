@@ -310,25 +310,65 @@ service cloud.firestore {
         );
 
       // A new application is always Pending, under the applicant's own
-      // name. Only the Head decides it.
-      allow create: if signedIn()
-        && request.resource.data.applicantId == request.auth.uid
-        && request.resource.data.get('status', 'Pending') == 'Pending'
-        && request.resource.data.get('remarks', null) == null
-        && request.resource.data.applicantName == currentName()
-        && applicationsOpen();
+      // name. Only the Head decides it. A student applies to be a Student
+      // Assistant once a year, for the year in effect: the id names them
+      // and the year (app_<uid>_<year>), so a second one is an update,
+      // which they can't make. It goes through an open hiring call of the
+      // Head's (its deadline is the app's to check: it's text).
+      allow create: if isNewApplication();
+
+      // One the Head rejected (a wrong document, say) the student may
+      // replace with a new one, as if applying for the first time.
+      allow update: if isHead()
+        || (
+          signedIn()
+          && resource.data.applicantId == request.auth.uid
+          && resource.data.get('status', '') == 'Rejected'
+          && isNewApplication()
+        );
+      allow delete: if isHead();
+
+      function isNewApplication() {
+        return signedIn()
+          && request.resource.data.applicantId == request.auth.uid
+          && id == 'app_' + request.auth.uid + '_'
+            + request.resource.data.academicYear
+          && isCurrentYear(request.resource.data.academicYear)
+          && isOpenHiringCall(request.resource.data.announcementId)
+          && request.resource.data.get('status', 'Pending') == 'Pending'
+          && request.resource.data.get('remarks', null) == null
+          && request.resource.data.applicantName == currentName()
+          && applicationsOpen();
+      }
+
+      function academicSettings() {
+        return /databases/$(database)/documents/meta/academic_year_settings;
+      }
 
       // The Admin's "Open Applications" setting for the academic year. Like
       // the app, a setting that was never saved counts as open.
       function applicationsOpen() {
-        let settings =
-          /databases/$(database)/documents/meta/academic_year_settings;
-        return exists(settings)
-          ? get(settings).data.get('allowApplications', true) == true
+        return exists(academicSettings())
+          ? get(academicSettings()).data.get('allowApplications', true) == true
           : true;
       }
 
-      allow update, delete: if isHead();
+      // The year the Admin set, when one was ever saved.
+      function isCurrentYear(year) {
+        return !exists(academicSettings())
+          || get(academicSettings()).data.get('academicYear', year) == year;
+      }
+
+      // An approved, open announcement of the Head's that takes
+      // applications, not a supervisor's request.
+      function isOpenHiringCall(callId) {
+        let call = /databases/$(database)/documents/announcements/$(callId);
+        return callId is string && callId != '' && exists(call)
+          && get(call).data.get('postedByRole', 'Admin') != 'Supervisor'
+          && get(call).data.get('acceptsApplications', true) == true
+          && get(call).data.get('isOpen', true) == true
+          && get(call).data.get('approvalStatus', 'Approved') == 'Approved';
+      }
     }
 
     // Reports feed the Supervisor's DTR/Accomplishment Report approval flow.

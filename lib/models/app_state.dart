@@ -15,6 +15,7 @@ import 'package:projectsais/services/performance_evaluation_document_service.dar
 import 'package:projectsais/services/push_service.dart';
 import 'package:projectsais/services/supabase_storage_service.dart';
 import '../firebase_options.dart';
+import 'assistant_attendance.dart';
 import 'models.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
@@ -650,10 +651,10 @@ class AppState extends ChangeNotifier {
       programs = _sortedPrograms(list.map(Program.fromJson));
     });
     listen('Skills', fs.collectionStream('skills'), (list) {
-      skills = [
+      _setSkills([
         for (final s in list)
           if ((s['name']?.toString() ?? '').isNotEmpty) s['name'].toString(),
-      ]..sort();
+      ]);
     });
 
     // ── Staff and Admin: the full roster ──
@@ -1633,7 +1634,7 @@ class AppState extends ChangeNotifier {
         programs = _sortedPrograms(await _firestoreService!.getAllPrograms());
       } catch (_) {}
       try {
-        skills = await _firestoreService!.getAllSkills();
+        _setSkills(await _firestoreService!.getAllSkills());
       } catch (_) {}
       try {
         screeningRecords = _dedupeScreeningRecords(
@@ -2175,7 +2176,7 @@ class AppState extends ChangeNotifier {
     String year,
   ) => (
     applications: applications
-        .where((a) => a.academicYear == year && a.status == 'Pending')
+        .where((a) => a.academicYear == year && a.isUndecided)
         .length,
     requests: announcements
         .where((a) => a.academicYear == year && a.isPending)
@@ -2650,18 +2651,23 @@ class AppState extends ChangeNotifier {
         .map((a) => a.id == id ? approved : a)
         .toList();
 
-    final studentUsers = users.where((u) => u.role == 'Student');
-    for (final u in studentUsers) {
-      _addNotification(
-        AppNotification(
-          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${u.id}',
-          userId: u.id,
-          title: 'New Hiring Announcement',
-          message: approved.title,
-          type: 'announcement',
-          createdAt: _formattedToday(),
-        ),
-      );
+    // A supervisor's request ends with the Head's approval: students never
+    // see it, they apply to be a Student Assistant. Only the Head's own
+    // announcements, re-opened here, are news to them.
+    if (!approved.isSupervisorRequest) {
+      final studentUsers = users.where((u) => u.role == 'Student');
+      for (final u in studentUsers) {
+        _addNotification(
+          AppNotification(
+            id: 'n_${DateTime.now().millisecondsSinceEpoch}_${u.id}',
+            userId: u.id,
+            title: 'New Hiring Announcement',
+            message: approved.title,
+            type: 'announcement',
+            createdAt: _formattedToday(),
+          ),
+        );
+      }
     }
 
     final postedById = approved.postedById;
@@ -2671,9 +2677,11 @@ class AppState extends ChangeNotifier {
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_approved',
           userId: postedById,
           title: 'Announcement Approved',
-          message:
-              'Your announcement "${approved.title}" was approved and is now live.'
-              '${plan != null && plan.createsOffice ? ' The office "${plan.office.name}" was created, with you as its supervisor.' : ''}',
+          message: approved.isSupervisorRequest
+              ? 'Your request "${approved.title}" was approved. The Head '
+                    'will match Student Assistants to it by their skills.'
+                    '${plan != null && plan.createsOffice ? ' The office "${plan.office.name}" was created, with you as its supervisor.' : ''}'
+              : 'Your announcement "${approved.title}" was approved and is now live.',
           type: 'announcement',
           createdAt: _formattedToday(),
         ),
@@ -3049,9 +3057,60 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// The skill on the list named [name], whatever its case or spacing:
+  /// "communication skills" finds "Communication Skills".
+  String? findSkill(String name) {
+    final key = name.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    return skills.where((s) => s.trim().toLowerCase() == key).firstOrNull;
+  }
+
+  /// [names] with one entry per skill whatever its case, keeping the
+  /// best-written spelling (more capitals: "Communication Skills" over
+  /// "Communication skills"), sorted. Names stay exactly as saved: a
+  /// skill's name is its document's id, so a trimmed copy would be one no
+  /// document has.
+  static List<String> uniqueSkills(Iterable<String> names) {
+    int capitals(String s) => RegExp('[A-Z]').allMatches(s).length;
+    final kept = <String, String>{};
+    for (final name in names) {
+      final key = name.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      final current = kept[key];
+      if (current == null ||
+          capitals(name) > capitals(current) ||
+          (capitals(name) == capitals(current) &&
+              name.compareTo(current) < 0)) {
+        kept[key] = name;
+      }
+    }
+    return kept.values.toList()..sort();
+  }
+
+  /// Takes the skills list as saved. The same skill saved twice in
+  /// different case (the list used to allow it) shows once, and a Head's
+  /// session deletes the extra spellings, which only the Head may write.
+  void _setSkills(List<String> saved) {
+    skills = uniqueSkills(saved);
+    // A rename writes the new name before deleting the old, so for a
+    // moment the two are both saved: that's not a duplicate to clear.
+    if (role != 'Head' || _skillRenames > 0) return;
+    final extras = [
+      for (final name in saved)
+        if (!skills.contains(name)) name,
+    ];
+    if (extras.isEmpty) return;
+    _firestoreService ??= FirestoreService();
+    for (final name in extras) {
+      _firestoreService!.deleteSkill(name).catchError((Object error) {
+        debugPrint('Failed to merge the duplicate skill "$name": $error');
+      });
+    }
+  }
+
   Future<bool> addSkill(String name) async {
     final normalized = name.trim();
-    if (normalized.isEmpty || skills.contains(normalized)) return false;
+    if (normalized.isEmpty || findSkill(normalized) != null) return false;
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.setSkill(normalized);
@@ -3075,12 +3134,19 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Skill renames being saved; see [_setSkills].
+  int _skillRenames = 0;
+
   Future<bool> updateSkill(String oldName, String newName) async {
     final normalized = newName.trim();
-    if (normalized.isEmpty ||
-        (normalized != oldName && skills.contains(normalized))) {
+    // Another skill by that name, in any case, is refused; this one's own
+    // name in another case ("communication skills" to "Communication
+    // Skills") is a rename.
+    final clash = findSkill(normalized);
+    if (normalized.isEmpty || (clash != null && clash != oldName)) {
       return false;
     }
+    _skillRenames++;
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.updateSkill(oldName, normalized);
@@ -3091,6 +3157,8 @@ class AppState extends ChangeNotifier {
       return true;
     } catch (_) {
       return false;
+    } finally {
+      _skillRenames--;
     }
   }
 
@@ -3354,18 +3422,85 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The Head's newest hiring call this academic year, through which
+  /// students apply to be a Student Assistant; null before there's one.
+  /// Announcements arrive newest first. Closing it closes applications: an
+  /// older call doesn't take over, with requirements that may be stale.
+  Announcement? get currentHiringCall => announcements
+      .where(
+        (a) =>
+            a.isHiringCall &&
+            a.isApproved &&
+            (a.academicYear == null || a.academicYear == academicYear),
+      )
+      .firstOrNull;
+
+  /// Whether students can apply through [call] today.
+  bool hiringCallTakesApplications(Announcement? call) =>
+      call != null &&
+      call.isOpen &&
+      !call.isPastDeadline() &&
+      allowAcademicApplications;
+
+  /// What students see besides the hiring call: the Head's open
+  /// announcements that take no applications, to read only.
+  List<Announcement> get studentNotices =>
+      studentVisibleAnnouncements.where((a) => !a.acceptsApplications).toList();
+
+  /// The signed-in student's application this academic year, if any: the
+  /// one general application, else the newest from before (when students
+  /// applied to each posting).
+  Application? get myCurrentApplication {
+    final mine = myApplications;
+    final user = currentUser;
+    if (user == null || mine.isEmpty) return null;
+    final generalId = Application.idFor(user.id, academicYear);
+    final general = mine.where((a) => a.id == generalId).firstOrNull;
+    if (general != null) return general;
+    // Older ones are ordered by their "Oct 2, 2026" dates as text, so find
+    // the newest by date.
+    return mine.reduce(
+      (a, b) => _anyDate(b.appliedAt).isAfter(_anyDate(a.appliedAt)) ? b : a,
+    );
+  }
+
+  /// Applications as the Head works through them: all of them, less a
+  /// rejected one its applicant has since replaced with a newer one that
+  /// year. (Applying again replaces a rejected application in place; only
+  /// one from before, made to an office's posting under its own id, would
+  /// otherwise be listed beside the new one.)
+  List<Application> get currentApplications {
+    DateTime when(Application a) => _anyDate(a.appliedAt);
+    bool replaced(Application a) =>
+        a.status == Application.rejected &&
+        applications.any(
+          (b) =>
+              b.id != a.id &&
+              b.status != Application.rejected &&
+              b.applicantId == a.applicantId &&
+              b.academicYear == a.academicYear &&
+              !when(b).isBefore(when(a)),
+        );
+    return applications.where((a) => !replaced(a)).toList();
+  }
+
+  /// Saves a student's application to be a Student Assistant, made through
+  /// [currentHiringCall]. Refused for a Student Assistant, while the Admin
+  /// has applications closed (the Firestore rules refuse that too), once
+  /// the call is closed, replaced or past its deadline (the form may have
+  /// been open since), and when they already applied this year — unless
+  /// the Head rejected that application (a wrong document, say): then this
+  /// one takes its place, under the same id.
   Future<bool> submitApplication(Application app) async {
-    // Closed by the Admin's "Open Applications" setting; the Firestore
-    // rules refuse it too.
+    final call = currentHiringCall;
+    final previous = myCurrentApplication;
     if (currentUser?.role == 'Student Assistant' ||
-        !allowAcademicApplications) {
+        call == null ||
+        call.id != app.announcementId ||
+        !hiringCallTakesApplications(call) ||
+        (previous != null && previous.status != Application.rejected)) {
       return false;
     }
-    // Nor after the posting's deadline, even if it hasn't been closed yet.
-    final announcement = announcements
-        .where((a) => a.id == app.announcementId)
-        .firstOrNull;
-    if (announcement != null && announcement.isPastDeadline()) return false;
     _firestoreService ??= FirestoreService();
     app = app.copyWith(academicYear: app.academicYear ?? academicYear);
     try {
@@ -3375,7 +3510,8 @@ class AppState extends ChangeNotifier {
       return false;
     }
 
-    applications = [app, ...applications];
+    applications = [app, ...applications.where((a) => a.id != app.id)];
+    final again = previous == null ? '' : ' again';
     // Notify the Heads
     for (final headId in await _headIds()) {
       _addNotification(
@@ -3383,8 +3519,7 @@ class AppState extends ChangeNotifier {
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_$headId',
           userId: headId,
           title: 'New Application',
-          message:
-              '${app.applicantName} applied for "${app.announcementTitle}"',
+          message: '${app.applicantName} applied$again ${_appliedFor(app)}.',
           type: 'application',
           createdAt: _formattedToday(),
         ),
@@ -3396,8 +3531,7 @@ class AppState extends ChangeNotifier {
         id: 'n_${DateTime.now().millisecondsSinceEpoch}_${app.applicantId}',
         userId: app.applicantId,
         title: 'Application Submitted',
-        message:
-            'Your application for "${app.announcementTitle}" has been submitted.',
+        message: 'Your application ${_appliedFor(app)} has been submitted.',
         type: 'application',
         createdAt: _formattedToday(),
       ),
@@ -3406,78 +3540,157 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// "to be a Student Assistant", or for an older application to a
+  /// posting, "for" and its title in quotes.
+  static String _appliedFor(Application app) =>
+      app.announcementTitle.isEmpty ||
+          app.announcementTitle == Application.generalTitle
+      ? 'to be a Student Assistant'
+      : 'for "${app.announcementTitle}"';
+
+  /// What the applicant is told when their application moves to [status],
+  /// or null for a move they aren't told about (back to Pending).
+  AppNotification? _applicationNotice(Application app, String? remarks) {
+    final note = remarks == null || remarks.isEmpty ? '' : ' Remarks: $remarks';
+    final (title, message) = switch (app.status) {
+      Application.forScreening => (
+        'Selected for Screening',
+        'Your application ${_appliedFor(app)} was selected for screening. '
+            'The Head of Student Assistantship will set your interview.',
+      ),
+      Application.approved || 'Accepted' => (
+        'Application Approved',
+        'Your application ${_appliedFor(app)} was approved. You are now a '
+            'Student Assistant; the Head will place you in an office.$note',
+      ),
+      Application.waitlisted => (
+        'Application Waitlisted',
+        'Your application ${_appliedFor(app)} was placed on the waitlist. '
+            'The Head may still approve it later.$note',
+      ),
+      Application.rejected => (
+        'Application Rejected',
+        'Your application ${_appliedFor(app)} was not accepted.$note You '
+            'can fix it and apply again from the Apply page.',
+      ),
+      _ => ('', ''),
+    };
+    if (title.isEmpty) return null;
+    return AppNotification(
+      id: 'n_${DateTime.now().millisecondsSinceEpoch}_${app.applicantId}',
+      userId: app.applicantId,
+      title: title,
+      message: message,
+      type: 'application',
+      createdAt: _formattedToday(),
+    );
+  }
+
+  /// Picks the Pending applications [ids] for screening, one save each.
+  /// Returns how many were saved.
+  Future<int> sendToScreening(Iterable<String> ids) async {
+    var saved = 0;
+    for (final id in ids.toSet()) {
+      final app = applications.where((a) => a.id == id).firstOrNull;
+      if (app == null || app.status != Application.pending) continue;
+      try {
+        await updateApplicationStatus(id, Application.forScreening);
+        saved++;
+      } catch (error) {
+        debugPrint('Failed to send $id to screening: $error');
+      }
+    }
+    return saved;
+  }
+
+  /// Saves [id] as [status] and tells the applicant. The save comes first,
+  /// and a failed one throws, so nobody is told of a decision that didn't
+  /// stick.
+  ///
+  /// Approving makes the applicant a Student Assistant with an SA ID and
+  /// no office: the Head places them in one later, matching their skills.
+  /// Their Contract of Appointment and Endorsement Letter name the office,
+  /// so they're only made here for someone already in one; otherwise the
+  /// Head makes them from Applications after the placement.
   Future<void> updateApplicationStatus(
     String id,
     String status, {
     String? remarks,
   }) async {
-    Application? updatedApplication;
-    applications = applications.map((a) {
-      if (a.id != id) return a;
-      final updated = a.copyWith(status: status, remarks: remarks);
-      updatedApplication = updated;
-      // Notify the applicant
-      _addNotification(
-        AppNotification(
-          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${a.applicantId}',
-          userId: a.applicantId,
-          title: 'Application $status',
-          message:
-              'Your application for "${a.announcementTitle}" was $status.${remarks != null ? " Remarks: $remarks" : ""}',
-          type: 'application',
-          createdAt: _formattedToday(),
-        ),
-      );
-      return updated;
-    }).toList();
-    if (updatedApplication != null) {
-      _firestoreService ??= FirestoreService();
-      if (status == 'Approved' || status == 'Accepted') {
-        await generateApprovedApplicantDocuments(updatedApplication!.id);
-      }
-
-      await _firestoreService!.setApplication(updatedApplication!);
-      if (status == 'Approved' || status == 'Accepted') {
-        for (final skill in updatedApplication!.skills) {
-          final normalizedSkill = skill.trim();
-          if (normalizedSkill.isEmpty ||
-              skills.any(
-                (existing) =>
-                    existing.toLowerCase() == normalizedSkill.toLowerCase(),
-              )) {
-            continue;
-          }
-          try {
-            await _firestoreService!.setSkill(normalizedSkill);
-            skills = [...skills, normalizedSkill]..sort();
-          } catch (error) {
-            debugPrint('Failed to add approved application skill: $error');
-          }
+    final original = applications.where((a) => a.id == id).firstOrNull;
+    if (original == null) return;
+    final updatedApplication = original.copyWith(
+      status: status,
+      remarks: remarks,
+    );
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setApplication(updatedApplication);
+    // By id: the live list may have changed while it saved.
+    applications = [
+      for (final a in applications) a.id == id ? updatedApplication : a,
+    ];
+    // Saving the same decision again (to finish an approval whose
+    // promotion failed part way) tells no one a second time.
+    final notice = original.status == status
+        ? null
+        : _applicationNotice(updatedApplication, remarks);
+    if (notice != null) _addNotification(notice);
+    // Everything below is safe to run again.
+    if (updatedApplication.isApproved) {
+      for (final skill in updatedApplication.skills) {
+        final normalizedSkill = skill.trim();
+        if (normalizedSkill.isEmpty ||
+            skills.any(
+              (existing) =>
+                  existing.toLowerCase() == normalizedSkill.toLowerCase(),
+            )) {
+          continue;
         }
-        final applicantIndex = users.indexWhere(
-          (user) => user.id == updatedApplication!.applicantId,
-        );
-        if (applicantIndex >= 0) {
-          final applicant = users[applicantIndex];
-          final mergedSkills = {
-            ...applicant.skills,
-            ...updatedApplication!.skills,
-          }.toList()..sort();
-          final updatedApplicant = applicant.copyWith(skills: mergedSkills);
-          await _upsertUser(updatedApplicant);
-          if (currentUser?.id == updatedApplicant.id) {
-            currentUser = updatedApplicant;
+        try {
+          await _firestoreService!.setSkill(normalizedSkill);
+          skills = [...skills, normalizedSkill]..sort();
+        } catch (error) {
+          debugPrint('Failed to add approved application skill: $error');
+        }
+      }
+      final applicantIndex = users.indexWhere(
+        (user) => user.id == updatedApplication.applicantId,
+      );
+      if (applicantIndex >= 0) {
+        final applicant = users[applicantIndex];
+        // Their skills go on their profile, where offices match them.
+        final mergedSkills = {
+          ...applicant.skills,
+          ...updatedApplication.skills,
+        }.toList()..sort();
+        final updatedApplicant = applicant.copyWith(skills: mergedSkills);
+        await _upsertUser(updatedApplicant);
+        if (currentUser?.id == updatedApplicant.id) {
+          currentUser = updatedApplicant;
+        }
+        await _saveUserProfile(updatedApplicant);
+        // Run again for one already promoted too: it also makes (or brings
+        // back) their students record, which a cut-short approval may have
+        // missed.
+        if (applicant.role == 'Student' ||
+            applicant.role == 'Student Assistant') {
+          // "Application Approved" already tells them.
+          await changeUserRole(
+            updatedApplication.applicantId,
+            'Student Assistant',
+            notify: false,
+          );
+        }
+        await ensureStudentAssistantId(updatedApplication.applicantId);
+        if (original.status != status &&
+            officesForUser(updatedApplicant).isNotEmpty) {
+          // The approval stands either way; the Head can make them again
+          // from Applications.
+          try {
+            await generateApprovedApplicantDocuments(updatedApplication.id);
+          } catch (error) {
+            debugPrint('Failed to generate appointment documents: $error');
           }
-          await _saveUserProfile(updatedApplicant);
-          if (applicant.role == 'Student') {
-            // "Application Approved" already tells them.
-            await changeUserRole(
-              updatedApplication!.applicantId,
-              'Student Assistant',
-              notify: false,
-            );
-          }
-          await ensureStudentAssistantId(updatedApplication!.applicantId);
         }
       }
     }
@@ -3697,26 +3910,6 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  bool hasApplied(String announcementId) {
-    return applications.any(
-      (a) =>
-          a.announcementId == announcementId &&
-          a.applicantId == currentUser?.id,
-    );
-  }
-
-  Application? myApplicationFor(String announcementId) {
-    try {
-      return applications.firstWhere(
-        (a) =>
-            a.announcementId == announcementId &&
-            a.applicantId == currentUser?.id,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
-
   List<Application> get myApplications => applications
       .where(
         (a) =>
@@ -3734,6 +3927,43 @@ class AppState extends ChangeNotifier {
       )
       .toList();
 
+  /// Supervisors' requests for a student assistant that applicants are
+  /// matched against: approved, still open, this academic year.
+  List<Announcement> get openOfficeRequests => announcements
+      .where(
+        (a) =>
+            a.isSupervisorRequest &&
+            a.isApproved &&
+            a.isOpen &&
+            (a.academicYear == null || a.academicYear == academicYear),
+      )
+      .toList();
+
+  /// The skills [application]'s applicant brings: those they applied with
+  /// and those already on their profile.
+  List<String> applicantSkills(Application application) {
+    final applicant = users
+        .where((u) => u.id == application.applicantId)
+        .firstOrNull;
+    final seen = <String>{};
+    return [
+      for (final skill in [...application.skills, ...?applicant?.skills])
+        if (skill.trim().isNotEmpty && seen.add(skill.trim().toLowerCase()))
+          skill.trim(),
+    ];
+  }
+
+  /// How [application] matches each of [openOfficeRequests], best first;
+  /// requests it matches nothing of are left out.
+  List<SkillMatch> skillMatchesFor(Application application) {
+    final skills = applicantSkills(application);
+    return [
+      for (final request in openOfficeRequests)
+        if (SkillMatch.of(request, skills) case final match when match.hasMatch)
+          match,
+    ]..sort((a, b) => b.count.compareTo(a.count));
+  }
+
   List<String> skillsForUser(User user) {
     final names = [...user.skills];
     for (final application in applications) {
@@ -3745,7 +3975,10 @@ class AppState extends ChangeNotifier {
         names.addAll(application.skills);
       }
     }
-    return names.toSet().toList()..sort();
+    // Once per skill, whatever its case, spelled as on the Head's list: a
+    // student with "Communication skills" and "Communication Skills" has
+    // the one skill.
+    return uniqueSkills([for (final name in names) findSkill(name) ?? name]);
   }
 
   /// Finds the most relevant completed screening/assessment record for
@@ -6109,6 +6342,98 @@ class AppState extends ChangeNotifier {
     if (role == 'Supervisor')
       return base.where(_studentBelongsToCurrentOffice).toList();
     return base.where((s) => s.userId == currentUser?.id).toList();
+  }
+
+  /// The day an attendance record is for ("Oct 5, 2026" as saved), or null
+  /// when it can't be read.
+  DateTime? attendanceDay(AttendanceRecord record) =>
+      _parsePayrollDate(record.date);
+
+  /// Each current Student Assistant's attendance from [from] to [to]
+  /// (whole days, both included; null for no limit), for the Head's
+  /// summary. Archived records count in no total, as everywhere; they're
+  /// listed only with [includeArchived], to be restored. A record belongs
+  /// to the account or students record its studentId names; one saved
+  /// without an id goes by the name. "Today" is Philippine time, as the
+  /// attendance server keeps it.
+  List<AssistantAttendance> assistantAttendance({
+    DateTime? from,
+    DateTime? to,
+    bool includeArchived = false,
+    DateTime? now,
+  }) {
+    final clock = (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
+    final today = '${_monthNames[clock.month - 1]} ${clock.day}, ${clock.year}';
+    final first = from == null
+        ? null
+        : DateTime(from.year, from.month, from.day);
+    final last = to == null ? null : DateTime(to.year, to.month, to.day);
+    bool inPeriod(AttendanceRecord record) {
+      if (first == null && last == null) return true;
+      final day = attendanceDay(record);
+      if (day == null) return false;
+      return (first == null || !day.isBefore(first)) &&
+          (last == null || !day.isAfter(last));
+    }
+
+    final rows = <AssistantAttendance>[];
+    for (final user in users) {
+      if (user.role != 'Student Assistant' || user.status == 'Archived') {
+        continue;
+      }
+      final studentRecords = _studentRecordsForUser(user);
+      final ids = {
+        user.id,
+        for (final s in studentRecords) ...[s.id, ?s.userId],
+      };
+      final names = {
+        user.name.trim().toLowerCase(),
+        for (final s in studentRecords) s.name.trim().toLowerCase(),
+      }..remove('');
+      final mine = attendance.where(
+        (record) =>
+            (includeArchived || !record.isArchived) &&
+            ((record.studentId ?? '').isNotEmpty
+                ? ids.contains(record.studentId)
+                : names.contains(record.studentName.trim().toLowerCase())),
+      );
+      final records = mine.where(inPeriod).toList()
+        ..sort((a, b) {
+          final byDay = (attendanceDay(b) ?? DateTime(0)).compareTo(
+            attendanceDay(a) ?? DateTime(0),
+          );
+          return byDay != 0 ? byDay : b.timeIn.compareTo(a.timeIn);
+        });
+      rows.add(
+        AssistantAttendance(
+          assistant: user,
+          offices: [
+            for (final office in offices)
+              if (office.isActive && office.hasAssistant(user.id, user.name))
+                office,
+          ],
+          records: records,
+          clockedIn: mine.any(
+            (record) =>
+                !record.isArchived &&
+                record.isActive &&
+                !record.isInvalid &&
+                record.date == today,
+          ),
+          verifiedDays: {
+            for (final record in records)
+              if (record.countsTowardHours)
+                attendanceDay(record)?.toIso8601String() ?? record.date,
+          }.length,
+        ),
+      );
+    }
+    rows.sort(
+      (a, b) => a.assistant.name.toLowerCase().compareTo(
+        b.assistant.name.toLowerCase(),
+      ),
+    );
+    return rows;
   }
 
   List<AttendanceRecord> get filteredAttendance {

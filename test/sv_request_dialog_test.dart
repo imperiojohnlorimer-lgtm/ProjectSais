@@ -99,11 +99,14 @@ void main() {
         'BASIC INFORMATION',
         'OFFICE & SCHEDULE',
         'NEEDED SKILLS',
-        'REQUIREMENTS',
         'ATTACHMENT',
       ]) {
         expect(find.text(section), findsOneWidget);
       }
+      // Students never apply to a request, so it asks for no documents
+      // and has no applications to accept.
+      expect(find.text('REQUIREMENTS'), findsNothing);
+      expect(find.text('Accept applications'), findsNothing);
       // The supervisor's only office is chosen for them.
       expect(find.text('CICS Office'), findsOneWidget);
     });
@@ -146,20 +149,6 @@ void main() {
     await tester.tap(skill);
     await tester.pumpAndSettle();
     expect(find.text('1 selected'), findsOneWidget);
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Add requirement (press Enter)'),
-      'Certificate of Registration',
-    );
-    for (final target in [
-      find.text('PDF'),
-      find.byTooltip('Add requirement'),
-    ]) {
-      await tester.ensureVisible(target);
-      await tester.pumpAndSettle();
-      await tester.tap(target);
-      await tester.pumpAndSettle();
-    }
-    expect(find.text('Certificate of Registration (PDF)'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Submit Request'));
     await tester.tap(find.text('Submit Request'));
@@ -173,16 +162,14 @@ void main() {
     expect(request['officeId'], 'o1');
     expect(request['officeName'], 'CICS Office');
     expect(request['slots'], '2');
-    expect(request['requirements'], ['Certificate of Registration::pdf']);
+    expect(request['requirements'], isEmpty);
     expect(request['skills'], ['Web Developer']);
-    expect(request['acceptsApplications'], true);
+    expect(request['acceptsApplications'], false);
     expect(request['academicYear'], isNotNull);
     // Sent: the dialog closed.
     expect(find.text('BASIC INFORMATION'), findsNothing);
     expect(
-      find.text(
-        'Request sent. The Head will review it before students see it.',
-      ),
+      find.text('Request sent. The Head will review it.'),
       findsOneWidget,
     );
   });

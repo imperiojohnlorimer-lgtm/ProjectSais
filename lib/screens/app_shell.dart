@@ -9,10 +9,10 @@ import '../widgets/shared_widgets.dart';
 import './dashboard/dashboard_screen.dart';
 import './students/students_screen.dart';
 import './attendance/attendance_screen.dart';
+import './attendance/head_attendance_screen.dart';
 import './tasks/tasks_screen.dart';
 import './reports/reports_screen.dart';
 import './accounts/accounts_screen.dart';
-import './accounts/applications_screen.dart';
 import './accounts/applicant_screening_screen.dart';
 import './accounts/rehiring_screen.dart';
 import './accounts/admin_announcements_screen.dart';
@@ -217,13 +217,6 @@ class _AppShellState extends State<AppShell> {
       roles: ['Head'],
     ),
     (
-      id: 'applicant_screening',
-      label: 'Applicant Screening',
-      icon: Icons.how_to_reg_outlined,
-      activeIcon: Icons.how_to_reg,
-      roles: ['Head'],
-    ),
-    (
       id: 'rehiring',
       label: 'Rehiring',
       icon: Icons.autorenew_outlined,
@@ -277,7 +270,8 @@ class _AppShellState extends State<AppShell> {
       label: 'DTR/Accomplishment Report',
       icon: Icons.description_outlined,
       activeIcon: Icons.description,
-      roles: ['Head', 'Supervisor'],
+      // Supervisors make them; the Head gets them in Sent to Head.
+      roles: ['Supervisor'],
     ),
     // Announcements & Notifications: separate supervisor submission flow.
     (
@@ -313,13 +307,6 @@ class _AppShellState extends State<AppShell> {
       label: 'Payroll Requirements',
       icon: Icons.rule_folder_outlined,
       activeIcon: Icons.rule_folder,
-      roles: ['Head'],
-    ),
-    (
-      id: 'document_folders',
-      label: 'Document Folders',
-      icon: Icons.folder_outlined,
-      activeIcon: Icons.folder,
       roles: ['Head'],
     ),
     (
@@ -388,8 +375,9 @@ class _AppShellState extends State<AppShell> {
         return const AcademicYearSettingsScreen();
       case 'announcements_admin':
         return const AdminAnnouncementsScreen();
+      // One page for applications and their screening; the old Applicant
+      // Screening tab opens it too.
       case 'applications':
-        return const ApplicationsScreen();
       case 'applicant_screening':
         return const ApplicantScreeningScreen();
       case 'rehiring':
@@ -400,8 +388,12 @@ class _AppShellState extends State<AppShell> {
         return const CalendarScreen();
       case 'tasks':
         return const TasksScreen();
+      // The Head sees a summary of everyone's attendance, with no QR code;
+      // every other role keeps the attendance page as it was.
       case 'attendance':
-        return const AttendanceScreen();
+        return context.read<AppState>().role == 'Head'
+            ? const HeadAttendanceScreen()
+            : const AttendanceScreen();
       case 'reports':
         return const ReportsScreen();
       case 'performance_evaluation':
@@ -440,9 +432,8 @@ class _AppShellState extends State<AppShell> {
       case 'accounts':
         return 'Accounts';
       case 'applications':
-        return 'Applications';
       case 'applicant_screening':
-        return 'Applicant Screening';
+        return 'Applications & Screening';
       case 'rehiring':
         return 'Rehiring';
       case 'departments':

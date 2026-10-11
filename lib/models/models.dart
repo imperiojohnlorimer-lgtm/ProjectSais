@@ -249,6 +249,39 @@ class OfficeRequestPlan {
       reactivates;
 }
 
+/// How an applicant's skills cover what a supervisor's request needs.
+/// Nobody is left out for a low match: it only sorts and filters.
+class SkillMatch {
+  final Announcement request;
+
+  /// The request's skills the applicant has, as the request names them.
+  final List<String> matched;
+
+  const SkillMatch({required this.request, required this.matched});
+
+  /// Matches [skills] (any case, any spacing) against [request]'s skills.
+  factory SkillMatch.of(Announcement request, Iterable<String> skills) {
+    final have = {for (final s in skills) s.trim().toLowerCase()};
+    return SkillMatch(
+      request: request,
+      matched: [
+        for (final needed in request.skills)
+          if (have.contains(needed.trim().toLowerCase())) needed,
+      ],
+    );
+  }
+
+  int get count => matched.length;
+  int get total => request.skills.length;
+  bool get hasMatch => matched.isNotEmpty;
+
+  /// The request's skills the applicant doesn't list.
+  List<String> get missing => [
+    for (final needed in request.skills)
+      if (!matched.contains(needed)) needed,
+  ];
+}
+
 /// A degree program the university offers (e.g. BSIT), under one
 /// department. Students pick theirs when they register; its [code] is what
 /// their profile keeps as [User.courseProgram].
@@ -1078,8 +1111,18 @@ class Announcement {
   bool get isApproved => approvalStatus == 'Approved';
   bool get isRejected => approvalStatus == 'Rejected';
 
-  /// Whether students should be able to see/apply to this announcement.
-  bool get isVisibleToStudents => isApproved && isOpen;
+  /// A Supervisor's request for a student assistant for their office. It
+  /// only goes as far as the Head approving it: students never see it, and
+  /// nobody applies to it. Applicants are matched to it by their skills.
+  bool get isSupervisorRequest => postedByRole == 'Supervisor';
+
+  /// A call the Head posted for Student Assistant applicants. Students
+  /// apply to be a Student Assistant through the newest open one, which
+  /// supplies the requirements and the deadline; it names no office.
+  bool get isHiringCall => !isSupervisorRequest && acceptsApplications;
+
+  /// Whether students see this announcement: an open one from the Head.
+  bool get isVisibleToStudents => isApproved && isOpen && !isSupervisorRequest;
 
   /// The last day applications are taken, read from [deadline] — the date
   /// pickers save "Jun 5, 2026", and older forms took "June 5, 2026" typed
@@ -1157,14 +1200,38 @@ class Announcement {
   );
 }
 
+/// An application to be a Student Assistant. A student applies once per
+/// academic year, through the Head's hiring call, not to an office:
+/// 'Pending' until the Head picks them for screening ('For Screening'),
+/// then 'Approved' (a Student Assistant with no office yet, placed later
+/// by skills) or 'Waitlisted'. Before screening the Head may reject it
+/// with a reason ('Rejected', e.g. a wrong document); the student can then
+/// apply again, replacing it. 'Accepted' is only on older approvals.
 class Application {
+  /// What a general application is for, saved as its [announcementTitle].
+  static const generalTitle = 'Student Assistant';
+
+  static const pending = 'Pending';
+  static const forScreening = 'For Screening';
+  static const approved = 'Approved';
+  static const waitlisted = 'Waitlisted';
+  static const rejected = 'Rejected';
+
+  /// The id of [applicantId]'s application in [academicYear]. Saving a
+  /// second one is then an update, which the rules refuse a student.
+  static String idFor(String applicantId, String academicYear) =>
+      'app_${applicantId}_$academicYear';
+
   final String id;
+
+  /// The hiring call applied through. Older applications name an office's
+  /// posting here.
   final String announcementId;
   final String announcementTitle;
   final String applicantId;
   final String applicantName;
   final String appliedAt;
-  final String status; // 'Pending', 'Approved', 'Rejected'
+  final String status; // see the statuses above
   final String? remarks;
   final List<String> skills;
   final List<ApplicationDocument> submittedDocuments;
@@ -1183,6 +1250,13 @@ class Application {
     this.submittedDocuments = const [],
     this.academicYear,
   });
+
+  /// 'Accepted' is how some older approvals were saved.
+  bool get isApproved => status == approved || status == 'Accepted';
+
+  /// Still waiting on the Head: not picked for screening yet, or picked and
+  /// not screened yet.
+  bool get isUndecided => status == pending || status == forScreening;
 
   factory Application.fromJson(Map<String, dynamic> json) => Application(
     id: json['_id'] ?? json['id'] ?? '',
