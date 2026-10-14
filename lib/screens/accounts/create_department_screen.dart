@@ -399,7 +399,6 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
     final codeCtrl = TextEditingController(
       text: department == null ? '' : state.departmentCodes[department] ?? '',
     );
-    final headCtrl = TextEditingController();
 
     showDialog(
       context: context,
@@ -490,10 +489,9 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                   ),
                 ),
 
-                // FIX: Expanded so SingleChildScrollView fills remaining height
                 Expanded(
                   child: Padding(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                     child: SingleChildScrollView(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -508,12 +506,6 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                             'Department Code (e.g. CICS)',
                             codeCtrl,
                             Icons.tag_rounded,
-                          ),
-                          const SizedBox(height: 14),
-                          _dialogField(
-                            'Department Head',
-                            headCtrl,
-                            Icons.person_outline,
                           ),
                           const SizedBox(height: 20),
 
@@ -575,86 +567,80 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                               ),
                             ),
                           ),
-                          const SizedBox(height: 18),
-
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: () async {
-                                final name = nameCtrl.text.trim();
-                                final code = codeCtrl.text.trim();
-                                if (name.isEmpty) return;
-                                final confirmed = await showConfirmDialog(
-                                  context,
-                                  title: department == null
-                                      ? 'Create Department'
-                                      : 'Save Department Changes',
-                                  message: department == null
-                                      ? 'Create department "$name"?'
-                                      : 'Save changes to "$department"?',
-                                  confirmLabel: department == null
-                                      ? 'Create'
-                                      : 'Save',
-                                );
-                                if (!confirmed || !context.mounted) return;
-                                final created = department == null
-                                    ? await state.addDepartment(
-                                        name,
-                                        code: code,
-                                      )
-                                    : await state.updateDepartment(
-                                        department,
-                                        name,
-                                        code: code,
-                                      );
-                                if (!context.mounted) return;
-                                Navigator.pop(context);
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      created
-                                          ? (department == null
-                                                ? 'Department "$name" created!'
-                                                : 'Department updated!')
-                                          : (department == null
-                                                ? 'Could not create department "$name"'
-                                                : 'Could not update department'),
-                                    ),
-                                    backgroundColor: created
-                                        ? AppTheme.emerald500
-                                        : AppTheme.amber500,
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    margin: const EdgeInsets.all(16),
-                                  ),
-                                );
-                              },
-                              icon: const Icon(Icons.check_rounded, size: 16),
-                              label: Text(
-                                department == null
-                                    ? 'Create Department'
-                                    : 'Save Changes',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 14,
-                                ),
-                              ),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppTheme.maroon,
-                                foregroundColor: Colors.white,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 14,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                elevation: 0,
-                              ),
-                            ),
-                          ),
                         ],
+                      ),
+                    ),
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () async {
+                        final name = nameCtrl.text.trim();
+                        final code = codeCtrl.text.trim();
+                        if (name.isEmpty) return;
+                        final confirmed = await showConfirmDialog(
+                          context,
+                          title: department == null
+                              ? 'Create Department'
+                              : 'Save Department Changes',
+                          message: department == null
+                              ? 'Create department "$name"?'
+                              : 'Save changes to "$department"?',
+                          confirmLabel: department == null ? 'Create' : 'Save',
+                        );
+                        if (!confirmed || !context.mounted) return;
+                        final created = department == null
+                            ? await state.addDepartment(name, code: code)
+                            : await state.updateDepartment(
+                                department,
+                                name,
+                                code: code,
+                              );
+                        if (!context.mounted) return;
+                        Navigator.pop(context);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                              created
+                                  ? (department == null
+                                        ? 'Department "$name" created!'
+                                        : 'Department updated!')
+                                  : (department == null
+                                        ? 'Could not create department "$name"'
+                                        : 'Could not update department'),
+                            ),
+                            backgroundColor: created
+                                ? AppTheme.emerald500
+                                : AppTheme.amber500,
+                            behavior: SnackBarBehavior.floating,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            margin: const EdgeInsets.all(16),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.check_rounded, size: 16),
+                      label: Text(
+                        department == null
+                            ? 'Create Department'
+                            : 'Save Changes',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.maroon,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        elevation: 0,
                       ),
                     ),
                   ),

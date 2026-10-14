@@ -1841,7 +1841,6 @@ class _AccountsScreenState extends State<AccountsScreen>
     final state = context.read<AppState>();
     final nameCtrl = TextEditingController();
     final codeCtrl = TextEditingController();
-    final headCtrl = TextEditingController();
 
     showDialog(
       context: context,
@@ -1943,12 +1942,6 @@ class _AccountsScreenState extends State<AccountsScreen>
                       'Department Code (e.g. CICS)',
                       codeCtrl,
                       Icons.tag_rounded,
-                    ),
-                    const SizedBox(height: 14),
-                    _dialogField(
-                      'Department Head',
-                      headCtrl,
-                      Icons.person_outline,
                     ),
                     const SizedBox(height: 20),
 
