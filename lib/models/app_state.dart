@@ -17,6 +17,8 @@ import 'package:projectsais/services/supabase_storage_service.dart';
 import '../firebase_options.dart';
 import 'assistant_attendance.dart';
 import 'models.dart';
+import 'task_duty.dart';
+import 'task_template.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
@@ -345,6 +347,13 @@ class AppState extends ChangeNotifier {
     'Fieldwork',
     'Reporting',
   ];
+
+  /// The ready-made tasks the Head keeps under the categories.
+  List<TaskTemplate> taskTemplates = [];
+
+  /// Ongoing duties: the Head sees all, a Supervisor those of their own
+  /// office's students, a Student Assistant their own.
+  List<TaskDuty> taskDuties = [];
 
   // ─── Auth ──────────────────────────────────────────
   bool get isAuthenticated => currentUser != null;
@@ -713,6 +722,18 @@ class AppState extends ChangeNotifier {
         ];
         if (names.isNotEmpty) taskCategories = names;
       });
+      listen(
+        'Task duties',
+        fs.collectionStream('taskDuties'),
+        (list) => taskDuties = list.map(TaskDuty.fromJson).toList(),
+      );
+      listen('Task templates', fs.docStream('meta', 'task_templates'), (data) {
+        taskTemplates = [
+          for (final item in data?['items'] as List<dynamic>? ?? const [])
+            if (item is Map)
+              TaskTemplate.fromJson(Map<String, dynamic>.from(item)),
+        ].where((t) => t.id.isNotEmpty && t.title.isNotEmpty).toList();
+      });
     }
 
     if (isHead) {
@@ -790,6 +811,12 @@ class AppState extends ChangeNotifier {
           .catchError((Object error) {
             debugPrint('Student-record tasks lookup failed: $error');
           });
+
+      listen(
+        'Own task duties',
+        fs.whereStream('taskDuties', 'assignedTo', user.id),
+        (list) => taskDuties = list.map(TaskDuty.fromJson).toList(),
+      );
 
       listen(
         'Own class schedule',
@@ -3036,12 +3063,32 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The category every task can fall back on. It stays on the list, so
+  /// it can be neither renamed nor deleted.
+  static const fallbackTaskCategory = 'General';
+
+  /// The category on the list named [name], whatever its case or spacing:
+  /// "fieldwork" finds "Fieldwork".
+  String? findTaskCategory(String name) {
+    final key = name.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    return taskCategories.where((c) => c.trim().toLowerCase() == key).firstOrNull;
+  }
+
+  /// How many tasks (archived ones too) are filed under [category].
+  int tasksInCategory(String category) =>
+      tasks.where((t) => (t.category ?? '') == category).length;
+
+  /// How many ongoing duties (stopped ones too) are filed under [category].
+  int dutiesInCategory(String category) =>
+      taskDuties.where((d) => d.category == category).length;
+
   /// Adds a task category and saves the list, so it's there for every
-  /// Supervisor and after a reload. Returns whether it saved; a blank or
-  /// duplicate name is refused.
+  /// Supervisor and after a reload. Returns whether it saved; a blank name
+  /// or one already on the list (in any case) is refused.
   Future<bool> addTaskCategory(String name) async {
     final normalized = name.trim();
-    if (normalized.isEmpty || taskCategories.contains(normalized)) {
+    if (normalized.isEmpty || findTaskCategory(normalized) != null) {
       return false;
     }
     final updated = [...taskCategories, normalized];
@@ -3055,6 +3102,459 @@ class AppState extends ChangeNotifier {
     taskCategories = updated;
     notifyListeners();
     return true;
+  }
+
+  /// Renames the category [from] to [to], and the tasks filed under it with
+  /// it, in one save. Returns null when it worked, or what to tell the
+  /// Head.
+  Future<String?> renameTaskCategory(String from, String to) async {
+    final name = to.trim();
+    if (name.isEmpty) return 'Type a name for the category.';
+    if (from == fallbackTaskCategory) {
+      return '"$fallbackTaskCategory" is the default category, so it keeps '
+          'its name.';
+    }
+    if (name == from) return null;
+    final clash = findTaskCategory(name);
+    if (clash != null && clash.toLowerCase() != from.toLowerCase()) {
+      return '"$clash" is already a task category.';
+    }
+    final updated = [for (final c in taskCategories) c == from ? name : c];
+    final taskIds = [
+      for (final t in tasks)
+        if ((t.category ?? '') == from) t.id,
+    ];
+    // Ongoing duties carry the category their daily logs are filed under.
+    final dutyIds = [
+      for (final d in taskDuties)
+        if (d.category == from) d.id,
+    ];
+    if (taskIds.length + dutyIds.length > FirestoreService.maxRenamedTasks) {
+      return '"$from" is used by too many tasks to rename in one go.';
+    }
+    final templates = [
+      for (final t in taskTemplates)
+        t.category == from ? t.copyWith(category: name) : t,
+    ];
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.renameTaskCategory(
+        updated,
+        from: from,
+        to: name,
+        taskIds: taskIds,
+        dutyIds: dutyIds,
+      );
+    } catch (error) {
+      debugPrint('Failed to rename task category: $error');
+      return "Couldn't rename it. Check your connection and try again.";
+    }
+    taskCategories = updated;
+    taskTemplates = templates;
+    taskDuties = [
+      for (final d in taskDuties)
+        d.category == from ? d.copyWith(category: name) : d,
+    ];
+    tasks = [
+      for (final t in tasks)
+        (t.category ?? '') == from ? t.copyWith(category: name) : t,
+    ];
+    notifyListeners();
+    return null;
+  }
+
+  /// Removes a task category nothing is filed under. Returns null when it
+  /// worked, or what to tell the Head.
+  Future<String?> deleteTaskCategory(String name) async {
+    if (name == fallbackTaskCategory) {
+      return '"$fallbackTaskCategory" is the default category, so it stays.';
+    }
+    final used = tasksInCategory(name);
+    if (used > 0) {
+      final noun = used == 1 ? 'task' : 'tasks';
+      return '"$name" is used by $used $noun, so it '
+          "can't be deleted. Rename it instead.";
+    }
+    final templates = templatesIn(name).length;
+    if (templates > 0) {
+      final noun = templates == 1 ? 'template' : 'templates';
+      return '"$name" still has $templates $noun. Delete them first.';
+    }
+    final duties = dutiesInCategory(name);
+    if (duties > 0) {
+      final noun = duties == 1 ? 'ongoing duty' : 'ongoing duties';
+      return '"$name" is used by $duties $noun, so it can\'t be deleted. '
+          'Rename it instead.';
+    }
+    final updated = [for (final c in taskCategories) if (c != name) c];
+    if (updated.isEmpty) return 'Keep at least one category.';
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTaskCategories(updated);
+    } catch (error) {
+      debugPrint('Failed to delete task category: $error');
+      return "Couldn't delete it. Check your connection and try again.";
+    }
+    taskCategories = updated;
+    notifyListeners();
+    return null;
+  }
+
+  // ── Ongoing duties ───────────────────────────────────
+
+  /// Today's date in Philippine time ("Oct 14, 2026"), the way tasks and
+  /// attendance records name a day and the same day the Firestore rules
+  /// and the attendance server go by.
+  String philippineToday([DateTime? now]) {
+    final day = _philippineDay(now);
+    return '${_monthNames[day.month - 1]} ${day.day}, ${day.year}';
+  }
+
+  DateTime _philippineDay([DateTime? now]) {
+    final clock = (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
+    return DateTime(clock.year, clock.month, clock.day);
+  }
+
+  /// The ongoing duties this user may see: all for the Head, those of their
+  /// office's students for a Supervisor, their own for anyone else.
+  List<TaskDuty> get filteredDuties {
+    if (role == 'Head') return taskDuties;
+    if (role == 'Supervisor') {
+      final assistantIds = _studentIdentityIdsForSupervisor();
+      return taskDuties.where((d) => assistantIds.contains(d.assignedTo)).toList();
+    }
+    return taskDuties.where((d) => d.assignedTo == currentUser?.id).toList();
+  }
+
+  /// The duties a Student Assistant can log: active, and set up this
+  /// academic year (one never carries into the next by itself).
+  List<TaskDuty> get dutiesToLog => [
+    for (final d in filteredDuties)
+      if (d.active && d.academicYear == academicYear) d,
+  ];
+
+  /// The signed-in student's attendance record from today (Philippine
+  /// time), which is what lets them log a duty. Timing out isn't needed:
+  /// a missed time-out is dealt with on the attendance side.
+  AttendanceRecord? attendanceForToday([DateTime? now]) {
+    final me = currentUser?.id;
+    if (me == null) return null;
+    final today = philippineToday(now);
+    return attendance
+        .where((r) => r.studentId == me && r.date == today && !r.isArchived)
+        .lastOrNull;
+  }
+
+  /// The task that logs [duty] for today, once the student made it.
+  Task? dutyLogForToday(TaskDuty duty, [DateTime? now]) {
+    final id = duty.logIdFor(_philippineDay(now));
+    return tasks.where((t) => t.id == id).firstOrNull;
+  }
+
+  /// A Supervisor (or the Head) gives [student] an ongoing duty. Returns
+  /// null when it worked, or what to tell them.
+  Future<String?> createTaskDuty({
+    required String title,
+    required String description,
+    required String priority,
+    required String category,
+    required Student student,
+  }) async {
+    final name = title.trim();
+    if (name.isEmpty) return 'Give the duty a title.';
+    if (name.length > TaskDuty.maxTitle) {
+      return 'Keep the title under ${TaskDuty.maxTitle} characters.';
+    }
+    final me = currentUser;
+    if (me == null || (role != 'Supervisor' && role != 'Head')) {
+      return 'Only a Supervisor can give an ongoing duty.';
+    }
+    // The student's account id: that is who the duty is for, and who logs
+    // it. A roster entry with no account behind it can't.
+    final accountId = (student.userId ?? '').isNotEmpty
+        ? student.userId!
+        : student.id;
+    final hasAccount = users.any(
+      (u) => u.id == accountId && u.role == 'Student Assistant',
+    );
+    if (!hasAccount) {
+      return '${student.name} has no Student Assistant account yet, so '
+          "can't log a duty.";
+    }
+    final clash = taskDuties.any(
+      (d) =>
+          d.active &&
+          d.assignedTo == accountId &&
+          d.academicYear == academicYear &&
+          d.title.trim().toLowerCase() == name.toLowerCase(),
+    );
+    if (clash) {
+      return '${student.name} already has an ongoing duty called "$name".';
+    }
+    final duty = TaskDuty(
+      id: 'duty_${DateTime.now().millisecondsSinceEpoch}',
+      title: name,
+      description: description.trim(),
+      priority: priority,
+      category: category,
+      assignedTo: accountId,
+      assignedToName: student.name,
+      assignedBy: me.id,
+      academicYear: academicYear,
+    );
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTaskDuty(duty);
+    } catch (error) {
+      debugPrint('Failed to save task duty: $error');
+      return "Couldn't save the duty. Check your connection and try again.";
+    }
+    taskDuties = [
+      duty,
+      for (final d in taskDuties)
+        if (d.id != duty.id) d,
+    ];
+    notifyListeners();
+    _addNotification(
+      AppNotification(
+        id: 'n_${DateTime.now().microsecondsSinceEpoch}_$accountId',
+        userId: accountId,
+        title: 'New Ongoing Duty',
+        message:
+            '${me.name} gave you an ongoing duty: "$name". On days you '
+            'clock in, log your work on the Tasks screen.',
+        type: 'task',
+        createdAt: _formattedToday(),
+      ),
+    );
+    notifyListeners();
+    return null;
+  }
+
+  /// Stops an ongoing duty, or starts it again. Shown straight away, then
+  /// saved; a refused save is undone and reported as false.
+  Future<bool> setTaskDutyActive(String id, bool active) async {
+    final index = taskDuties.indexWhere((d) => d.id == id);
+    if (index < 0) return false;
+    final previous = taskDuties;
+    taskDuties = [...taskDuties]..[index] = taskDuties[index].copyWith(
+      active: active,
+    );
+    notifyListeners();
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTaskDutyActive(id, active);
+      return true;
+    } catch (error) {
+      debugPrint('Failed to change task duty: $error');
+      taskDuties = previous;
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// Who approves [studentId]'s logs now: the heads of the office they are
+  /// in. A student who moved offices has a new supervisor, so the one who
+  /// gave the duty ([fallback]) is told only when no office is found.
+  Set<String> _approversOf(String studentId, String fallback) {
+    final heads = {
+      for (final office in offices)
+        if (office.isActive && office.assistantIds.contains(studentId))
+          ...office.headIds,
+    };
+    return heads.isNotEmpty ? heads : {if (fallback.isNotEmpty) fallback};
+  }
+
+  void _tellApproversOfLog(Task log, String studentName, String when) {
+    final me = currentUser?.id;
+    for (final id in _approversOf(log.assignedTo ?? '', log.assignedBy ?? '')) {
+      if (id == me) continue;
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().microsecondsSinceEpoch}_$id',
+          userId: id,
+          title: 'Task Awaiting Approval',
+          message:
+              '$studentName logged "${log.title}" for $when. Approve or '
+              'reject it on the Tasks screen.',
+          type: 'task',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
+    notifyListeners();
+  }
+
+  /// The signed-in Student Assistant logs what they did for [duty] today.
+  /// That makes today's task for the supervisor to approve, the same as a
+  /// task the student completes: it needs a clock-in from today, and a day
+  /// can be logged once. Returns null when it worked, or what to tell them.
+  Future<String?> logDutyWork(TaskDuty duty, {String note = ''}) async {
+    final me = currentUser;
+    if (me == null || role != 'Student Assistant') {
+      return 'Only a Student Assistant can log an ongoing duty.';
+    }
+    if (!duty.active ||
+        duty.assignedTo != me.id ||
+        duty.academicYear != academicYear) {
+      return "This duty isn't open for logging.";
+    }
+    final record = attendanceForToday();
+    if (record == null) {
+      return "Clock in first. You can log a duty on a day you've clocked in.";
+    }
+    final text = note.trim();
+    if (text.length > TaskDuty.maxNote) {
+      return 'Keep the note under ${TaskDuty.maxNote} characters.';
+    }
+    if (dutyLogForToday(duty) != null) {
+      return "You've already logged this duty today.";
+    }
+    final today = philippineToday();
+    final log = Task(
+      id: duty.logIdFor(_philippineDay()),
+      title: duty.title,
+      description: text,
+      status: 'Completed',
+      priority: duty.priority,
+      dueDate: today,
+      assignedTo: me.id,
+      assignedToName: me.name,
+      assignedBy: duty.assignedBy,
+      category: duty.category,
+      academicYear: duty.academicYear,
+      completedAt: today,
+      reviewStatus: 'Pending',
+      dutyId: duty.id,
+      attendanceId: record.id,
+      workDate: today,
+    );
+    tasks = [log, ...tasks];
+    notifyListeners();
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.createDutyLog(log);
+    } catch (error) {
+      debugPrint('Failed to log duty: $error');
+      // Take back only this log: other changes may have arrived meanwhile.
+      tasks = [
+        for (final t in tasks)
+          if (t.id != log.id) t,
+      ];
+      notifyListeners();
+      return "Couldn't save your log. Check your connection and try again.";
+    }
+    _tellApproversOfLog(log, me.name, today);
+    return null;
+  }
+
+  /// Sends a rejected duty log again, with a corrected [note]. It keeps the
+  /// day it was for. Returns null when it worked, or what to tell them.
+  Future<String?> resubmitDutyLog(Task log, {String note = ''}) async {
+    final me = currentUser;
+    if (me == null || role != 'Student Assistant' || log.assignedTo != me.id) {
+      return "This log isn't yours to send.";
+    }
+    final current = tasks.where((t) => t.id == log.id).firstOrNull;
+    if (current == null || !current.isDutyLog || !current.wasRejected) {
+      return "This log can't be sent again.";
+    }
+    final text = note.trim();
+    if (text.length > TaskDuty.maxNote) {
+      return 'Keep the note under ${TaskDuty.maxNote} characters.';
+    }
+    final day = current.workDate ?? current.completedAt ?? philippineToday();
+    final sent = current.copyWith(
+      description: text,
+      status: 'Completed',
+      completedAt: day,
+      resetReview: true,
+      reviewStatus: 'Pending',
+    );
+    tasks = [for (final t in tasks) t.id == sent.id ? sent : t];
+    notifyListeners();
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.setTask(sent);
+    } catch (error) {
+      debugPrint('Failed to resend duty log: $error');
+      tasks = [for (final t in tasks) t.id == sent.id ? current : t];
+      notifyListeners();
+      return "Couldn't send it. Check your connection and try again.";
+    }
+    _tellApproversOfLog(sent, me.name, day);
+    return null;
+  }
+
+  /// Most templates the Head can keep; they share one Firestore document.
+  static const maxTaskTemplates = 60;
+
+  /// The templates under [category], in the order the Head made them.
+  List<TaskTemplate> templatesIn(String category) =>
+      taskTemplates.where((t) => t.category == category).toList();
+
+  /// Saves a template, new or changed. Returns null when it worked, or what
+  /// to tell the Head.
+  Future<String?> saveTaskTemplate(TaskTemplate template) async {
+    final title = template.title.trim();
+    if (title.isEmpty) return 'Give the template a title.';
+    if (!taskCategories.contains(template.category)) {
+      return 'Pick a category from the list.';
+    }
+    final clash = taskTemplates.any(
+      (o) =>
+          o.id != template.id &&
+          o.category == template.category &&
+          o.title.trim().toLowerCase() == title.toLowerCase(),
+    );
+    if (clash) {
+      return '"${template.category}" already has a template called "$title".';
+    }
+    final isNew = !taskTemplates.any((o) => o.id == template.id);
+    if (isNew && taskTemplates.length >= maxTaskTemplates) {
+      return 'You can keep up to $maxTaskTemplates templates. Delete one '
+          'you no longer use first.';
+    }
+    final clean = template.copyWith(
+      title: title,
+      description: template.description.trim(),
+      checklist: [
+        for (final item in template.checklist)
+          if (item.trim().isNotEmpty) item.trim(),
+      ],
+    );
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.upsertTaskTemplate(clean.toJson());
+    } catch (error) {
+      debugPrint('Failed to save task template: $error');
+      return "Couldn't save the template. Check your connection and try "
+          'again.';
+    }
+    // The live listener may have delivered it already, so look again.
+    taskTemplates = taskTemplates.any((o) => o.id == clean.id)
+        ? [for (final o in taskTemplates) o.id == clean.id ? clean : o]
+        : [...taskTemplates, clean];
+    notifyListeners();
+    return null;
+  }
+
+  /// Removes a template. Tasks already made from it are not touched.
+  Future<String?> deleteTaskTemplate(String id) async {
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.removeTaskTemplate(id);
+    } catch (error) {
+      debugPrint('Failed to delete task template: $error');
+      return "Couldn't delete the template. Check your connection and try "
+          'again.';
+    }
+    taskTemplates = [
+      for (final t in taskTemplates)
+        if (t.id != id) t,
+    ];
+    notifyListeners();
+    return null;
   }
 
   /// The skill on the list named [name], whatever its case or spacing:
@@ -5053,8 +5553,11 @@ class AppState extends ChangeNotifier {
       // today" into that day's accomplishment entry. Re-completing a task
       // that's already marked Completed keeps its original date rather
       // than overwriting it.
+      // A duty log keeps the day it was made for.
       final completedAt = becameCompleted
-          ? (t.completedAt ?? _formattedToday())
+          ? (t.isDutyLog
+                ? (t.workDate ?? t.completedAt ?? _formattedToday())
+                : (t.completedAt ?? _formattedToday()))
           : null;
       if (becameCompleted) {
         // Waiting for the supervisor again; an earlier rejection's note
@@ -5212,7 +5715,11 @@ class AppState extends ChangeNotifier {
               t.isApproved &&
               !t.isArchived &&
               !usedIds.contains(t.id) &&
-              !usedTitles.contains(t.title.trim().toLowerCase()),
+              // A duty log has its own id, and shares its title with every
+              // other day's, so an old report's "• Title" line can't stand
+              // for it.
+              (t.isDutyLog ||
+                  !usedTitles.contains(t.title.trim().toLowerCase())),
         )
         .toList();
     final epoch = DateTime(1970);

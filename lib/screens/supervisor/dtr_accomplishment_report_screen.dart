@@ -1025,7 +1025,12 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       final date = DateTime(widget.month.year, widget.month.month, day);
 
       if (sessions == null || sessions.isEmpty) {
-        final completedTasks = tasksByDay[day];
+        // A duty log is a day the student clocked in. If that clock-in is
+        // gone (archived), the log must not stand in for it and credit
+        // hours from the weekly schedule.
+        final completedTasks = tasksByDay[day]
+            ?.where((t) => !t.isDutyLog)
+            .toList();
         if (completedTasks != null && completedTasks.isNotEmpty) {
           return _entryFromCompletedTasks(day, date, weekday, completedTasks);
         }
@@ -1082,6 +1087,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         totalHours: totalHours == 0 ? null : totalHours,
         note: missedTimeOut
             ? 'Missed time-out — please record the time-out'
+                  '${approvedWork == null ? '' : '. Approved work: $approvedWork'}'
             : approvedWork ?? (hasOngoing ? 'Present (ongoing)' : 'Present'),
         isInvalid: missedTimeOut,
       );
@@ -1092,7 +1098,13 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// or null when there are none.
   String? _accomplishmentOf(List<Task> tasks) {
     final titles = tasks
-        .map((t) => t.title.trim())
+        .map((t) {
+          final title = t.title.trim();
+          final note = t.description.trim();
+          return t.isDutyLog && title.isNotEmpty && note.isNotEmpty
+              ? '$title ($note)'
+              : title;
+        })
         .where((t) => t.isNotEmpty)
         .join('; ');
     if (titles.isNotEmpty) return titles;

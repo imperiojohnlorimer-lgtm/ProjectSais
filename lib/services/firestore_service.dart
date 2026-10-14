@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../models/models.dart';
 import '../models/schedule_event.dart';
+import '../models/task_duty.dart';
 import 'supabase_storage_service.dart';
 
 /// Simple Firestore helper for `announcements` collection.
@@ -1188,6 +1189,9 @@ class FirestoreService {
       'checklistItems': t.checklistItems,
       'isArchived': t.isArchived,
       'academicYear': t.academicYear,
+      'dutyId': t.dutyId,
+      'attendanceId': t.attendanceId,
+      'workDate': t.workDate,
     }..removeWhere((k, v) => v == null);
     final clearable = {
       'completedAt': t.completedAt,
@@ -1229,6 +1233,45 @@ class FirestoreService {
       final payload = {...data, 'createdAt': FieldValue.serverTimestamp()};
       await _tasks.add(payload);
     }
+  }
+
+  /// Saves the task that logs a day of an ongoing duty, by the Student
+  /// Assistant who did it. A plain write: the rules decide whether it is
+  /// theirs to make (their own duty, the day they clocked in, once), and a
+  /// read first would be refused for a task that isn't there yet.
+  Future<void> createDutyLog(Task t) async {
+    await _tasks.doc(t.id).set({
+      'title': t.title,
+      'description': t.description,
+      'status': t.status,
+      'priority': t.priority,
+      'dueDate': t.dueDate,
+      'assignedTo': t.assignedTo,
+      'assignedToName': t.assignedToName,
+      'assignedBy': t.assignedBy,
+      'category': t.category,
+      'checklistItems': t.checklistItems,
+      'isArchived': false,
+      'academicYear': t.academicYear,
+      'completedAt': t.completedAt,
+      'reviewStatus': t.reviewStatus,
+      'dutyId': t.dutyId,
+      'attendanceId': t.attendanceId,
+      'workDate': t.workDate,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Ongoing duties, in `taskDuties`.
+  Future<void> setTaskDuty(TaskDuty duty) async {
+    await _db.collection('taskDuties').doc(duty.id).set({
+      ...duty.toJson(),
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  Future<void> setTaskDutyActive(String id, bool active) async {
+    await _db.collection('taskDuties').doc(id).update({'active': active});
   }
 
   Future<void> deleteTask(String id) async {
@@ -1704,6 +1747,86 @@ class FirestoreService {
   /// The task categories the Head manages, in meta/task_categories.
   Future<void> setTaskCategories(List<String> names) async {
     await _db.collection('meta').doc('task_categories').set({'names': names});
+  }
+
+  /// Most tasks [renameTaskCategory] can move: the whole rename is one
+  /// transaction (so it either all happens or none of it does), which
+  /// holds 500 writes, two of which are the category list and the templates.
+  static const maxRenamedTasks = 450;
+
+  /// Saves the category list with [from] changed to [to], moves the tasks
+  /// and templates filed under the old name, all in one transaction. The
+  /// templates are read inside it, so a template another session just saved
+  /// isn't lost.
+  Future<void> renameTaskCategory(
+    List<String> names, {
+    required String from,
+    required String to,
+    required List<String> taskIds,
+    List<String> dutyIds = const [],
+  }) async {
+    if (taskIds.length + dutyIds.length > maxRenamedTasks) {
+      throw StateError('Too many tasks to rename at once.');
+    }
+    final templatesRef = _db.collection('meta').doc('task_templates');
+    await _db.runTransaction((transaction) async {
+      final stored = await transaction.get(templatesRef);
+      final items = [
+        for (final item in stored.data()?['items'] as List<dynamic>? ?? [])
+          if (item is Map) Map<String, dynamic>.from(item),
+      ];
+      final moves = items.any((i) => i['category'] == from);
+      transaction.set(_db.collection('meta').doc('task_categories'), {
+        'names': names,
+      });
+      if (moves) {
+        transaction.set(templatesRef, {
+          'items': [
+            for (final i in items)
+              i['category'] == from ? {...i, 'category': to} : i,
+          ],
+        });
+      }
+      for (final id in taskIds) {
+        transaction.update(_tasks.doc(id), {'category': to});
+      }
+      for (final id in dutyIds) {
+        transaction.update(_db.collection('taskDuties').doc(id), {
+          'category': to,
+        });
+      }
+    });
+  }
+
+  /// Adds a task template, or replaces the one with the same id. Done in a
+  /// transaction on the stored list, so two Heads editing at once don't undo
+  /// each other.
+  Future<void> upsertTaskTemplate(Map<String, dynamic> template) =>
+      _changeTaskTemplates((items) {
+        final at = items.indexWhere((i) => i['id'] == template['id']);
+        if (at < 0) {
+          items.add(template);
+        } else {
+          items[at] = template;
+        }
+      });
+
+  Future<void> removeTaskTemplate(String id) =>
+      _changeTaskTemplates((items) => items.removeWhere((i) => i['id'] == id));
+
+  Future<void> _changeTaskTemplates(
+    void Function(List<Map<String, dynamic>> items) change,
+  ) {
+    final ref = _db.collection('meta').doc('task_templates');
+    return _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      final items = [
+        for (final item in snapshot.data()?['items'] as List<dynamic>? ?? [])
+          if (item is Map) Map<String, dynamic>.from(item),
+      ];
+      change(items);
+      transaction.set(ref, {'items': items});
+    });
   }
 
   // Documents

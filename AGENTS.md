@@ -43,7 +43,7 @@ DTR/Accomplishment Reports, rehiring, documents and payroll.
 |---|---|
 | `lib/models/app_state.dart` | Nearly all app logic: loading, live listeners, every action, derived lists. |
 | `lib/models/models.dart` | Data classes (`User`, `Office`, `Announcement`, `Application`, `ScreeningRecord`, `AttendanceRecord`, `SkillMatch`, …). |
-| `lib/models/assistant_attendance.dart`, `payroll_requirements.dart`, `person_name.dart` | Smaller models. |
+| `lib/models/assistant_attendance.dart`, `payroll_requirements.dart`, `person_name.dart`, `task_template.dart`, `task_duty.dart` | Smaller models. |
 | `lib/services/firestore_service.dart` | Every Firestore read and write. Tests fake it by subclassing. |
 | `lib/services/*_document_service.dart` | Word (.docx) generation from templates. |
 | `lib/screens/app_shell.dart` | Staff shell: sidebar items per role (`_navItems`, `roles:`), `_buildBody` maps tab ids to screens. |
@@ -108,6 +108,25 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
 The Head checks each Student Assistant's payroll requirements
 (`payrollChecks/{id}`); the Admin can approve a term's payroll only when
 everyone in it is Ready.
+
+### Tasks, categories, templates and ongoing duties
+
+- A Supervisor assigns tasks (`AssignTaskSheet`); a Student Assistant marks
+  one Completed, which sends it for the Supervisor's approval; only approved
+  tasks reach the DTR/Accomplishment Report.
+- The Head manages the categories (`meta/task_categories`) and the
+  templates under them (`meta/task_templates`, `TaskTemplate`) in
+  `ManageCategoriesDialog`. Renaming a category renames its tasks and
+  templates in one transaction; a category in use can't be deleted. Only the
+  Head writes both documents (rules).
+- An **ongoing duty** (`taskDuties/{id}`, `TaskDuty`) has no due date. On a
+  day a Student Assistant has clocked in they log it
+  (`AppState.logDutyWork`), which makes one task per duty per day with the
+  id `dutylog_<dutyId>_<yyyymmdd>` (`Task.dutyId`, `attendanceId`,
+  `workDate`), already waiting for approval. The rules (`isDutyLog` in
+  `firestore.rules`) check the duty, the academic year, Philippine today and
+  that attendance record. A day with no clock-in makes nothing, so nothing is
+  overdue. Duty logs are left out of the DTR's schedule fallback.
 
 ### Skills
 

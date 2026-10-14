@@ -774,6 +774,14 @@ class Task {
   final String? reviewedBy;
   final String? reviewNote;
 
+  /// Set on a task that logs a day of an ongoing duty (see [TaskDuty]): the
+  /// duty, the attendance record that day's clock-in is, and the day it's
+  /// for ("Oct 14, 2026"). The day never changes, even when a rejected log
+  /// is completed again later.
+  final String? dutyId;
+  final String? attendanceId;
+  final String? workDate;
+
   Task({
     required this.id,
     required this.title,
@@ -793,7 +801,13 @@ class Task {
     this.reviewedAt,
     this.reviewedBy,
     this.reviewNote,
+    this.dutyId,
+    this.attendanceId,
+    this.workDate,
   });
+
+  /// Whether this logs a day of an ongoing duty.
+  bool get isDutyLog => (dutyId ?? '').isNotEmpty;
 
   factory Task.fromJson(Map<String, dynamic> json) => Task(
     id: json['_id'] ?? json['id'] ?? '',
@@ -824,6 +838,9 @@ class Task {
     reviewedAt: json['reviewedAt']?.toString(),
     reviewedBy: json['reviewedBy']?.toString(),
     reviewNote: json['reviewNote']?.toString(),
+    dutyId: json['dutyId']?.toString(),
+    attendanceId: json['attendanceId']?.toString(),
+    workDate: json['workDate']?.toString(),
   );
 
   /// [resetReview] replaces the four review fields with exactly the ones
@@ -869,6 +886,9 @@ class Task {
     reviewedAt: resetReview ? reviewedAt : (reviewedAt ?? this.reviewedAt),
     reviewedBy: resetReview ? reviewedBy : (reviewedBy ?? this.reviewedBy),
     reviewNote: resetReview ? reviewNote : (reviewNote ?? this.reviewNote),
+    dutyId: dutyId,
+    attendanceId: attendanceId,
+    workDate: workDate,
   );
 
   /// Completed and approved by the supervisor: on the DTR, and free to go

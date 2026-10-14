@@ -169,6 +169,15 @@ service cloud.firestore {
         + string(t.year());
     }
 
+    // "20260903" — the same Philippine calendar date, as part of a
+    // document id.
+    function phDayKey() {
+      let t = request.time + duration.value(8, 'h');
+      return string(t.year())
+        + (t.month() < 10 ? '0' : '') + string(t.month())
+        + (t.day() < 10 ? '0' : '') + string(t.day());
+    }
+
     match /users/{uid} {
       // Head and Supervisor need to read user/student profiles for
       // Students, Reports, Attendance, Tasks, and office matching. Admin
@@ -458,7 +467,95 @@ service cloud.firestore {
       }
 
       allow create: if isHead()
-        || supervisorMayHandle(request.resource.data);
+        ? true
+        : (
+          isSupervisor()
+            ? supervisorMayHandle(request.resource.data)
+            : isDutyLog()
+        );
+
+      // The task a Student Assistant makes to log a day of an ongoing duty
+      // (see taskDuties): their own, active duty for this academic year;
+      // today, Philippine time, and an attendance record of theirs from
+      // today, so only a day they clocked in can be logged; one per duty
+      // per day, since the id is made from both (a second write is an
+      // update, which studentTaskUpdate lets change only the note). It
+      // starts out Completed and waiting for the supervisor, the same as a
+      // task the student completes, and says nothing the duty doesn't.
+      function isDutyLog() {
+        let d = request.resource.data;
+        return isStudentAssistant()
+          && currentUser().get('status', 'Active') == 'Active'
+          && d.keys().hasOnly([
+            'title', 'description', 'status', 'priority', 'dueDate',
+            'assignedTo', 'assignedToName', 'assignedBy', 'category',
+            'checklistItems', 'isArchived', 'academicYear', 'completedAt',
+            'reviewStatus', 'dutyId', 'attendanceId', 'workDate', 'createdAt'
+          ])
+          && d.get('dutyId', '') is string
+          && d.get('dutyId', '') != ''
+          && d.get('attendanceId', '') is string
+          && d.get('attendanceId', '') != ''
+          && isDutyNote(d.get('description', null))
+          && d.get('checklistItems', null) == []
+          && exists(taskDutyPath(d.dutyId))
+          && exists(attendancePath(d.attendanceId))
+          && dutyLogMatches(
+            d,
+            get(taskDutyPath(d.dutyId)).data,
+            get(attendancePath(d.attendanceId)).data
+          );
+      }
+
+      // What the student wrote about the day: text of a sensible length.
+      function isDutyNote(note) {
+        return note is string && note.size() <= 300;
+      }
+
+      function taskDutyPath(dutyId) {
+        return /databases/$(database)/documents/taskDuties/$(dutyId);
+      }
+
+      function attendancePath(attendanceId) {
+        return /databases/$(database)/documents/attendance/$(attendanceId);
+      }
+
+      function dutyLogMatches(d, duty, attendance) {
+        return duty.get('active', false) == true
+          && duty.assignedTo == request.auth.uid
+          && isCurrentAcademicYear(duty.get('academicYear', ''))
+          && d.assignedTo == request.auth.uid
+          && d.assignedToName == currentName()
+          && d.assignedBy == duty.assignedBy
+          && d.title == duty.title
+          && d.priority == duty.priority
+          && d.category == duty.category
+          && d.academicYear == duty.academicYear
+          && d.status == 'Completed'
+          && d.reviewStatus == 'Pending'
+          && d.get('isArchived', false) == false
+          && d.completedAt == phDate(0)
+          && d.workDate == phDate(0)
+          && d.dueDate == phDate(0)
+          && d.createdAt == request.time
+          && id == 'dutylog_' + d.dutyId + '_' + phDayKey()
+          && attendance.get('studentId', '') == request.auth.uid
+          && attendance.get('date', '') == phDate(0)
+          && attendance.get('isArchived', false) == false;
+      }
+
+      // The year the Admin set, when one was ever saved.
+      function isCurrentAcademicYear(year) {
+        return year != ''
+          && (
+            !exists(
+              /databases/$(database)/documents/meta/academic_year_settings
+            )
+            || get(
+              /databases/$(database)/documents/meta/academic_year_settings
+            ).data.get('academicYear', year) == year
+          );
+      }
 
       // Ternaries, not ||, so only the requester's own case is evaluated —
       // see "Supervisor office scope" above.
@@ -488,7 +585,13 @@ service cloud.firestore {
           && request.resource.data.get('status', '')
             in ['Not Started', 'In Progress', 'Completed']
           && sameOr('title', '')
-          && sameOr('description', '')
+          && (
+            sameOr('description', '')
+            || (
+              resource.data.get('dutyId', null) != null
+              && isDutyNote(request.resource.data.get('description', null))
+            )
+          )
           && sameOr('priority', 'Medium')
           && sameOr('dueDate', '')
           && unchanged('assignedTo')
@@ -498,13 +601,23 @@ service cloud.firestore {
           && sameOr('checklistItems', [])
           && sameOr('isArchived', false)
           && unchanged('academicYear')
+          && unchanged('dutyId')
+          && unchanged('attendanceId')
+          && unchanged('workDate')
           && (
             unchanged('completedAt')
             || request.resource.data.get('completedAt', null) == null
             || (
               request.resource.data.status == 'Completed'
-              && request.resource.data.completedAt
-                in [phDate(-1), phDate(0), phDate(1)]
+              && (
+                resource.data.get('dutyId', null) != null
+                  // A duty log is for the day it names, whenever it is
+                  // completed again.
+                  ? request.resource.data.completedAt
+                    == resource.data.get('workDate', 'none')
+                  : request.resource.data.completedAt
+                    in [phDate(-1), phDate(0), phDate(1)]
+              )
             )
           );
       }
@@ -538,6 +651,33 @@ service cloud.firestore {
               )
           );
       }
+    }
+
+    // Ongoing duties a Supervisor gives a Student Assistant (see Task
+  // dutyId). The Supervisor sets them up for their own office's students and
+  // stops them; the student reads their own and logs days through tasks.
+    match /taskDuties/{id} {
+      allow read: if isStaff()
+        || (signedIn() && resource.data.assignedTo == request.auth.uid);
+
+      allow create: if isHead()
+        || (
+          isSupervisor()
+          && isSupervisorOfStudent(request.resource.data.assignedTo)
+          && request.resource.data.assignedBy == request.auth.uid
+        );
+
+      allow update: if isHead()
+        || (
+          isSupervisor()
+          && isSupervisorOfStudent(resource.data.assignedTo)
+          && unchanged('assignedTo')
+        );
+
+      allow delete: if isHead()
+        || (
+          isSupervisor() && isSupervisorOfStudent(resource.data.assignedTo)
+        );
     }
 
     match /classSchedules/{id} {
@@ -783,6 +923,19 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // The task categories and the ready-made task templates under them are
+    // the Head's to manage; everyone signed in reads them (the Supervisor
+    // picks from them when assigning a task).
+    match /meta/task_categories {
+      allow read: if signedIn();
+      allow write: if isHead();
+    }
+
+    match /meta/task_templates {
+      allow read: if signedIn();
+      allow write: if isHead();
+    }
+
     // Every other meta document. Firestore allows a request if any matching
     // rule does, and this one matches the documents above too — so it must
     // leave them out: its read would hand everyone the attendance code, and
@@ -790,7 +943,10 @@ service cloud.firestore {
     // settings.
     match /meta/{document} {
       allow read: if signedIn() && document != 'current_qr';
-      allow write: if isStaff() && document != 'academic_year_settings';
+      allow write: if isStaff()
+        && !(document in [
+          'academic_year_settings', 'task_categories', 'task_templates'
+        ]);
     }
 
     // Finished academic years: one summary per year, which the Reports
