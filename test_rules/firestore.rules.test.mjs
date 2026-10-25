@@ -6,6 +6,7 @@
 // test says who is asking and what they may or may not do; the "keeps working"
 // tests are the app's own flows, which a tightened rule must not break.
 import { test, before, after, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
   initializeTestEnvironment,
@@ -18,6 +19,7 @@ import {
   updateDoc,
   deleteDoc,
   getDoc,
+  runTransaction,
   setLogLevel,
 } from 'firebase/firestore';
 
@@ -388,4 +390,76 @@ test('a notification is private to its recipient', async () => {
   await assertSucceeds(setDoc(doc(as('sup'), 'notifications', 'n1'), note('sa')));
   await assertSucceeds(getDoc(doc(as('sa'), 'notifications', 'n1')));
   await assertFails(getDoc(doc(as('stu'), 'notifications', 'n1')));
+});
+
+// ── Student Assistant numbers, field-level account changes, office moves ──
+
+// What FirestoreService.allocateSaId does, with the same reads and writes.
+const allocateSaId = (db, userId) =>
+  runTransaction(db, async (tx) => {
+    const userRef = doc(db, 'users', userId);
+    const counterRef = doc(db, 'meta', 'saCounter');
+    const user = await tx.get(userRef);
+    if ((user.data()?.saId ?? '') !== '') return user.data().saId;
+    const counter = await tx.get(counterRef);
+    const next = counter.exists() ? counter.data().next : 1;
+    tx.set(counterRef, { next: next + 1 });
+    tx.update(userRef, { saId: `SA ${String(next).padStart(3, '0')}` });
+    return `SA ${String(next).padStart(3, '0')}`;
+  });
+
+test('the Head takes the next SA number in a transaction', async () => {
+  const db = as('head');
+  assert.equal(await assertSucceeds(allocateSaId(db, 'stu')), 'SA 001');
+  // Asking again returns the same one; the counter moved on once.
+  assert.equal(await assertSucceeds(allocateSaId(db, 'stu')), 'SA 001');
+  const counter = await getDoc(doc(db, 'meta', 'saCounter'));
+  assert.equal(counter.data().next, 2);
+});
+
+test('nobody but the Head touches the SA counter', async () => {
+  for (const uid of ['sup', 'admin', 'sa', 'stu']) {
+    await assertFails(setDoc(doc(as(uid), 'meta', 'saCounter'), { next: 99 }));
+    await assertFails(allocateSaId(as(uid), 'stu'));
+  }
+  // (Any signed-in user can read meta documents; the number is no secret.)
+});
+
+test('the Head changes only the role or status of a Student or assistant', async () => {
+  const db = as('head');
+  await assertSucceeds(updateDoc(doc(db, 'users', 'stu'), { role: 'Student Assistant' }));
+  await assertSucceeds(updateDoc(doc(db, 'users', 'stu'), { status: 'Archived' }));
+  await assertSucceeds(updateDoc(doc(db, 'users', 'stu'), { status: 'Active' }));
+  // Not another role, and not deleting (an Admin's job).
+  await assertFails(updateDoc(doc(db, 'users', 'stu'), { role: 'Admin' }));
+  await assertFails(updateDoc(doc(db, 'users', 'stu'), { deleted: true }));
+});
+
+test('the Admin deletes an account by writing only its profile', async () => {
+  await assertSucceeds(
+    updateDoc(doc(as('admin'), 'users', 'stu'), { status: 'Archived', deleted: true }),
+  );
+  // And cannot touch the roster records the Head's session clears.
+  await assertFails(deleteDoc(doc(as('admin'), 'students', 'stu')));
+});
+
+test('the Head moves an assistant between offices in one transaction', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'offices', 'o2'), {
+      isActive: true,
+      headIds: ['sup2'],
+      assistantIds: [],
+    });
+  });
+  const move = (db) =>
+    runTransaction(db, async (tx) => {
+      const from = await tx.get(doc(db, 'offices', 'o1'));
+      const to = await tx.get(doc(db, 'offices', 'o2'));
+      tx.set(doc(db, 'offices', 'o1'), { ...from.data(), assistantIds: [] });
+      tx.set(doc(db, 'offices', 'o2'), { ...to.data(), assistantIds: ['sa'] });
+    });
+  await assertFails(move(as('sup')));
+  await assertSucceeds(move(as('head')));
+  const o2 = await getDoc(doc(as('head'), 'offices', 'o2'));
+  assert.deepEqual(o2.data().assistantIds, ['sa']);
 });

@@ -57,20 +57,41 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   StreamSubscription<AppNotification>? _clockOutReminderSub;
+  StreamSubscription<String>? _problemSub;
 
   @override
   void initState() {
     super.initState();
-    _clockOutReminderSub = context
-        .read<AppState>()
-        .clockOutReminderAlerts
-        .listen(_showClockOutReminder);
+    final state = context.read<AppState>();
+    _clockOutReminderSub = state.clockOutReminderAlerts.listen(
+      _showClockOutReminder,
+    );
+    _problemSub = state.problemNotices.listen(_showProblem);
   }
 
   @override
   void dispose() {
     _clockOutReminderSub?.cancel();
+    _problemSub?.cancel();
     super.dispose();
+  }
+
+  /// Something that failed in the background (a notification that couldn't
+  /// be saved): shown in red, since the person who acted is the only one
+  /// who can put it right.
+  void _showProblem(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: AppTheme.red500,
+        duration: const Duration(seconds: 10),
+        showCloseIcon: true,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
   }
 
   /// A clock-out reminder sent while the app is open pops up on screen too,

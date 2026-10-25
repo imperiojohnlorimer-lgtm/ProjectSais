@@ -3,12 +3,20 @@ import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
 
+import 'support/account_writes.dart';
+
 /// Keeps the students records, profiles and tasks the app saves in memory,
 /// and refuses every save while [fail] is set.
-class _Store extends FirestoreService {
-  bool fail = false;
+class _Store extends FirestoreService with AccountWrites {
+  /// Refuses every save, the profile updates too.
+  bool get fail => _fail;
+  set fail(bool value) {
+    _fail = value;
+    failAccountWrites = value;
+  }
+
+  bool _fail = false;
   final students = <String, Student>{};
-  final profiles = <String, User>{};
   final tasks = <String, Task>{};
   final notifications = <Map<String, dynamic>>[];
 
@@ -47,12 +55,10 @@ class _Store extends FirestoreService {
     tasks.remove(id);
   }
 
-  final offices = <String, Office>{};
-
   @override
   Future<void> setOffice(Office office) async {
     _check();
-    offices[office.id] = office;
+    officeDocs[office.id] = office;
   }
 
   @override
@@ -104,7 +110,9 @@ void main() {
   late AppState state;
 
   setUp(() {
-    store = _Store();
+    store = _Store()
+      ..profiles['head1'] = _head
+      ..profiles['sa1'] = _assistant;
     state = AppState(firestoreService: store)
       ..currentUser = _head
       ..users = [_head, _assistant];
@@ -142,22 +150,22 @@ void main() {
     );
 
     test('takes them off their office and tells its supervisors', () async {
+      final library = Office(
+        id: 'o1',
+        name: 'Library',
+        code: 'LIB',
+        headIds: ['sup1'],
+        assistantIds: ['sa1'],
+        assistantNames: [_assistant.name],
+      );
+      store.officeDocs['o1'] = library;
       state
         ..students = [_record()]
-        ..offices = [
-          Office(
-            id: 'o1',
-            name: 'Library',
-            code: 'LIB',
-            headIds: ['sup1'],
-            assistantIds: ['sa1'],
-            assistantNames: [_assistant.name],
-          ),
-        ];
+        ..offices = [library];
 
       expect(await state.archiveStudent('sa1'), isNull);
 
-      expect(store.offices['o1']?.assistantIds, isEmpty);
+      expect(store.officeDocs['o1']?.assistantIds, isEmpty);
       final told = store.notifications.where((n) => n['userId'] == 'sup1');
       expect(told.single['title'], 'Student Assistant Archived');
     });
@@ -230,7 +238,9 @@ void main() {
         expect(await state.restoreStudent('sa1'), contains('Rehiring'));
 
         expect(store.students, isEmpty);
-        expect(store.profiles, isEmpty);
+        // Nothing was written to the profile.
+        expect(store.profileFieldWrites, isEmpty);
+        expect(store.profiles['sa1']?.status, 'Active');
       },
     );
   });

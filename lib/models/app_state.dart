@@ -794,11 +794,10 @@ class AppState extends ChangeNotifier {
         }
       },
     );
-    listen(
-      'Offices',
-      fs.collectionStream('offices'),
-      (list) => offices = list.map(Office.fromJson).toList(),
-    );
+    listen('Offices', fs.collectionStream('offices'), (list) {
+      offices = list.map(Office.fromJson).toList();
+      if (isHead) _cleanUpDeletedAccounts();
+    });
     listen('Departments', fs.collectionStream('departments'), (list) {
       final named =
           list.where((d) => (d['name']?.toString() ?? '').isNotEmpty).toList()
@@ -824,15 +823,17 @@ class AppState extends ChangeNotifier {
     // ── Staff and Admin: the full roster ──
     if (isStaff || isAdmin) {
       listen('Users', fs.collectionStream('users'), (list) {
-        _setUsers(list.map(User.fromJson).toList());
+        _setAllUsers(list.map(User.fromJson).toList());
         // Only a Head or the Admin may publish it (firestore.rules).
         if (isHead || isAdmin) _publishHeadIds();
         if (isAdmin || isHead) _syncStudentIdClaims();
+        if (isHead) _cleanUpDeletedAccounts();
       });
       listen('Students', fs.collectionStream('students'), (list) {
         students = list.map(Student.fromJson).toList();
         // Refill any department/campus the profiles take from students.
         _setUsers(users);
+        if (isHead) _cleanUpDeletedAccounts();
       });
       listen(
         'Reports',
@@ -1016,8 +1017,13 @@ class AppState extends ChangeNotifier {
       // Each role sees different screens and reads different data, so
       // start them over for the new one.
       activeTab = 'dashboard';
+      // The old role's listeners go first; a sign-out (or another change)
+      // while the data loads makes this reload stale.
+      _stopRealtimeListeners();
       _beginLoadPending();
+      final generation = _liveGeneration;
       _loadAllFromFirestore().then((_) {
+        if (_loadIsStale(generation)) return;
         _startRealtimeListeners();
         notifyListeners();
       });
@@ -1090,6 +1096,7 @@ class AppState extends ChangeNotifier {
     _clockOutReminderTimer?.cancel();
     _archiveTimer?.cancel();
     _clockOutReminderAlerts.close();
+    _problemNotices.close();
     _pushMessagesSub?.cancel();
     _loadTimeout?.cancel();
     for (final sub in _liveSubs) {
@@ -1750,7 +1757,35 @@ class AppState extends ChangeNotifier {
     activeTab = 'dashboard';
     _academicYearShown = null;
     academicYearOpenedFrom = null;
+    _forgetAccountData();
     notifyListeners();
+  }
+
+  /// Empties everything the signed-out account could see, so the next person
+  /// to sign in on this browser starts with none of it (payroll, the roster,
+  /// reports, notifications). The reference data every role loads (offices,
+  /// departments, skills, announcements) stays.
+  void _forgetAccountData() {
+    users = [];
+    students = [];
+    attendance = [];
+    classSchedules = [];
+    tasks = [];
+    taskDuties = [];
+    reports = [];
+    evaluations = [];
+    rehireRecords = [];
+    headForwards = [];
+    payrollRecords = [];
+    payrollRecordsLoaded = false;
+    payrollSheets = [];
+    payrollChecks = [];
+    applications = [];
+    screeningRecords = [];
+    notifications = [];
+    documents = [];
+    documentFolders = [];
+    _deletedAccounts = [];
   }
 
   // ─── Navigation ────────────────────────────────────
@@ -1799,8 +1834,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Whether a load that began under [generation] has been overtaken: the
+  /// listeners restarted, the account signed out, or the state was disposed.
+  /// Its late answers must not be written into the lists.
+  bool _loadIsStale(int generation) =>
+      _disposed || currentUser == null || generation != _liveGeneration;
+
   Future<void> _loadAllFromFirestore() async {
     _firestoreService ??= FirestoreService();
+    final generation = _liveGeneration;
     try {
       // Users: prefer Firestore as source-of-truth, but keep currentUser if not present.
       List<User> firestoreUsers = [];
@@ -1853,7 +1895,8 @@ class AppState extends ChangeNotifier {
         students = [];
       }
 
-      _setUsers(firestoreUsers);
+      if (_loadIsStale(generation)) return;
+      _setAllUsers(firestoreUsers);
 
       // Attendance
       try {
@@ -1879,8 +1922,10 @@ class AppState extends ChangeNotifier {
       } catch (_) {
         classSchedules = [];
       }
+      if (_loadIsStale(generation)) return;
       await _archiveFinishedAcademicYears(academicSettings);
       await _restampUndoneAcademicYear();
+      if (_loadIsStale(generation)) return;
 
       // Tasks
       try {
@@ -1925,6 +1970,7 @@ class AppState extends ChangeNotifier {
         reports = [];
       }
 
+      if (_loadIsStale(generation)) return;
       // Performance Evaluations
       try {
         final fsEvaluations = await _firestoreService!.getAllEvaluations();
@@ -1956,6 +2002,7 @@ class AppState extends ChangeNotifier {
         }
       }
 
+      if (_loadIsStale(generation)) return;
       // Applications
       try {
         final fsApps = await _firestoreService!.getAllApplications();
@@ -1980,6 +2027,7 @@ class AppState extends ChangeNotifier {
         documentFolders = [];
       }
 
+      if (_loadIsStale(generation)) return;
       notifications = [];
 
       // Ensure currentUser (if set by auth) is present in users
@@ -2094,6 +2142,22 @@ class AppState extends ChangeNotifier {
   /// email are merged into one, the signed-in user is always kept, and a
   /// missing department/campus is filled in from the matching students
   /// record. Call after [students] is loaded.
+  /// The accounts the Admin deleted, as the whole roster last listed them.
+  /// They stay on file to block sign-in, are hidden from every list, and
+  /// leave behind roster records and office places for the Head's session to
+  /// clear ([_cleanUpDeletedAccounts]).
+  List<User> _deletedAccounts = [];
+
+  /// [_setUsers] for a full roster from Firestore (the one place that knows
+  /// which accounts are deleted).
+  void _setAllUsers(List<User> all) {
+    _deletedAccounts = [
+      for (final u in all)
+        if (u.isDeleted) u,
+    ];
+    _setUsers(all);
+  }
+
   void _setUsers(List<User> firestoreUsers) {
     String? pick(String? existing, String? other) =>
         existing != null && existing.isNotEmpty ? existing : other;
@@ -3016,10 +3080,55 @@ class AppState extends ChangeNotifier {
   // ─── Departments ───────────────────────────────────
   Future<void> saveOffice(Office office) async {
     _firestoreService ??= FirestoreService();
-    await _firestoreService!.setOffice(office);
+    final known = offices.where((item) => item.id == office.id).firstOrNull;
+    var saved = office;
+    if (known != null &&
+        _sameList(known.assistantIds, office.assistantIds) &&
+        _sameList(known.assistantNames, office.assistantNames) &&
+        _sameList(known.headIds, office.headIds) &&
+        _sameList(known.headNames, office.headNames)) {
+      // Name, code, capacity, skills: the people stay as stored now, so a
+      // stale copy of this office can't erase someone just placed in it.
+      final result = await _firestoreService!.updateOffices({office.id}, (
+        stored,
+      ) {
+        final current = stored[office.id];
+        if (current == null) return {office.id: office};
+        return {
+          office.id: office.copyWith(
+            assistantIds: current.assistantIds,
+            assistantNames: current.assistantNames,
+            headIds: current.headIds,
+            headNames: current.headNames,
+          ),
+        };
+      });
+      saved = result?[office.id] ?? office;
+    } else {
+      await _firestoreService!.setOffice(office);
+    }
     final index = offices.indexWhere((item) => item.id == office.id);
-    offices = index < 0 ? [...offices, office] : [...offices]
-      ..[index] = office;
+    offices = index < 0 ? [...offices, saved] : [...offices]
+      ..[index] = saved;
+    notifyListeners();
+    await _syncOfficeAssignments();
+  }
+
+  static bool _sameList(List<String> a, List<String> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Applies the result of a transaction over offices to the list shown, and
+  /// brings `officeAssignments` in step.
+  Future<void> _showSavedOffices(Map<String, Office> saved) async {
+    offices = [for (final o in offices) saved[o.id] ?? o];
+    for (final o in saved.values) {
+      if (!offices.any((item) => item.id == o.id)) offices = [...offices, o];
+    }
     notifyListeners();
     await _syncOfficeAssignments();
   }
@@ -3098,59 +3207,92 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Makes [assistants] the roster of [officeId], and takes the ones just
+  /// added out of any other office (one office each). What changes is the
+  /// difference from the roster shown: the people added and the people
+  /// removed are applied to the roster as stored now, in one transaction, so
+  /// two Heads placing different students don't erase each other, and a move
+  /// lands on both offices or neither. False when the office is full or gone,
+  /// or the save failed.
   Future<bool> assignStudentAssistantsToOffice(
     String officeId,
     List<User> assistants,
   ) async {
-    final office = offices.firstWhere((item) => item.id == officeId);
+    final office = offices.where((item) => item.id == officeId).firstOrNull;
+    if (office == null) return false;
     final assignedIds = assistants.map((assistant) => assistant.id).toSet();
     if (office.capacity > 0 && assignedIds.length > office.capacity) {
       return false;
     }
-    final assistantNames = {
-      for (final assistant in assistants) assistant.id: assistant.name,
+    final added = [
+      for (final a in assistants)
+        if (!office.hasAssistant(a.id, a.name)) a,
+    ];
+    final removed = [
+      for (var i = 0; i < office.assistantIds.length; i++)
+        if (!assignedIds.contains(office.assistantIds[i]))
+          (
+            id: office.assistantIds[i],
+            name: i < office.assistantNames.length
+                ? office.assistantNames[i]
+                : '',
+          ),
+    ];
+    // The offices the added people are in now, to take them out of.
+    final touched = {
+      officeId,
+      for (final other in offices)
+        if (other.id != officeId &&
+            added.any((a) => other.hasAssistant(a.id, a.name)))
+          other.id,
     };
-    final updatedOffices = offices.map((item) {
-      if (item.id == officeId) {
-        return item.copyWith(
-          assistantIds: assignedIds.toList(),
-          assistantNames: assistants
-              .map((assistant) => assistant.name)
-              .toList(),
-        );
-      }
-      if (assignedIds.any(item.assistantIds.contains)) {
-        final remainingIds = item.assistantIds
-            .where((id) => !assignedIds.contains(id))
-            .toList();
-        return item.copyWith(
-          assistantIds: remainingIds,
-          assistantNames: remainingIds.map((id) {
-            final oldIndex = item.assistantIds.indexOf(id);
-            return oldIndex >= 0 && oldIndex < item.assistantNames.length
-                ? item.assistantNames[oldIndex]
-                : assistantNames[id] ?? id;
-          }).toList(),
-        );
-      }
-      return item;
-    }).toList();
 
-    for (final updatedOffice in updatedOffices) {
-      if (updatedOffice.id == officeId ||
-          updatedOffice !=
-              offices.firstWhere((item) => item.id == updatedOffice.id)) {
-        await saveOffice(updatedOffice);
-      }
+    _firestoreService ??= FirestoreService();
+    final Map<String, Office>? saved;
+    try {
+      saved = await _firestoreService!.updateOffices(touched, (stored) {
+        var target = stored[officeId];
+        if (target == null) return null;
+        for (final gone in removed) {
+          target = target!.withoutAssistant(gone.id, gone.name);
+        }
+        for (final a in added) {
+          if (target!.hasAssistant(a.id, a.name)) continue;
+          target = target.copyWith(
+            assistantIds: [...target.assistantIds, a.id],
+            assistantNames: [...target.assistantNames, a.name],
+          );
+        }
+        if (target!.capacity > 0 &&
+            target.assistantIds.length > target.capacity) {
+          return null;
+        }
+        final changed = {officeId: target};
+        for (final entry in stored.entries) {
+          if (entry.key == officeId) continue;
+          var other = entry.value;
+          for (final a in added) {
+            if (other.hasAssistant(a.id, a.name)) {
+              other = other.withoutAssistant(a.id, a.name);
+            }
+          }
+          if (other.assistantIds.length != entry.value.assistantIds.length) {
+            changed[entry.key] = other;
+          }
+        }
+        return changed;
+      });
+    } catch (error) {
+      debugPrint('Failed to save the office roster: $error');
+      return false;
     }
+    if (saved == null) return false;
+    await _showSavedOffices(saved);
 
     final assignedOffice = offices.firstWhere((item) => item.id == officeId);
     // Only students new to the office hear about it: saving the roster to
     // add one student shouldn't tell everyone already there again.
     final previousIds = office.assistantIds.toSet();
-    final added = assistants
-        .where((assistant) => !previousIds.contains(assistant.id))
-        .toList();
     final removedAny = previousIds.any((id) => !assignedIds.contains(id));
     if (added.isEmpty && !removedAny) return true;
     final addedNames = added.map((assistant) => assistant.name).join(', ');
@@ -3180,26 +3322,60 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
-  Future<void> assignSupervisorsToOffice(
+  /// Makes [supervisors] the supervisors of [officeId]: the difference from
+  /// the list shown is applied to the one stored now, in a transaction.
+  /// False when the office is gone or the save failed.
+  Future<bool> assignSupervisorsToOffice(
     String officeId,
     List<User> supervisors,
   ) async {
-    final office = offices.firstWhere((item) => item.id == officeId);
-    final updatedOffice = office.copyWith(
-      headIds: supervisors.map((supervisor) => supervisor.id).toList(),
-      headNames: supervisors.map((supervisor) => supervisor.name).toList(),
-    );
-    await saveOffice(updatedOffice);
+    final office = offices.where((item) => item.id == officeId).firstOrNull;
+    if (office == null) return false;
+    final keptIds = supervisors.map((s) => s.id).toSet();
+    final added = [
+      for (final s in supervisors)
+        if (!office.hasHead(s.id, s.name)) s,
+    ];
+    final removed = [
+      for (var i = 0; i < office.headIds.length; i++)
+        if (!keptIds.contains(office.headIds[i]))
+          (
+            id: office.headIds[i],
+            name: i < office.headNames.length ? office.headNames[i] : '',
+          ),
+    ];
+    _firestoreService ??= FirestoreService();
+    final Map<String, Office>? saved;
+    try {
+      saved = await _firestoreService!.updateOffices({officeId}, (stored) {
+        var target = stored[officeId];
+        if (target == null) return null;
+        for (final gone in removed) {
+          target = target!.withoutHead(gone.id, gone.name);
+        }
+        for (final s in added) {
+          if (target!.hasHead(s.id, s.name)) continue;
+          target = target.copyWith(
+            headIds: [...target.headIds, s.id],
+            headNames: [...target.headNames, s.name],
+          );
+        }
+        return {officeId: target!};
+      });
+    } catch (error) {
+      debugPrint('Failed to save the office supervisors: $error');
+      return false;
+    }
+    if (saved == null) return false;
+    await _showSavedOffices(saved);
+    final updatedOffice = offices.firstWhere((item) => item.id == officeId);
 
     // As with students, only supervisors new to the office hear about it.
     final previousIds = office.headIds.toSet();
-    final added = supervisors
-        .where((supervisor) => !previousIds.contains(supervisor.id))
-        .toList();
     final removedAny = previousIds.any(
       (id) => !supervisors.any((supervisor) => supervisor.id == id),
     );
-    if (added.isEmpty && !removedAny) return;
+    if (added.isEmpty && !removedAny) return true;
 
     // Each new supervisor only hears about their own assignment.
     for (final supervisor in added) {
@@ -3222,6 +3398,7 @@ class AppState extends ChangeNotifier {
           ? 'Supervisors were updated for ${updatedOffice.name}.'
           : '${added.map((supervisor) => supervisor.name).join(', ')} ${added.length == 1 ? 'was' : 'were'} assigned to supervise ${updatedOffice.name}.',
     );
+    return true;
   }
 
   Future<bool> addDepartment(String name, {String code = ''}) async {
@@ -4079,8 +4256,30 @@ class AppState extends ChangeNotifier {
         })
         .catchError((error) {
           debugPrint('Failed to persist notification: $error');
+          // It never reached anyone: take back the copy shown here, and say
+          // so rather than let the sender think they were told.
+          notifications = [
+            for (final item in notifications)
+              if (item.id != savedId) item,
+          ];
+          if (!_disposed) {
+            notifyListeners();
+            if (!_problemNotices.isClosed) {
+              _problemNotices.add(
+                '"${n.title}" could not be sent. Tell the person yourself, '
+                'or try the action again.',
+              );
+            }
+          }
         });
   }
+
+  final _problemNotices = StreamController<String>.broadcast();
+
+  /// Things that failed in the background, such as a notification that
+  /// couldn't be saved, for the shell to show: nothing else would tell the
+  /// person who did the action.
+  Stream<String> get problemNotices => _problemNotices.stream;
 
   final _pushQueue = <String>[];
 
@@ -4381,7 +4580,11 @@ class AppState extends ChangeNotifier {
     users = [for (final u in users) u.id == account.id ? updated : u];
     notifyListeners();
     try {
-      await _saveUserProfile(updated);
+      // Only the status: see FirestoreService.updateUserFields.
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.updateUserFields(account.id, {
+        'status': status,
+      });
       return true;
     } catch (error) {
       debugPrint('Failed to set account ${account.id} to $status: $error');
@@ -5434,11 +5637,8 @@ class AppState extends ChangeNotifier {
           .map((f) => f.id == id ? f.copyWith(reviewed: reviewed) : f)
           .toList();
       if (reviewed) {
-        final forward = headForwards.firstWhere(
-          (f) => f.id == id,
-          orElse: () => headForwards.first,
-        );
-        if (forward.sentById != null) {
+        final forward = headForwards.where((f) => f.id == id).firstOrNull;
+        if (forward != null && forward.sentById != null) {
           _addNotification(
             AppNotification(
               id: 'n_${DateTime.now().millisecondsSinceEpoch}_${forward.sentById}',
@@ -5938,111 +6138,198 @@ class AppState extends ChangeNotifier {
   /// archived and marked deleted: that blocks sign-in ("deactivated")
   /// wherever it's checked, where a missing profile would let the person
   /// back in as a brand-new Student. Deleted accounts are hidden everywhere.
-  Future<void> deleteManagedUser(String id) async {
-    final user = users.firstWhere((u) => u.id == id);
+  ///
+  /// Only the profile is written, which is all the rules let an Admin do:
+  /// the roster records and office places of a deleted account are cleared
+  /// by the Head's session ([_cleanUpDeletedAccounts]). Returns whether it
+  /// saved; deleting an account twice is harmless.
+  Future<bool> deleteManagedUser(String id) async {
+    final user = users.where((u) => u.id == id).firstOrNull;
+    if (user == null) return true;
     _firestoreService ??= FirestoreService();
-    await _saveUserProfile(user.copyWith(status: 'Archived', isDeleted: true));
-
-    final linkedStudents = students
-        .where(
-          (student) =>
-              student.userId == id ||
-              student.email.toLowerCase() == user.email.toLowerCase(),
-        )
-        .toList();
-    for (final student in linkedStudents) {
-      if (student.id.isNotEmpty) {
-        await _firestoreService!.deleteStudent(student.id);
-      }
+    try {
+      await _firestoreService!.updateUserFields(id, {
+        'status': 'Archived',
+        'deleted': true,
+      });
+    } catch (error) {
+      debugPrint('Failed to delete account $id: $error');
+      return false;
     }
-    students = students
-        .where((student) => !linkedStudents.contains(student))
-        .toList();
+
+    // A Head may remove the roster records now; an Admin's delete leaves
+    // them to the Head's session.
+    if (role == 'Head') await _removeStudentRecordsOf(user);
     users = users.where((u) => u.id != id).toList();
+    _deletedAccounts = [..._deletedAccounts, user];
     notifyListeners();
+    return true;
   }
 
-  Future<void> deleteUser(String id) => deleteManagedUser(id);
+  Future<bool> deleteUser(String id) => deleteManagedUser(id);
 
-  Future<void> archiveUser(String id) async {
-    final user = users.firstWhere((u) => u.id == id);
-    final archivedUser = user.copyWith(status: 'Archived');
-    users = users.map((u) => u.id == id ? archivedUser : u).toList();
-    await _saveUserProfile(archivedUser);
-    notifyListeners();
+  bool _cleaningDeletedAccounts = false;
+
+  /// Set while [submitApplication] saves, so a second tap does nothing.
+  bool _submittingApplication = false;
+
+  /// Clears the roster records and office places of accounts the Admin
+  /// deleted. The Admin's delete can only write the profile (the rules keep
+  /// the roster and the offices to the Head), so the Head's session finishes
+  /// it, whenever the roster, the students or the offices change. Safe to
+  /// run again: it does nothing once they're clear.
+  Future<void> _cleanUpDeletedAccounts() async {
+    if (role != 'Head' || _deletedAccounts.isEmpty || _cleaningDeletedAccounts) {
+      return;
+    }
+    // Wait for the lists it works on.
+    if (offices.isEmpty && students.isEmpty) return;
+    _cleaningDeletedAccounts = true;
+    try {
+      _firestoreService ??= FirestoreService();
+      for (final gone in _deletedAccounts) {
+        if (_studentRecordsForUser(gone).isNotEmpty) {
+          await _removeStudentRecordsOf(gone);
+        }
+      }
+      final touched = {
+        for (final office in offices)
+          if (_deletedAccounts.any(
+            (gone) =>
+                office.hasAssistant(gone.id, gone.name) ||
+                office.hasHead(gone.id, gone.name),
+          ))
+            office.id,
+      };
+      if (touched.isEmpty) return;
+      final deleted = [..._deletedAccounts];
+      final saved = await _firestoreService!.updateOffices(touched, (stored) {
+        final changed = <String, Office>{};
+        for (final entry in stored.entries) {
+          var office = entry.value;
+          for (final gone in deleted) {
+            if (office.hasAssistant(gone.id, gone.name)) {
+              office = office.withoutAssistant(gone.id, gone.name);
+            }
+            if (office.hasHead(gone.id, gone.name)) {
+              office = office.withoutHead(gone.id, gone.name);
+            }
+          }
+          if (office.assistantIds.length != entry.value.assistantIds.length ||
+              office.headIds.length != entry.value.headIds.length) {
+            changed[entry.key] = office;
+          }
+        }
+        return changed;
+      });
+      if (saved != null && saved.isNotEmpty) await _showSavedOffices(saved);
+    } catch (error) {
+      debugPrint('Failed to clean up deleted accounts: $error');
+    } finally {
+      _cleaningDeletedAccounts = false;
+    }
   }
 
-  Future<void> restoreUser(String id) async {
-    final user = users.firstWhere((u) => u.id == id);
-    final restoredUser = user.copyWith(status: 'Active');
-    users = users.map((u) => u.id == id ? restoredUser : u).toList();
-    await _saveUserProfile(restoredUser);
-    notifyListeners();
+  /// Deletes the students records of [user], which only a Head may do. A
+  /// failure leaves them for [_cleanUpDeletedAccounts].
+  Future<void> _removeStudentRecordsOf(User user) async {
+    final records = _studentRecordsForUser(user);
+    try {
+      for (final record in records) {
+        if (record.id.isNotEmpty) {
+          await _firestoreService!.deleteStudent(record.id);
+        }
+      }
+      students = [
+        for (final s in students)
+          if (!records.contains(s)) s,
+      ];
+    } catch (error) {
+      debugPrint('Failed to remove the student records of ${user.id}: $error');
+    }
   }
 
+  Future<bool> archiveUser(String id) async {
+    final user = users.where((u) => u.id == id).firstOrNull;
+    return user != null && await _setAccountStatus(user, 'Archived');
+  }
+
+  Future<bool> restoreUser(String id) async {
+    final user = users.where((u) => u.id == id).firstOrNull;
+    return user != null && await _setAccountStatus(user, 'Active');
+  }
+
+  /// Changes [id]'s role. The role is saved first, on its own field, and
+  /// shown only once it's saved. A promotion to Student Assistant also
+  /// needs a students record: a Head writes it in the same batch (the rules
+  /// don't let an Admin, whose promotions are listed from the account).
+  ///
   /// [notify] is off when the change comes from a flow that sends its own,
   /// more specific notification (such as a rehire decision).
-  Future<void> changeUserRole(
+  ///
+  /// Returns null when it's done, or what went wrong. A message about the
+  /// student record means the role itself did change.
+  Future<String?> changeUserRole(
     String id,
     String newRole, {
     bool notify = true,
   }) async {
-    final user = users.firstWhere(
-      (u) => u.id == id,
-      orElse: () => User(id: '', name: '', email: '', role: ''),
-    );
-    if (user.id.isEmpty) return;
-
-    // When converting Student to Student Assistant or vice versa, preserve all user data
+    final user = users.where((u) => u.id == id).firstOrNull;
+    if (user == null) return null;
     final oldRole = user.role;
-    users = users.map((u) {
-      if (u.id == id) return u.copyWith(role: newRole);
-      return u;
-    }).toList();
+    if (oldRole == newRole) return null;
+    _firestoreService ??= FirestoreService();
+    final service = _firestoreService!;
 
-    // Preserve all user data during role transitions
-    // - Notifications stay with the user
-    // - Applications stay with the user
-    // - Tasks and reports are tied to user name/id and will follow
-    // - If current user's role changed, update the global role
+    final promoted = newRole == 'Student Assistant';
+    final updatedUser = user.copyWith(role: newRole);
+    // A new students record, written with the role (Head only).
+    Student? newRecord;
+    if (promoted && role == 'Head' && _studentRecordsForUser(user).isEmpty) {
+      newRecord = Student(
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        department:
+            user.department ?? (departments.isNotEmpty ? departments.first : ''),
+        campus: user.campus,
+        userId: user.id,
+        totalHours: 0,
+      );
+    }
+    try {
+      if (newRecord != null) {
+        await service.updateUserFieldsWithStudent(id, {
+          'role': newRole,
+        }, newRecord);
+      } else {
+        await service.updateUserFields(id, {'role': newRole});
+      }
+    } catch (error) {
+      debugPrint('Failed to change the role of $id: $error');
+      return "Couldn't change ${user.name}'s role. Please try again.";
+    }
+
+    // Saved: now it shows. Their notifications, applications, tasks and
+    // reports stay with them; if it's the signed-in user, the role follows.
+    users = [for (final u in users) u.id == id ? updatedUser : u];
+    if (newRecord != null) students = [newRecord, ...students];
     if (currentUser?.id == id) {
       currentUser = currentUser!.copyWith(role: newRole);
     }
 
-    final updatedUser = users.firstWhere((u) => u.id == id, orElse: () => user);
-    await _saveUserProfile(updatedUser);
-
-    // If the user was promoted to Student Assistant, ensure a Student
-    // record exists and persist it to Firestore so the dashboard shows
-    // them as enrolled.
-    if (newRole == 'Student Assistant') {
+    String? problem;
+    if (promoted && newRecord == null && role == 'Head') {
       try {
-        _firestoreService ??= FirestoreService();
-        final hasStudent = _studentRecordsForUser(updatedUser).isNotEmpty;
-        if (hasStudent) {
-          // A returning Student Assistant (not rehired in an earlier term)
-          // still has their old, archived record — bring it back rather
-          // than leave them off every roster.
-          await _setStudentRecordsStatus(updatedUser, 'Active');
-        } else {
-          final dept =
-              updatedUser.department ??
-              (departments.isNotEmpty ? departments.first : '');
-          final campusVal = updatedUser.campus;
-          final student = Student(
-            id: updatedUser.id,
-            name: updatedUser.name,
-            email: updatedUser.email,
-            department: dept,
-            campus: campusVal,
-            userId: updatedUser.id,
-            totalHours: 0,
-          );
-          students = [student, ...students];
-          await _firestoreService!.setStudent(student);
-        }
-      } catch (e) {
-        debugPrint('Failed to create student record for promoted user $id: $e');
+        // A returning Student Assistant (not rehired in an earlier term)
+        // still has their old, archived record — bring it back rather
+        // than leave them off every roster.
+        await _setStudentRecordsStatus(updatedUser, 'Active');
+      } catch (error) {
+        debugPrint('Failed to bring back the student record of $id: $error');
+        problem =
+            "${user.name} is now a Student Assistant, but their student "
+            "record couldn't be brought back. Save the change again to retry.";
       }
     }
     // Notify the user that their role was changed
@@ -6060,6 +6347,7 @@ class AppState extends ChangeNotifier {
     }
 
     notifyListeners();
+    return problem;
   }
 
   /// The students-collection records that belong to [user].

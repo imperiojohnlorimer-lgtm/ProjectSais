@@ -5,9 +5,11 @@ import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
 
+import 'support/account_writes.dart';
+
 /// Stands in for Firestore: records what the app saves, and can be told to
 /// refuse a save the way the rules or a dropped connection would.
-class _FakeFirestore extends FirestoreService {
+class _FakeFirestore extends FirestoreService with AccountWrites {
   final added = <Map<String, dynamic>>[];
   final savedApplications = <Application>[];
   bool failWrites = false;
@@ -204,19 +206,19 @@ void main() {
     final tess = _person('sup2', 'Tess Supervisor', role: 'Supervisor');
 
     setUp(() {
+      const library = Office(
+        id: 'o1',
+        name: 'Library',
+        code: 'LIB',
+        headIds: ['sup1'],
+        headNames: ['Sid Supervisor'],
+        assistantIds: ['sa1', 'sa2'],
+        assistantNames: ['Ana Reyes', 'Ben Cruz'],
+      );
+      fake.officeDocs['o1'] = library;
       state
         ..currentUser = _head
-        ..offices = [
-          const Office(
-            id: 'o1',
-            name: 'Library',
-            code: 'LIB',
-            headIds: ['sup1'],
-            headNames: ['Sid Supervisor'],
-            assistantIds: ['sa1', 'sa2'],
-            assistantNames: ['Ana Reyes', 'Ben Cruz'],
-          ),
-        ];
+        ..offices = [library];
     });
 
     test('only a newly added student is told', () async {

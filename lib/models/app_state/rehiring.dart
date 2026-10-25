@@ -415,20 +415,33 @@ extension AppStateRehiring on AppState {
   Future<void> _setAssistantOffice(User user, String? officeId) async {
     // Matched by id (see Office.hasAssistant): matching by name would also
     // move or remove another student who happens to share it.
-    for (final office in offices.toList()) {
-      final isMember = office.hasAssistant(user.id, user.name);
-      if (office.id == officeId) {
-        if (isMember) continue;
-        await saveOffice(
-          office.copyWith(
+    final touched = {
+      for (final office in offices)
+        if (office.id == officeId || office.hasAssistant(user.id, user.name))
+          office.id,
+    };
+    if (touched.isEmpty) return;
+    _firestoreService ??= FirestoreService();
+    // One transaction over the offices as stored now: a move never lands on
+    // only one of them, and nobody else's placement is overwritten.
+    final saved = await _firestoreService!.updateOffices(touched, (stored) {
+      final changed = <String, Office>{};
+      for (final entry in stored.entries) {
+        final office = entry.value;
+        final isMember = office.hasAssistant(user.id, user.name);
+        if (office.id == officeId) {
+          if (isMember) continue;
+          changed[office.id] = office.copyWith(
             assistantIds: [...office.assistantIds, user.id],
             assistantNames: [...office.assistantNames, user.name],
-          ),
-        );
-      } else if (isMember) {
-        await saveOffice(office.withoutAssistant(user.id, user.name));
+          );
+        } else if (isMember) {
+          changed[office.id] = office.withoutAssistant(user.id, user.name);
+        }
       }
-    }
+      return changed;
+    });
+    if (saved != null && saved.isNotEmpty) await _showSavedOffices(saved);
   }
 
   AttendanceRecord? get activeAttendanceRecord {

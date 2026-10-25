@@ -151,6 +151,17 @@ extension AppStateApplicationsAndFolders on AppState {
   /// the Head rejected that application (a wrong document, say): then this
   /// one takes its place, under the same id.
   Future<bool> submitApplication(Application app) async {
+    // A second tap while the first is saving would tell the Heads twice.
+    if (_submittingApplication) return false;
+    _submittingApplication = true;
+    try {
+      return await _submitApplication(app);
+    } finally {
+      _submittingApplication = false;
+    }
+  }
+
+  Future<bool> _submitApplication(Application app) async {
     final call = currentHiringCall;
     final previous = myCurrentApplication;
     if (currentUser?.role == 'Student Assistant' ||
@@ -315,22 +326,28 @@ extension AppStateApplicationsAndFolders on AppState {
           ...updatedApplication.skills,
         }.toList()..sort();
         final updatedApplicant = applicant.copyWith(skills: mergedSkills);
+        // Only the skills: the rest of the profile may have changed since
+        // this copy was loaded (an archive, say), and mustn't be undone.
+        await _firestoreService!.updateUserFields(applicant.id, {
+          'skills': mergedSkills,
+        });
         await _upsertUser(updatedApplicant);
         if (currentUser?.id == updatedApplicant.id) {
           currentUser = updatedApplicant;
         }
-        await _saveUserProfile(updatedApplicant);
         // Run again for one already promoted too: it also makes (or brings
         // back) their students record, which a cut-short approval may have
         // missed.
         if (applicant.role == 'Student' ||
             applicant.role == 'Student Assistant') {
           // "Application Approved" already tells them.
-          await changeUserRole(
+          final problem = await changeUserRole(
             updatedApplication.applicantId,
             'Student Assistant',
             notify: false,
           );
+          // Saving the decision again finishes the promotion.
+          if (problem != null) throw StateError(problem);
         }
         await ensureStudentAssistantId(updatedApplication.applicantId);
         if (original.status != status &&
@@ -353,28 +370,47 @@ extension AppStateApplicationsAndFolders on AppState {
   /// if the user already has one, it's returned unchanged. This is how
   /// every Student Assistant automatically gets an SA ID, without a Head
   /// having to type one in by hand.
+  ///
+  /// The number comes from a counter in Firestore, taken in a transaction,
+  /// so two Heads approving at the same moment can't be given the same ID.
+  /// Only the `saId` field is written.
   Future<String?> ensureStudentAssistantId(String userId) async {
-    final index = users.indexWhere((u) => u.id == userId);
-    if (index < 0) return null;
-    final existing = users[index].saId;
-    if (existing != null && existing.trim().isNotEmpty) return existing;
+    final existing = users.where((u) => u.id == userId).firstOrNull;
+    if (existing == null) return null;
+    final held = existing.saId;
+    if (held != null && held.trim().isNotEmpty) return held;
 
-    final numberPattern = RegExp(r'^SA\s*0*(\d+)$');
-    var highest = 0;
-    for (final u in users) {
-      final match = numberPattern.firstMatch(u.saId?.trim() ?? '');
-      if (match == null) continue;
-      final n = int.tryParse(match.group(1)!) ?? 0;
-      if (n > highest) highest = n;
+    _firestoreService ??= FirestoreService();
+    final service = _firestoreService!;
+    String newId;
+    try {
+      newId = await service.allocateSaId(userId);
+    } on SaCounterNotSeeded {
+      // The first time: number on from the highest ID any profile holds,
+      // deleted ones included (their IDs stay taken).
+      var highest = 0;
+      for (final u in await service.getAllUserProfiles()) {
+        final n = saNumber(u.saId);
+        if (n != null && n > highest) highest = n;
+      }
+      newId = await service.allocateSaId(userId, seedMax: highest);
     }
-    final newId = 'SA ${(highest + 1).toString().padLeft(3, '0')}';
 
-    final updated = users[index].copyWith(saId: newId);
-    await _upsertUser(updated);
-    if (currentUser?.id == updated.id) currentUser = updated;
-    await _saveUserProfile(updated);
+    final current = users.where((u) => u.id == userId).firstOrNull;
+    if (current != null) {
+      final updated = current.copyWith(saId: newId);
+      await _upsertUser(updated);
+      if (currentUser?.id == updated.id) currentUser = updated;
+    }
     _notify();
     return newId;
+  }
+
+  /// The number in an SA ID ("SA 007" -> 7), or null when it isn't one.
+  @visibleForTesting
+  static int? saNumber(String? saId) {
+    final match = RegExp(r'^SA\s*0*(\d+)$').firstMatch(saId?.trim() ?? '');
+    return match == null ? null : int.tryParse(match.group(1)!);
   }
 
   Future<void> generateApprovedApplicantDocuments(String applicationId) async {

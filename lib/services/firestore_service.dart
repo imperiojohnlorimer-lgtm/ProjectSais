@@ -8,6 +8,15 @@ import 'supabase_storage_service.dart';
 /// Simple Firestore helper for `announcements` collection.
 ///
 /// Methods return simple types to make UI wiring straightforward.
+/// meta/saCounter doesn't exist yet: the caller works out the highest SA
+/// number in use and asks again with it as the seed.
+class SaCounterNotSeeded implements Exception {
+  const SaCounterNotSeeded();
+
+  @override
+  String toString() => 'The SA ID counter has not been created yet.';
+}
+
 class FirestoreService {
   FirestoreService({FirebaseFirestore? instance}) : _instance = instance;
 
@@ -265,6 +274,60 @@ class FirestoreService {
 
   Future<void> setUserProfile(User user) async {
     await _users.doc(user.id).set(user.toJson());
+  }
+
+  /// Writes only [fields] to the profile. For a change to one thing (role,
+  /// status, SA ID): a whole-profile [setUserProfile] from a stale copy would
+  /// quietly undo whatever else was changed meanwhile, such as an archive.
+  Future<void> updateUserFields(String id, Map<String, dynamic> fields) async {
+    await _users.doc(id).update(fields);
+  }
+
+  /// Like [updateUserFields], and saves [student] in the same batch, so a
+  /// promotion never lands on only one of them.
+  Future<void> updateUserFieldsWithStudent(
+    String id,
+    Map<String, dynamic> fields,
+    Student student,
+  ) async {
+    final batch = _db.batch();
+    batch.update(_users.doc(id), fields);
+    batch.set(_students.doc(student.id), _studentData(student));
+    await batch.commit();
+  }
+
+  /// Gives [userId] the next Student Assistant ID ("SA 007"), numbered from
+  /// the counter in meta/saCounter, in one transaction: two Heads approving
+  /// at once can't both get the same number. Returns the ID the profile
+  /// already has when it has one. The counter is created from [seedMax] (the
+  /// highest number in use) the first time; without a seed, a missing counter
+  /// throws [SaCounterNotSeeded] so the caller can work one out.
+  Future<String> allocateSaId(String userId, {int? seedMax}) {
+    final counterRef = _db.collection('meta').doc('saCounter');
+    return _db.runTransaction((transaction) async {
+      final userRef = _users.doc(userId);
+      final profile = await transaction.get(userRef);
+      final existing =
+          ((profile.data() as Map<String, dynamic>?)?['saId'] ?? '')
+              .toString()
+              .trim();
+      if (existing.isNotEmpty) return existing;
+
+      final counter = await transaction.get(counterRef);
+      final int next;
+      if (counter.exists) {
+        next = ((counter.data() as Map<String, dynamic>)['next'] as num)
+            .toInt();
+      } else if (seedMax != null) {
+        next = seedMax + 1;
+      } else {
+        throw const SaCounterNotSeeded();
+      }
+      final id = 'SA ${next.toString().padLeft(3, '0')}';
+      transaction.set(counterRef, {'next': next + 1});
+      transaction.update(userRef, {'saId': id});
+      return id;
+    });
   }
 
   Future<void> deleteUserProfile(String id) async {
@@ -760,6 +823,38 @@ class FirestoreService {
 
   Future<void> setOffice(Office office) async {
     await _offices.doc(office.id).set(office.toJson());
+  }
+
+  /// Reads the offices [ids] as they are now, lets [edit] change them, and
+  /// writes the ones it returns, all in one transaction. A roster edited from
+  /// a stale copy would otherwise erase what someone else just did, and an
+  /// edit that spans two offices (a move) would land on only one of them.
+  ///
+  /// [edit] gets the stored offices by id and returns the ones to save, or
+  /// null to change nothing (a full office, a vanished one). It may run more
+  /// than once, so it must only look at what it is given. Returns what was
+  /// saved, or null when [edit] declined.
+  Future<Map<String, Office>?> updateOffices(
+    Iterable<String> ids,
+    Map<String, Office>? Function(Map<String, Office> stored) edit,
+  ) {
+    return _db.runTransaction((transaction) async {
+      final stored = <String, Office>{};
+      for (final id in ids) {
+        final snapshot = await transaction.get(_offices.doc(id));
+        if (!snapshot.exists) continue;
+        stored[id] = Office.fromJson({
+          ...(snapshot.data() as Map<String, dynamic>),
+          'id': snapshot.id,
+        });
+      }
+      final changed = edit(stored);
+      if (changed == null) return null;
+      for (final entry in changed.entries) {
+        transaction.set(_offices.doc(entry.key), entry.value.toJson());
+      }
+      return changed;
+    });
   }
 
   Future<void> deleteOffice(String id) async {
@@ -1467,6 +1562,22 @@ class FirestoreService {
 
   Future<void> updatePayrollRecord(String id, Map<String, dynamic> data) async {
     await _payrollRecords.doc(id).update(data);
+  }
+
+  /// Marks the payroll record [id] released, only if it is still 'Approved'
+  /// when this runs (two Admins releasing together would otherwise both pay
+  /// and both notify). Returns whether this call was the one that did it.
+  Future<bool> releasePayrollRecord(String id, Map<String, dynamic> data) {
+    final ref = _payrollRecords.doc(id);
+    return _db.runTransaction((transaction) async {
+      final snapshot = await transaction.get(ref);
+      if (!snapshot.exists ||
+          (snapshot.data() as Map<String, dynamic>)['status'] != 'Approved') {
+        return false;
+      }
+      transaction.update(ref, data);
+      return true;
+    });
   }
 
   // Payroll sheets: the Admin's edited copy of the printed Hourly Wage

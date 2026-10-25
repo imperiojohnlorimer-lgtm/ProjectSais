@@ -721,8 +721,17 @@ class _AccountsScreenState extends State<AccountsScreen>
                           confirmColor: AppTheme.red500,
                         );
                         if (!ok) return;
-                        await state.deleteManagedUser(users[i].id);
+                        final deleted = await state.deleteManagedUser(
+                          users[i].id,
+                        );
                         if (!context.mounted) return;
+                        if (!deleted) {
+                          _showProblem(
+                            context,
+                            "Couldn't delete that account. Please try again.",
+                          );
+                          return;
+                        }
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
@@ -749,7 +758,15 @@ class _AccountsScreenState extends State<AccountsScreen>
                           return;
                         }
                         if (users[i].status == 'Archived') {
-                          await state.restoreUser(users[i].id);
+                          final restored = await state.restoreUser(users[i].id);
+                          if (!context.mounted) return;
+                          if (!restored) {
+                            _showProblem(
+                              context,
+                              "Couldn't restore that account. Please try again.",
+                            );
+                            return;
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -772,8 +789,15 @@ class _AccountsScreenState extends State<AccountsScreen>
                           confirmColor: AppTheme.amber500,
                         );
                         if (ok) {
-                          await state.archiveUser(users[i].id);
+                          final archived = await state.archiveUser(users[i].id);
                           if (!context.mounted) return;
+                          if (!archived) {
+                            _showProblem(
+                              context,
+                              "Couldn't archive that account. Please try again.",
+                            );
+                            return;
+                          }
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -3028,8 +3052,12 @@ class _RoleDropdown extends StatelessWidget {
               confirmColor: AppTheme.maroon,
             );
             if (ok) {
-              state.changeUserRole(user.id, newRole);
+              final problem = await state.changeUserRole(user.id, newRole);
               if (!context.mounted) return;
+              if (problem != null) {
+                _showProblem(context, problem);
+                return;
+              }
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
@@ -3049,6 +3077,19 @@ class _RoleDropdown extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A red message at the bottom: what didn't save, and what to do about it.
+void _showProblem(BuildContext context, String message) {
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(message),
+      backgroundColor: AppTheme.red500,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.all(16),
+    ),
+  );
 }
 
 // ΓöÇΓöÇ Admin Announcement Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ

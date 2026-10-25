@@ -1009,8 +1009,15 @@ service cloud.firestore {
       allow write: if isStaff()
         && !(document in [
           'academic_year_settings', 'task_categories', 'task_templates',
-          'heads'
+          'heads', 'saCounter'
         ]);
+    }
+
+    // The next Student Assistant number ("SA 007"). The Head's session takes
+    // it in a transaction when it approves someone, so it is the Head's alone:
+    // a Supervisor writing it could hand out numbers twice.
+    match /meta/saCounter {
+      allow read, write: if isHead();
     }
 
     // Who the Heads are, so students' alerts (a new application, say) reach

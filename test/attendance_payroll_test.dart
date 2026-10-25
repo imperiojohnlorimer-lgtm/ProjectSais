@@ -5,12 +5,13 @@ import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
 
+import 'support/account_writes.dart';
+
 /// Stands in for Firestore: records what the app saves, and can be told to
 /// refuse a save the way the rules or a dropped connection would.
-class _FakeFirestore extends FirestoreService {
+class _FakeFirestore extends FirestoreService with AccountWrites {
   final added = <Map<String, dynamic>>[];
   final attendanceUpdates = <String, Map<String, dynamic>>{};
-  final profiles = <String, User>{};
   final deletedStudents = <String>[];
   bool failWrites = false;
 
@@ -84,6 +85,14 @@ class _FakeFirestore extends FirestoreService {
     String id,
     Map<String, dynamic> data,
   ) async => payroll[id] = {...?payroll[id], ...data};
+
+  @override
+  Future<bool> releasePayrollRecord(String id, Map<String, dynamic> data) async {
+    final current = payroll[id];
+    if (current == null || current['status'] != 'Approved') return false;
+    payroll[id] = {...current, ...data};
+    return true;
+  }
 
   @override
   Future<void> deleteStudent(String id) async => deletedStudents.add(id);
@@ -404,17 +413,34 @@ void main() {
         final one = approved('sa1');
         final other = approved('sa2');
         state.payrollRecords = [one, other];
+        // Both are saved as Approved; only the one given is released.
+        fake.payroll[one.id] = one.toJson();
+        fake.payroll[other.id] = other.toJson();
 
         final (count, _) = await state.releasePayroll([one]);
 
         expect(count, 1);
-        expect(fake.payroll.keys, [one.id]);
+        expect(fake.payroll[other.id]?['status'], 'Approved');
         expect(fake.payroll[one.id]?['status'], 'Released');
         expect(
           state.payrollRecords.firstWhere((p) => p.id == other.id).status,
           'Approved',
         );
         expect(fake.added.map((n) => n['userId']), ['sa1']);
+      });
+
+      test('a record already released is not paid or told a second time', () async {
+        final one = approved('sa1');
+        state.payrollRecords = [one];
+        fake.payroll[one.id] = one.toJson();
+
+        final first = await state.releasePayroll([one]);
+        // Another Admin's screen still lists it as Approved.
+        final second = await state.releasePayroll([one]);
+
+        expect(first.$1, 1);
+        expect(second.$1, 0);
+        expect(fake.added.where((n) => n['title'] == 'Payout Released'), hasLength(1));
       });
     });
   });
@@ -533,11 +559,12 @@ void main() {
     final doomed = _assistant('sa1', 'Juan Dela Cruz');
 
     test('keeps the profile, archived and marked deleted', () async {
+      fake.profiles['sa1'] = doomed;
       state
         ..currentUser = admin
         ..users = [admin, doomed];
 
-      await state.deleteManagedUser('sa1');
+      expect(await state.deleteManagedUser('sa1'), isTrue);
 
       final saved = fake.profiles['sa1']!;
       expect(saved.status, 'Archived');

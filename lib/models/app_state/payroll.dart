@@ -583,11 +583,12 @@ extension AppStatePayroll on AppState {
 
     for (final record in toRelease) {
       final releasedBy = currentUser?.name ?? 'Admin';
-      await _firestoreService!.updatePayrollRecord(record.id, {
-        'status': 'Released',
-        'releasedAt': today,
-        'releasedBy': releasedBy,
-      });
+      // Only the call that finds it still Approved releases (and tells) it.
+      final released = await _firestoreService!.releasePayrollRecord(
+        record.id,
+        {'status': 'Released', 'releasedAt': today, 'releasedBy': releasedBy},
+      );
+      if (!released) continue;
       payrollRecords = payrollRecords
           .map(
             (p) => p.id == record.id

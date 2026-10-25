@@ -94,6 +94,22 @@ class Office {
     );
   }
 
+  /// This office with [userId] (named [name]) taken off its supervisors,
+  /// matched as in [hasHead].
+  Office withoutHead(String userId, String name) {
+    final drop = _listedAt(headIds, headNames, userId, name).toSet();
+    return copyWith(
+      headIds: [
+        for (var i = 0; i < headIds.length; i++)
+          if (!drop.contains(i)) headIds[i],
+      ],
+      headNames: [
+        for (var i = 0; i < headNames.length; i++)
+          if (!drop.contains(i)) headNames[i],
+      ],
+    );
+  }
+
   /// The positions in the parallel [ids]/[names] lists that hold the user.
   static List<int> _listedAt(
     List<String> ids,

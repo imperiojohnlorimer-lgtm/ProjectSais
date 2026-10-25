@@ -8,11 +8,12 @@ import 'package:projectsais/screens/student_portal/announcements_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/theme/app_theme.dart';
 
+import 'support/account_writes.dart';
+
 /// Keeps the writes the application flow makes instead of sending them.
-class _Store extends FirestoreService {
+class _Store extends FirestoreService with AccountWrites {
   final applications = <String, Application>{};
   final notifications = <Map<String, dynamic>>[];
-  final profiles = <String, User>{};
   final students = <Student>[];
   final skills = <String>[];
   List<String> headIds = ['head1'];
@@ -120,7 +121,9 @@ void main() {
   late AppState state;
 
   setUp(() {
-    store = _Store();
+    store = _Store()
+      ..profiles[_student.id] = _student
+      ..profiles[_student2.id] = _student2;
     state = AppState(firestoreService: store);
   });
 

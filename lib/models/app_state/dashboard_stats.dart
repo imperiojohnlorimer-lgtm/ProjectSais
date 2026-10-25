@@ -208,22 +208,8 @@ extension AppStateDashboardStats on AppState {
     ];
   }
 
-  String _formattedToday() {
-    final now = DateTime.now();
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    return '${months[now.month - 1]} ${now.day}, ${now.year}';
-  }
+  /// Today's date as the app writes it ("Oct 14, 2026"): Philippine time, the
+  /// same day attendance, tasks and the rules go by, whatever this device's
+  /// clock says.
+  String _formattedToday() => philippineToday();
 }
