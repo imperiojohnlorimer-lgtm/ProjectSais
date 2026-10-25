@@ -14,6 +14,8 @@ class PasswordValidator {
   static const _common = <String>{
     'password',
     'passw0rd',
+    'passwrd', // "Passw0rd" once the digit is dropped
+    'psswrd', // "P@ssw0rd"
     'welcome',
     'letmein',
     'admin',

@@ -495,11 +495,24 @@ test('a new account records when it accepted the notice', async () => {
   await assertSucceeds(setDoc(doc(as('fresh'), 'users', 'fresh'), newAccount()));
 });
 
-test('an account made without it (older flows, the Admin) is still fine', async () => {
+test('registering without accepting the notice is refused; the Admin may make an account without it', async () => {
   const bare = newAccount();
   delete bare.consentAt;
   delete bare.consentVersion;
-  await assertSucceeds(setDoc(doc(as('fresh'), 'users', 'fresh'), bare));
+  await assertFails(setDoc(doc(as('fresh'), 'users', 'fresh'), bare));
+  await assertFails(
+    setDoc(doc(as('fresh'), 'users', 'fresh'), { ...bare, consentAt: null, consentVersion: null }),
+  );
+  await assertSucceeds(setDoc(doc(as('admin'), 'users', 'made-by-admin'), bare));
+});
+
+test('neither the Admin nor the Head rewrites a recorded acceptance', async () => {
+  await assertSucceeds(setDoc(doc(as('fresh'), 'users', 'fresh'), newAccount()));
+  for (const who of ['admin', 'head']) {
+    await assertFails(updateDoc(doc(as(who), 'users', 'fresh'), { consentAt: '2030-01-01T00:00:00.000Z' }));
+    await assertFails(updateDoc(doc(as(who), 'users', 'fresh'), { consentVersion: 'other' }));
+  }
+  await assertSucceeds(updateDoc(doc(as('admin'), 'users', 'fresh'), { phone: '0917 123 4567' }));
 });
 
 test('the recorded acceptance must be short text', async () => {

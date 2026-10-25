@@ -4,11 +4,13 @@ import 'dart:html';
 /// browser's local storage so a person working in one tab isn't signed out
 /// because another tab sat idle (the sign-in is shared by every tab).
 class SharedActivity {
-  static const _key = 'sais.lastActivity';
+  // One entry per account: two tabs signed in as different people (each in
+  // its own session) must not keep each other from timing out.
+  static String _key(String owner) => 'sais.lastActivity.$owner';
 
-  static DateTime? read() {
+  static DateTime? read(String owner) {
     try {
-      final stored = window.localStorage[_key];
+      final stored = window.localStorage[_key(owner)];
       final millis = stored == null ? null : int.tryParse(stored);
       return millis == null
           ? null
@@ -19,9 +21,9 @@ class SharedActivity {
     }
   }
 
-  static void write(DateTime when) {
+  static void write(String owner, DateTime when) {
     try {
-      window.localStorage[_key] = when.millisecondsSinceEpoch.toString();
+      window.localStorage[_key(owner)] = when.millisecondsSinceEpoch.toString();
     } catch (_) {}
   }
 }

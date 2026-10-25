@@ -486,7 +486,7 @@ extension AppStateRehiring on AppState {
   /// current Monday–Sunday week: the figure clock-attendance checks
   /// against [AppState.weeklyHourCap].
   double get myCreditedHoursThisWeek {
-    final now = DateTime.now();
+    final now = philippineClock();
     final monday = DateTime(
       now.year,
       now.month,

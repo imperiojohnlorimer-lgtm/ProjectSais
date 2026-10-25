@@ -3685,6 +3685,11 @@ class AppState extends ChangeNotifier {
     return '${_monthNames[day.month - 1]} ${day.day}, ${day.year}';
   }
 
+  /// The wall clock in the Philippines as a plain DateTime, for screens that
+  /// compare it with the dates and times records are saved under.
+  DateTime philippineClock([DateTime? now]) =>
+      (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
+
   DateTime _philippineDay([DateTime? now]) {
     final clock = (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
     return DateTime(clock.year, clock.month, clock.day);

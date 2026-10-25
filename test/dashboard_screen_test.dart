@@ -154,7 +154,7 @@ void main() {
     testWidgets('counts this week only, and leaves out voided sessions', (
       tester,
     ) async {
-      final today = DateTime.now();
+      final today = _philippineNow();
       await pumpStudent(tester, [
         record('a', today, hours: 6.5),
         record('b', today.subtract(const Duration(days: 8)), hours: 4),
@@ -170,7 +170,7 @@ void main() {
     });
 
     testWidgets('shows who is on duty and since when', (tester) async {
-      final now = DateTime.now();
+      final now = _philippineNow();
       final timeIn = clockOf(now);
       await pumpStudent(tester, [
         record('open', now, timeIn: timeIn, timeOut: null, hours: null),
@@ -184,7 +184,7 @@ void main() {
     });
 
     testWidgets('says when the weekly limit is reached', (tester) async {
-      await pumpStudent(tester, [record('a', DateTime.now(), hours: 20)]);
+      await pumpStudent(tester, [record('a', _philippineNow(), hours: 20)]);
       expect(find.text('Limit reached · resets Monday'), findsOneWidget);
       expect(
         find.text('You\'ve reached this week\'s 20-hour limit.'),
@@ -483,3 +483,7 @@ void main() {
     });
   });
 }
+
+/// The wall clock in the Philippines, which is how the app names "today"
+/// whatever zone the tests run in (CI runs in UTC).
+DateTime _philippineNow() => DateTime.now().toUtc().add(const Duration(hours: 8));

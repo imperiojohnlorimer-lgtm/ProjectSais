@@ -188,6 +188,13 @@ service cloud.firestore {
         && (version == null || (version is string && version.size() <= 40));
     }
 
+    // A person registering themselves must have accepted it.
+    function acceptedNotice(data) {
+      return data.get('consentAt', null) is string
+        && data.get('consentVersion', null) is string
+        && validConsent(data);
+    }
+
     match /users/{uid} {
       // Head and Supervisor need to read user/student profiles for
       // Students, Reports, Attendance, Tasks, and office matching. Admin
@@ -209,7 +216,7 @@ service cloud.firestore {
           && request.resource.data.get('deleted', false) == false
           && request.resource.data.email.lower()
             == request.auth.token.email.lower()
-          && validConsent(request.resource.data)
+          && acceptedNotice(request.resource.data)
         );
 
       // Role/status changes (Accounts screen) stay Admin-only, with three
@@ -229,7 +236,10 @@ service cloud.firestore {
       // someone else's records, and the payroll prints the name's parts.
       //
       // Only the Admin deletes accounts, which marks them `deleted`.
-      allow update: if isAdmin()
+      // Nobody (the Admin and the Head included) rewrites the record of
+      // when someone accepted the Privacy Notice.
+      allow update: if (isAdmin() && unchanged('consentAt')
+          && unchanged('consentVersion'))
         || (
           signedIn()
           && request.auth.uid == uid
@@ -259,6 +269,8 @@ service cloud.firestore {
           && request.resource.data.email == resource.data.email
           && resource.data.get('deleted', false) == false
           && sameOr('deleted', false)
+          && unchanged('consentAt')
+          && unchanged('consentVersion')
         );
 
       // A registration that can't finish (its Student ID is taken) removes

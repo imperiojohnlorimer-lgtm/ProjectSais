@@ -18,7 +18,7 @@ const { pushTextFor } = await import(
 );
 
 test("pay, ratings, rehire and requirements are announced without details", () => {
-  for (const kind of ["payroll", "evaluation", "payroll_requirement", "rehire"]) {
+  for (const kind of ["payroll", "evaluation", "payroll_requirement", "rehire", "application", "office"]) {
     const text = pushTextFor(kind, "Payout Released", "Your pay for September: ₱4,200.00");
     assert.equal(text.title, "SAIS", kind);
     assert.equal(text.body, "You have a new update. Open SAIS to read it.", kind);
@@ -26,7 +26,7 @@ test("pay, ratings, rehire and requirements are announced without details", () =
 });
 
 test("everything else keeps its own words", () => {
-  for (const kind of ["task", "announcement", "application", "office", undefined]) {
+  for (const kind of ["task", "announcement", undefined]) {
     assert.deepEqual(pushTextFor(kind, "New Task", "File the forms"), {
       title: "New Task",
       body: "File the forms",

@@ -73,6 +73,14 @@ String _day(DateTime d) => '${_months[d.month - 1]} ${d.day}, ${d.year}';
 // The app names a day in Philippine time (UTC+8), wherever the tests run.
 final _today = _day(DateTime.now().toUtc().add(const Duration(hours: 8)));
 
+// A day the DTR screen already lists wherever the tests run: the Philippine
+// date can be a day ahead of the machine's own date (CI runs in UTC).
+final _dtrDay = _day(
+  DateTime.now().isBefore(DateTime.now().toUtc().add(const Duration(hours: 8)))
+      ? DateTime.now()
+      : DateTime.now().toUtc().add(const Duration(hours: 8)),
+);
+
 Task _task({
   String id = 't1',
   String title = 'File the forms',
@@ -527,7 +535,7 @@ void main() {
             id: 'r1',
             studentId: 's1',
             studentName: 'Charlie A. Matining',
-            date: _today,
+            date: _dtrDay,
             timeIn: '8:00 AM',
             timeOut: '10:00 AM',
             totalHours: 2,
@@ -564,8 +572,18 @@ void main() {
       tester,
     ) async {
       await pumpDtr(tester, [
-        _approved(id: 'a', title: 'Shelve returns', assignedTo: 's1'),
-        _approved(id: 'b', title: 'Sort the mail', assignedTo: 's1'),
+        _approved(
+          id: 'a',
+          title: 'Shelve returns',
+          assignedTo: 's1',
+          completedAt: _dtrDay,
+        ),
+        _approved(
+          id: 'b',
+          title: 'Sort the mail',
+          assignedTo: 's1',
+          completedAt: _dtrDay,
+        ),
         _waiting(id: 'c', title: 'Not yet approved').copyWith(assignedTo: 's1'),
       ]);
 

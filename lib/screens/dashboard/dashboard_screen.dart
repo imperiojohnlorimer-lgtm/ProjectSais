@@ -309,7 +309,8 @@ class _TodayCardState extends State<_TodayCard> {
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
     final metrics = DashboardMetrics.of(context);
-    final now = DateTime.now();
+    // Records are dated in Philippine time, so "today" is too.
+    final now = state.philippineClock();
 
     final status = _DutyStatus(state: state, now: now);
     final week = _WeekHours(state: state, now: now);

@@ -81,7 +81,9 @@ class _IdleSignOutGuardState extends State<IdleSignOutGuard>
     // Told to the other tabs, but not on every pointer move.
     if (now.difference(_lastShared) > const Duration(seconds: 5)) {
       _lastShared = now;
-      SharedActivity.write(now);
+      // Only a signed-in person's activity counts for their other tabs.
+      final owner = context.read<AppState>().currentUser?.id;
+      if (owner != null) SharedActivity.write(owner, now);
     }
   }
 
@@ -100,7 +102,7 @@ class _IdleSignOutGuardState extends State<IdleSignOutGuard>
       return;
     }
     final now = widget.clock();
-    final shared = SharedActivity.read();
+    final shared = SharedActivity.read(app.currentUser?.id ?? '');
     if (_deadline.isExpired(now, sharedLast: shared)) {
       app.signOutForInactivity(widget.limit);
       return;

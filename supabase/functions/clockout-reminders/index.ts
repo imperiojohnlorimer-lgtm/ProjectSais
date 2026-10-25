@@ -73,6 +73,8 @@ const privateKinds = new Set([
   "evaluation",
   "payroll_requirement",
   "rehire",
+  "application", // a decision can carry the screening remarks
+  "office", // a rehire or placement names the student
 ]);
 
 export function pushTextFor(
