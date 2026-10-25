@@ -363,7 +363,7 @@ class _PayrollRequirementsScreenState extends State<PayrollRequirementsScreen> {
         ),
         decoration: InputDecoration(
           hintText: 'Search name, SA ID or office',
-          hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+          hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate500),
           prefixIcon: const Icon(
             Icons.search_rounded,
             size: 18,
@@ -718,7 +718,7 @@ class _Overview extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 10.5,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   letterSpacing: 0.7,
                 ),
               ),
@@ -809,7 +809,7 @@ class _Overview extends StatelessWidget {
                       '$range · a DTR for each month worked',
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                 ],
@@ -1040,7 +1040,7 @@ class _StudentCardState extends State<_StudentCard> {
                                 style: const TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                 ),
                               ),
                             ],
@@ -1209,7 +1209,7 @@ class _StudentCardState extends State<_StudentCard> {
       style: const TextStyle(
         fontSize: 10.5,
         fontWeight: FontWeight.w800,
-        color: AppTheme.slate400,
+        color: AppTheme.slate500,
         letterSpacing: 0.7,
       ),
     ),
@@ -1672,7 +1672,7 @@ class _FileChip extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontSize: 11.5,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                     ),
                   ),
                 ),

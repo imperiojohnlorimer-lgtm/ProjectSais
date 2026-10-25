@@ -1732,7 +1732,7 @@ class _MiniRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 10.5,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                 ),
               ],

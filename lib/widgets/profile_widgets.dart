@@ -65,7 +65,7 @@ class ProfilePageHeading extends StatelessWidget {
                 subtitle,
                 style: const TextStyle(
                   fontSize: 13,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   height: 1.4,
                 ),
               ),
@@ -534,7 +534,7 @@ class _ReadonlyField extends StatelessWidget {
           style: const TextStyle(
             fontSize: 9.5,
             fontWeight: FontWeight.w700,
-            color: AppTheme.slate400,
+            color: AppTheme.slate500,
             letterSpacing: 1.0,
           ),
         ),
@@ -752,7 +752,7 @@ class _ProfileEditField extends StatelessWidget {
           style: const TextStyle(
             fontSize: 9.5,
             fontWeight: FontWeight.w700,
-            color: AppTheme.slate400,
+            color: AppTheme.slate500,
             letterSpacing: 1.0,
           ),
         ),

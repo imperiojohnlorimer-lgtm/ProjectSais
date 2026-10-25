@@ -192,7 +192,7 @@ class AnnouncementCard extends StatelessWidget {
                               'Posted by ${announcement.postedBy} · ${announcement.postedAt}',
                               style: const TextStyle(
                                 fontSize: 11,
-                                color: AppTheme.slate400,
+                                color: AppTheme.slate500,
                               ),
                             ),
                           ],
@@ -299,7 +299,7 @@ class AnnouncementCard extends StatelessWidget {
                           'Submitted ${announcement.postedAt}',
                           style: const TextStyle(
                             fontSize: 11,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                           ),
                         ),
                       ),
@@ -481,14 +481,14 @@ class AnnouncementDetailsDialog extends StatelessWidget {
                           announcement.postedBy,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                           ),
                         ),
                         Text(
                           announcement.postedAt,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                           ),
                         ),
                       ],

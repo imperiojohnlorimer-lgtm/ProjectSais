@@ -56,7 +56,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
             ),
           ),
         ),
-        if (offices.isEmpty)
+        if (offices.isEmpty && !state.isLoaded('Offices'))
+          const SliverToBoxAdapter(child: LoadingState())
+        else if (offices.isEmpty)
           SliverToBoxAdapter(
             child: EmptyState(
               icon: state.offices.isEmpty
@@ -436,7 +438,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                       : '${headIds.length} selected',
                                   style: const TextStyle(
                                     fontSize: 10.5,
-                                    color: AppTheme.slate400,
+                                    color: AppTheme.slate500,
                                   ),
                                 ),
                                 children: [
@@ -585,7 +587,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                       : '${requiredSkills.length} selected',
                                   style: const TextStyle(
                                     fontSize: 10.5,
-                                    color: AppTheme.slate400,
+                                    color: AppTheme.slate500,
                                   ),
                                 ),
                                 children: [
@@ -963,7 +965,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                   remaining > 0
                       ? '$remaining slots remaining'
                       : 'At maximum capacity',
-                  style: const TextStyle(fontSize: 9, color: AppTheme.slate400),
+                  style: const TextStyle(fontSize: 9, color: AppTheme.slate500),
                 ),
               ],
             ),
@@ -1229,7 +1231,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                             style: const TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w800,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                             ),
                           ),
                         ],
@@ -1320,7 +1322,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                         style: TextStyle(
                           fontSize: 9.5,
                           fontWeight: FontWeight.w800,
-                          color: AppTheme.slate400,
+                          color: AppTheme.slate500,
                           letterSpacing: 0.6,
                         ),
                       ),
@@ -1658,7 +1660,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                                     : '${acceptedAssistants.length} available • Select one or more',
                                 helperStyle: const TextStyle(
                                   fontSize: 11,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                 ),
                                 contentPadding: const EdgeInsets.fromLTRB(
                                   12,
@@ -2022,7 +2024,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                                     'No assistants match these filters',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: AppTheme.slate400,
+                                      color: AppTheme.slate500,
                                     ),
                                   ),
                                 ),
@@ -2032,7 +2034,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                                 'No active student assistants available',
                                 style: TextStyle(
                                   fontSize: 13,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                 ),
                               ),
                             if (_groupByDepartment)

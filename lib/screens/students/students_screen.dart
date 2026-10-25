@@ -205,7 +205,10 @@ class _StudentsScreenState extends State<StudentsScreen> {
                   ),
 
                 // Rows
-                if (students.isEmpty)
+                if (students.isEmpty &&
+                    !(state.isLoaded('Students') && state.isLoaded('Users')))
+                  const LoadingState()
+                else if (students.isEmpty)
                   _emptyState()
                 else
                   ListView.separated(
@@ -318,9 +321,18 @@ class _StudentsScreenState extends State<StudentsScreen> {
                         color: AppTheme.maroon.withValues(alpha: 0.65),
                       ),
                       const SizedBox(width: 8),
-                      Flexible(
-                        child: Text(option, overflow: TextOverflow.ellipsis),
-                      ),
+                      // Not expanded on a wide screen, so the picker's
+                      // width is unbounded here and a Flexible can't be
+                      // laid out: bound the text instead.
+                      if (isMobile)
+                        Flexible(
+                          child: Text(option, overflow: TextOverflow.ellipsis),
+                        )
+                      else
+                        ConstrainedBox(
+                          constraints: const BoxConstraints(maxWidth: 190),
+                          child: Text(option, overflow: TextOverflow.ellipsis),
+                        ),
                     ],
                   ),
                 ),
@@ -402,7 +414,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
             'No students found',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
               fontSize: 14,
             ),
           ),
@@ -447,7 +459,7 @@ class _ColHeader extends StatelessWidget {
     style: const TextStyle(
       fontSize: 11,
       fontWeight: FontWeight.w700,
-      color: AppTheme.slate400,
+      color: AppTheme.slate500,
       letterSpacing: 0.6,
     ),
   );
@@ -548,7 +560,7 @@ class _StudentRowState extends State<_StudentRow> {
                     s.department,
                     style: const TextStyle(
                       fontSize: 11,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                     ),
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -968,7 +980,7 @@ class _StudentRowState extends State<_StudentRow> {
                                 style: TextStyle(
                                   fontSize: 10,
                                   fontWeight: FontWeight.w800,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                   letterSpacing: 1.1,
                                 ),
                               ),
@@ -1377,6 +1389,7 @@ class _StudentRowState extends State<_StudentRow> {
                       ),
                     ),
                     IconButton(
+                      tooltip: 'Close',
                       onPressed: () => Navigator.pop(context),
                       icon: const Icon(
                         Icons.close_rounded,
@@ -1412,7 +1425,7 @@ class _StudentRowState extends State<_StudentRow> {
                                   'No assessment records yet',
                                   style: const TextStyle(
                                     fontSize: 13,
-                                    color: AppTheme.slate400,
+                                    color: AppTheme.slate500,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
@@ -1485,7 +1498,7 @@ class _StudentRowState extends State<_StudentRow> {
       style: const TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w800,
-        color: AppTheme.slate400,
+        color: AppTheme.slate500,
         letterSpacing: 0.4,
       ),
     ),
@@ -1607,7 +1620,7 @@ class _StudentRowState extends State<_StudentRow> {
                   'Move ${s.name} to a different department',
                   style: const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -1741,7 +1754,7 @@ class _StudentRowState extends State<_StudentRow> {
                 style: const TextStyle(
                   fontSize: 9.5,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   letterSpacing: 0.5,
                 ),
               ),

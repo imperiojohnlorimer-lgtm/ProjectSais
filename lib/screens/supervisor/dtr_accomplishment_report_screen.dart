@@ -242,7 +242,7 @@ class _DtrAccomplishmentReportScreenState
           const SizedBox(height: 4),
           const Text(
             'Try a different search term or switch the selected month.',
-            style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slate500),
           ),
         ],
       ),
@@ -336,7 +336,7 @@ class _DtrAccomplishmentReportScreenState
                                     student.department,
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      color: AppTheme.slate400,
+                                      color: AppTheme.slate500,
                                       fontWeight: FontWeight.w500,
                                     ),
                                     overflow: TextOverflow.ellipsis,
@@ -1525,7 +1525,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12.5,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                   ],
@@ -1929,7 +1929,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         const SizedBox(height: 1),
         const Text(
           'Updates as you edit each day',
-          style: TextStyle(color: AppTheme.slate400, fontSize: 11),
+          style: TextStyle(color: AppTheme.slate500, fontSize: 11),
         ),
       ],
     );
@@ -2169,7 +2169,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         padding: const EdgeInsets.only(left: 4),
         child: Text(
           role,
-          style: const TextStyle(fontSize: 11, color: AppTheme.slate400),
+          style: const TextStyle(fontSize: 11, color: AppTheme.slate500),
         ),
       ),
     ],
@@ -2489,7 +2489,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                         style: TextStyle(
                           fontSize: 9.5,
                           fontWeight: FontWeight.w700,
-                          color: AppTheme.slate400,
+                          color: AppTheme.slate500,
                           letterSpacing: 0.3,
                         ),
                       ),
@@ -2612,7 +2612,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           style: const TextStyle(
             fontSize: 9.5,
             fontWeight: FontWeight.w700,
-            color: AppTheme.slate400,
+            color: AppTheme.slate500,
             letterSpacing: 0.3,
           ),
         ),
@@ -3158,7 +3158,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                 style: const TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w800,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   letterSpacing: 0.2,
                 ),
               ),
@@ -3246,7 +3246,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
               style: const TextStyle(
                 fontSize: 9.5,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.slate400,
+                color: AppTheme.slate500,
                 letterSpacing: 0.3,
               ),
             ),
@@ -3309,7 +3309,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         '${_schedule.length}/$_maxScheduleRows subjects',
         style: const TextStyle(
           fontSize: 11,
-          color: AppTheme.slate400,
+          color: AppTheme.slate500,
           fontWeight: FontWeight.w600,
         ),
       ),

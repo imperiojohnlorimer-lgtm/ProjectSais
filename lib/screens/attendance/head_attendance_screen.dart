@@ -211,7 +211,10 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
               const SizedBox(height: 16),
               _filters(departments, activeOffices),
               const SizedBox(height: 16),
-              if (rows.isEmpty)
+              if (rows.isEmpty &&
+                  !(state.isLoaded('Users') && state.isLoaded('Attendance')))
+                const LoadingState()
+              else if (rows.isEmpty)
                 EmptyState(
                   icon: everyone.isEmpty
                       ? Icons.groups_outlined
@@ -382,7 +385,7 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
             style: const TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
               letterSpacing: 0.3,
             ),
           ),
@@ -604,7 +607,7 @@ class _AssistantRow extends StatelessWidget {
                             : 'Last: ${row.lastDate}',
                         style: const TextStyle(
                           fontSize: 11,
-                          color: AppTheme.slate400,
+                          color: AppTheme.slate500,
                         ),
                       ),
                     ],
@@ -620,7 +623,7 @@ class _AssistantRow extends StatelessWidget {
                 padding: EdgeInsets.all(16),
                 child: Text(
                   'No attendance in this period.',
-                  style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+                  style: TextStyle(fontSize: 12.5, color: AppTheme.slate500),
                 ),
               )
             else

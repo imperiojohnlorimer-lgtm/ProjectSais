@@ -357,7 +357,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
         fontWeight: FontWeight.w600,
         fontSize: 13,
       ),
-      hintStyle: const TextStyle(color: AppTheme.slate400, fontSize: 13),
+      hintStyle: const TextStyle(color: AppTheme.slate500, fontSize: 13),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: border(AppTheme.slate200),
       enabledBorder: border(AppTheme.slate200),
@@ -432,7 +432,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
         style: const TextStyle(
           fontSize: 10.5,
           fontWeight: FontWeight.w800,
-          color: AppTheme.slate400,
+          color: AppTheme.slate500,
           letterSpacing: 1.0,
         ),
       ),
@@ -440,7 +440,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
         const SizedBox(width: 6),
         const Text(
           'Optional',
-          style: TextStyle(fontSize: 10.5, color: AppTheme.slate400),
+          style: TextStyle(fontSize: 10.5, color: AppTheme.slate500),
         ),
       ],
     ],
@@ -554,7 +554,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
           padding: EdgeInsets.only(top: 6, left: 2),
           child: Text(
             'Type @ to mention a student, assistant or supervisor by name.',
-            style: TextStyle(fontSize: 11, color: AppTheme.slate400),
+            style: TextStyle(fontSize: 11, color: AppTheme.slate500),
           ),
         ),
         if (suggestions.isNotEmpty || (fragment != null && people.isNotEmpty))
@@ -610,7 +610,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
                     padding: EdgeInsets.all(12),
                     child: Text(
                       'No one by that name.',
-                      style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+                      style: TextStyle(fontSize: 12, color: AppTheme.slate500),
                     ),
                   )
                 else
@@ -654,7 +654,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
                               people[mention] ?? '',
                               style: const TextStyle(
                                 fontSize: 11,
-                                color: AppTheme.slate400,
+                                color: AppTheme.slate500,
                               ),
                             ),
                           ],
@@ -749,7 +749,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
           if (_requirements.isEmpty)
             const Text(
               'None yet: students would only list their skills.',
-              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12, color: AppTheme.slate500),
             )
           else
             Wrap(
@@ -930,7 +930,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
                   '${(file.size / (1024 * 1024)).toStringAsFixed(2)} MB',
                   style: const TextStyle(
                     fontSize: 11,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                 ),
               ],

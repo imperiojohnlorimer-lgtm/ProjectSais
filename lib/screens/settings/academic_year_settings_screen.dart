@@ -487,7 +487,7 @@ class _AcademicYearSettingsScreenState
                     fontSize: 10,
                     fontWeight: FontWeight.w800,
                     letterSpacing: 1,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                 ),
                 const SizedBox(height: 3),

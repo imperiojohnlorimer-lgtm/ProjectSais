@@ -385,7 +385,7 @@ class _DepartmentGroup extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                 ),
               ),
               if (onAdd != null) ...[
@@ -930,7 +930,7 @@ class _ProgramDialogState extends State<_ProgramDialog> {
       InputDecoration(
         prefixIcon: Icon(icon, color: AppTheme.slate400, size: 18),
         hintText: hint,
-        hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+        hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate500),
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,

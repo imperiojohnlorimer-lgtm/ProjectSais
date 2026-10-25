@@ -575,7 +575,7 @@ class _WeekHours extends StatelessWidget {
           else
             const Text(
               'Your current session is added when you time out.',
-              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12, color: AppTheme.slate500),
             ),
         ],
       ],
@@ -837,7 +837,7 @@ class _RoleBreakdown extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w600,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                     ),
                   ),
                 ),
@@ -1468,7 +1468,7 @@ class _CampusEnrollmentChart extends StatelessWidget {
               ? const Center(
                   child: Text(
                     'No enrollment data yet',
-                    style: TextStyle(color: AppTheme.slate400),
+                    style: TextStyle(color: AppTheme.slate500),
                   ),
                 )
               : LayoutBuilder(
@@ -1662,7 +1662,7 @@ class _CampusGrowthChart extends StatelessWidget {
             style: TextStyle(
               fontSize: 11,
               fontWeight: FontWeight.w500,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
         ],
@@ -1753,7 +1753,7 @@ class _GrowthLineChart extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.slate400,
+                          color: AppTheme.slate500,
                           fontFeatures: [FontFeature.tabularFigures()],
                         ),
                       ),
@@ -1820,7 +1820,7 @@ class _GrowthLineChart extends StatelessWidget {
                         style: const TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w600,
-                          color: AppTheme.slate400,
+                          color: AppTheme.slate500,
                         ),
                       ),
                       const Text(

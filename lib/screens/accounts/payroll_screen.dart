@@ -425,7 +425,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                     child: Center(
                       child: Text(
                         'No active Student Assistants found.',
-                        style: TextStyle(color: AppTheme.slate400),
+                        style: TextStyle(color: AppTheme.slate500),
                       ),
                     ),
                   )
@@ -501,7 +501,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
               '${PayrollRecord.maximumMonthlyHours.toStringAsFixed(0)} hrs a month',
               style: const TextStyle(
                 fontSize: 12,
-                color: AppTheme.slate400,
+                color: AppTheme.slate500,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -526,7 +526,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
     style: const TextStyle(
       fontSize: 10.5,
       fontWeight: FontWeight.w800,
-      color: AppTheme.slate400,
+      color: AppTheme.slate500,
       letterSpacing: 0.6,
     ),
   );
@@ -1066,7 +1066,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
             const SizedBox(height: 2),
             Text(
               _periodLabel,
-              style: const TextStyle(fontSize: 12, color: AppTheme.slate400),
+              style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
             ),
           ],
         ),
@@ -1594,7 +1594,7 @@ class _PayrollRow extends StatelessWidget {
                         : 'Approved ${record.approvedAt ?? ''} by ${record.approvedBy ?? ''}',
                     style: const TextStyle(
                       fontSize: 11,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                     ),
                   ),
                 ),
@@ -1627,7 +1627,7 @@ class _PayrollRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 10.5,
               fontWeight: FontWeight.w700,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
           const SizedBox(height: 2),

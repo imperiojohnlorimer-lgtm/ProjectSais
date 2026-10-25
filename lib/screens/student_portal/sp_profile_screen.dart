@@ -349,7 +349,7 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
         ),
         subtitle: Text(
           '${selectedSkills.length} selected',
-          style: const TextStyle(fontSize: 12, color: AppTheme.slate400),
+          style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
         ),
         children: availableSkills.isEmpty
             ? [
@@ -357,7 +357,7 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'No saved skills available.',
-                    style: TextStyle(color: AppTheme.slate400),
+                    style: TextStyle(color: AppTheme.slate500),
                   ),
                 ),
               ]
@@ -473,7 +473,7 @@ class _EmptyApplications extends StatelessWidget {
           style: TextStyle(
             fontSize: 14,
             fontWeight: FontWeight.w600,
-            color: AppTheme.slate400,
+            color: AppTheme.slate500,
           ),
         ),
         const SizedBox(height: 4),
@@ -530,7 +530,7 @@ class _AppRow extends StatelessWidget {
                   'Applied ${application.appliedAt}',
                   style: const TextStyle(
                     fontSize: 11,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                 ),
                 if (application.remarks != null) ...[

@@ -408,7 +408,7 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
                       '${allEntries.length} document${allEntries.length == 1 ? '' : 's'} across ${byStudent.length} student${byStudent.length == 1 ? '' : 's'}',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+                      style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
                     ),
                   ],
                 ),
@@ -428,6 +428,7 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
               suffixIcon: _searchCtrl.text.isEmpty
                   ? null
                   : IconButton(
+                    tooltip: 'Close',
                       icon: const Icon(Icons.close_rounded, size: 18),
                       onPressed: () => setState(() => _searchCtrl.clear()),
                     ),
@@ -553,7 +554,7 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
                           const SizedBox(height: 16),
                           Text(
                             allEntries.isEmpty ? 'No documents yet' : 'No matches found',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate400),
+                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500),
                           ),
                           const SizedBox(height: 4),
                           Text(
@@ -707,7 +708,7 @@ class _StudentDocGroupState extends State<_StudentDocGroup> {
                   ),
                   Text(
                     '${widget.items.length} item${widget.items.length == 1 ? '' : 's'}',
-                    style: const TextStyle(fontSize: 12, color: AppTheme.slate400, fontWeight: FontWeight.w600),
+                    style: const TextStyle(fontSize: 12, color: AppTheme.slate500, fontWeight: FontWeight.w600),
                   ),
                   const SizedBox(width: 6),
                   IconButton(

@@ -269,7 +269,12 @@ class _TasksScreenState extends State<TasksScreen> {
           ),
         ),
         if (tasks.isEmpty)
-          SliverFillRemaining(hasScrollBody: false, child: _emptyState())
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: state.isLoaded('Tasks')
+                ? _emptyState()
+                : const LoadingState(),
+          )
         else
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
@@ -559,7 +564,7 @@ class _TasksScreenState extends State<TasksScreen> {
             _search.trim().isEmpty
                 ? 'Try a different filter, or assign a new task.'
                 : 'No tasks match your search.',
-            style: const TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slate500),
           ),
         ],
       ),
@@ -680,7 +685,7 @@ class _ProgressSummary extends StatelessWidget {
             style: const TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
         ],

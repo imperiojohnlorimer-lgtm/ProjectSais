@@ -248,7 +248,9 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
           _selectionBar(state, pendingShown),
           const SizedBox(height: 8),
         ],
-        if (apps.isEmpty)
+        if (apps.isEmpty && !state.isLoaded('Applications'))
+          const LoadingState()
+        else if (apps.isEmpty)
           Center(
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 60),
@@ -274,7 +276,7 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
                     style: const TextStyle(
                       fontSize: 14,
                       fontWeight: FontWeight.w600,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                     ),
                   ),
                 ],
@@ -330,7 +332,7 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.slate400,
+                color: AppTheme.slate500,
                 letterSpacing: 0.3,
               ),
             ),
@@ -537,7 +539,7 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
               style: const TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.slate400,
+                color: AppTheme.slate500,
                 letterSpacing: 0.3,
               ),
             ),
@@ -626,7 +628,7 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
               style: const TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.slate400,
+                color: AppTheme.slate500,
                 letterSpacing: 0.3,
               ),
             ),
@@ -1386,7 +1388,7 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                               'Applied ${app.appliedAt}',
                               style: const TextStyle(
                                 fontSize: 12,
-                                color: AppTheme.slate400,
+                                color: AppTheme.slate500,
                               ),
                             ),
                           ],
@@ -1570,7 +1572,7 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                                         '${doc.fileSize!.toStringAsFixed(2)} MB',
                                         style: const TextStyle(
                                           fontSize: 11,
-                                          color: AppTheme.slate400,
+                                          color: AppTheme.slate500,
                                         ),
                                       ),
                                   ],
@@ -1686,7 +1688,7 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                   '+${widget.matches.length - 3} more',
                   style: const TextStyle(
                     fontSize: 11,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                 ),
             ],
@@ -1695,13 +1697,13 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
           if (noRequests)
             const Text(
               'No approved supervisor requests are open to match against.',
-              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12, color: AppTheme.slate500),
             )
           else if (rows.isEmpty)
             const Text(
               'No match with the open requests. They can still be screened '
               'and placed in any office.',
-              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12, color: AppTheme.slate500),
             )
           else
             for (final match in rows) _matchRow(match),
@@ -1754,7 +1756,7 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                   if (match.missing.isNotEmpty)
                     TextSpan(
                       text: ' · lacks ${match.missing.join(', ')}',
-                      style: const TextStyle(color: AppTheme.slate400),
+                      style: const TextStyle(color: AppTheme.slate500),
                     ),
                 ],
               ),

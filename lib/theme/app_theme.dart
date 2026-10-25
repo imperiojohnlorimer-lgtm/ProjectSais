@@ -112,7 +112,7 @@ class AppTheme {
           borderSide: const BorderSide(color: red500, width: 2),
         ),
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        hintStyle: const TextStyle(fontFamily: 'Inter', color: slate400, fontSize: 14, fontWeight: FontWeight.w400),
+        hintStyle: const TextStyle(fontFamily: 'Inter', color: slate500, fontSize: 14, fontWeight: FontWeight.w400),
         labelStyle: const TextStyle(fontFamily: 'Inter', color: slate700, fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5),
         prefixIconColor: slate600,
         suffixIconColor: slate600,

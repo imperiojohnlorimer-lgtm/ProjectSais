@@ -494,7 +494,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
               ),
               const Text(
                 '/5.0',
-                style: TextStyle(fontSize: 7.5, color: AppTheme.slate400),
+                style: TextStyle(fontSize: 7.5, color: AppTheme.slate500),
               ),
             ],
           ),
@@ -1189,7 +1189,7 @@ Widget _form(AppState state) {
       children: [
         Icon(Icons.image_outlined, size: 18, color: AppTheme.slate300),
         const SizedBox(height: 4),
-        Text('2x2 PHOTO', style: TextStyle(fontSize: 9, color: AppTheme.slate400)),
+        Text('2x2 PHOTO', style: TextStyle(fontSize: 9, color: AppTheme.slate500)),
       ],
     ),
   );
@@ -1220,7 +1220,7 @@ Widget _form(AppState state) {
                   const SizedBox(height: 4),
                   Text(
                     '2x2 PHOTO',
-                    style: TextStyle(fontSize: 9, color: AppTheme.slate400),
+                    style: TextStyle(fontSize: 9, color: AppTheme.slate500),
                   ),
                 ],
               ),
@@ -1530,7 +1530,7 @@ Widget _form(AppState state) {
                 '1 = Needs Improvement    ·    5 = Excellent',
                 style: TextStyle(
                   fontSize: 10,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   fontStyle: FontStyle.italic,
                 ),
               ),
@@ -1892,7 +1892,7 @@ Widget _form(AppState state) {
                       style: const TextStyle(
                         fontSize: 9.5,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                         letterSpacing: 0.4,
                       ),
                     ),

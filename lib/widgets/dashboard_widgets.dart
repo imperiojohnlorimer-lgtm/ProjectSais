@@ -303,7 +303,7 @@ class DashboardSectionCard extends StatelessWidget {
             style: const TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w500,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
               height: 1.35,
             ),
           ),
@@ -413,7 +413,7 @@ class DashboardEmptyRow extends StatelessWidget {
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w500,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
         ],

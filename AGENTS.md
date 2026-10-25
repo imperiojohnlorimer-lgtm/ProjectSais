@@ -154,7 +154,13 @@ differ only in case.
   `FlutterError.onError` filter seen in existing tests.
 - **UI:** light, compact headers (`HeroBanner`: title, figures, search),
   maroon only as an accent, no big gradient banners. Check a 390 px phone
-  width. When a `ButtonStyle` sets `textStyle`, include
+  width. A list shows `LoadingState` until `AppState.isLoaded('<label>')`
+  (its live query has answered once) and only then `EmptyState`, so "nothing
+  here" never flashes. Grey text uses `slate500` or darker (`slate400` is
+  for icons and borders: it fails contrast as text). Tappable areas that
+  aren't buttons use `TapTarget` (keyboard and screen-reader friendly), and
+  icon-only buttons get a `tooltip`. A dropdown with `isExpanded: true` in
+  a header toolbar needs a bounded width (`maxWidth`). When a `ButtonStyle` sets `textStyle`, include
   `fontFamily: 'Inter'` (it replaces the theme's). Don't change a chart type
   the user chose without asking.
 - **Data safety:** save first, then update local state and notify people;

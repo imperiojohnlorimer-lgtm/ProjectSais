@@ -433,7 +433,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -611,7 +611,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                               '${ann.postedBy} · ${ann.postedAt}',
                               style: const TextStyle(
                                 fontSize: 11.5,
-                                color: AppTheme.slate400,
+                                color: AppTheme.slate500,
                                 fontWeight: FontWeight.w500,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -835,7 +835,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                             'Direct notifications dispatched',
                             style: TextStyle(
                               fontSize: 11,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                             ),
                           ),
                         ),
@@ -1136,7 +1136,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                           ann.postedAt,
                           style: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                           ),
                         ),
                       ],

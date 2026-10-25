@@ -316,7 +316,9 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                 children: _navItems.map((item) {
                   final isActive = _tab == item.id;
                   return Expanded(
-                    child: GestureDetector(
+                    child: TapTarget(
+                      label: item.id == 1 && unread > 0 ? '${item.label}, $unread unread' : item.label,
+                      selected: isActive,
                       onTap: () => setState(() => _tab = item.id),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -353,7 +355,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                               style: TextStyle(
                                 fontSize: 10,
                                 fontWeight: FontWeight.w600,
-                                color: isActive ? AppTheme.maroon : AppTheme.slate400,
+                                color: isActive ? AppTheme.maroon : AppTheme.slate500,
                               ),
                             ),
                           ],
@@ -428,7 +430,9 @@ class _Sidebar extends StatelessWidget {
                   final isActive = activeTab == item.id;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: GestureDetector(
+                    child: TapTarget(
+                      label: item.id == 1 && unread > 0 ? '${item.label}, $unread unread' : item.label,
+                      selected: isActive,
                       onTap: () => onTabChange(item.id),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 200),

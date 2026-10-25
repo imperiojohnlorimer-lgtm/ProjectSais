@@ -339,6 +339,7 @@ class _LoginScreenState extends State<LoginScreen> {
               size: 20,
             ),
             suffixIcon: IconButton(
+              tooltip: 'Show or hide password',
               icon: Icon(
                 _obscurePassword
                     ? Icons.visibility_outlined
@@ -466,7 +467,7 @@ class _LoginScreenState extends State<LoginScreen> {
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
               letterSpacing: 0.5,
             ),
           ),

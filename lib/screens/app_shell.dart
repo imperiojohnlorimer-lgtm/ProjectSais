@@ -706,7 +706,27 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final state = context.watch<AppState>();
+    // The shell only redraws when something it shows changes (the header,
+    // the sidebar, the banners), not on every snapshot of the data the
+    // pages show: each page watches its own. Anything read from [state]
+    // below must be in this list, or it would go stale.
+    context.select<AppState, Object>(
+      (s) => (
+        s.currentUser,
+        s.role,
+        s.activeTab,
+        s.academicYearOpenedFrom,
+        s.academicYearShown,
+        s.academicYear,
+        s.academicSemester,
+        s.academicYearEnd,
+        s.daysUntilAcademicYearEnds,
+        s.academicYearEndingSoon,
+        s.pendingArchive,
+        s.unreadNotificationCount,
+      ),
+    );
+    final state = context.read<AppState>();
     final role = state.role;
     final nav = _filteredNav(role);
     final activeTab = state.activeTab;
@@ -869,6 +889,7 @@ class _AppShellState extends State<AppShell> {
                           children: [
                             if (isMobile)
                               IconButton(
+                                tooltip: 'Open menu',
                                 icon: const Icon(
                                   Icons.menu,
                                   color: AppTheme.slate700,
@@ -1095,7 +1116,9 @@ class _Sidebar extends StatelessWidget {
                   final isActive = activeTab == item.id;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: GestureDetector(
+                    child: TapTarget(
+                      label: _navLabel(item.label, item.id, state.unreadNotificationCount),
+                      selected: isActive,
                       onTap: () {
                         context.read<AppState>().setTab(item.id);
                       },
@@ -1372,7 +1395,9 @@ class _Drawer extends StatelessWidget {
                   final isActive = activeTab == item.id;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
-                    child: GestureDetector(
+                    child: TapTarget(
+                      label: _navLabel(item.label, item.id, state.unreadNotificationCount),
+                      selected: isActive,
                       onTap: () {
                         context.read<AppState>().setTab(item.id);
                         Navigator.pop(context);
@@ -1576,3 +1601,10 @@ class _Drawer extends StatelessWidget {
     );
   }
 }
+
+/// What a screen reader calls a sidebar item: its label, with the unread
+/// count on the notifications item (the badge itself isn't read out).
+String _navLabel(String label, String id, int unread) =>
+    (id == 'sa_notifications' || id == 'admin_notifications') && unread > 0
+    ? '$label, $unread unread'
+    : label;

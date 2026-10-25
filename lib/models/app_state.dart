@@ -64,6 +64,21 @@ class AppState extends ChangeNotifier {
   /// after an async gap can tell it belongs to an older session.
   int _liveGeneration = 0;
 
+  // Which live queries this session has opened, and which of them have
+  // answered (data or an error) at least once. Screens use [isLoaded] to
+  // show a loading state rather than "nothing here" before the first answer.
+  final Set<String> _loadExpected = {};
+  final Set<String> _loadReady = {};
+  bool _loadTracking = false;
+
+  /// True from the moment a signed-in user is known until their listeners
+  /// start (the initial fetches in between can be slow): pages show loading.
+  bool _loadPending = false;
+  Timer? _loadTimeout;
+
+  /// Set by [dispose], so work that finishes afterwards does nothing.
+  bool _disposed = false;
+
   /// The Head ids this session last wrote to meta/heads (comma-joined), so
   /// each roster update doesn't rewrite an unchanged list.
   String? _publishedHeadIds;
@@ -364,11 +379,75 @@ class AppState extends ChangeNotifier {
       await _initializeFirebaseAuthUser();
     } finally {
       sessionChecked = true;
-      notifyListeners();
+      if (!_disposed) {
+        // Until the listeners start, pages show loading rather than empty.
+        if (currentUser != null) _beginLoadPending();
+        notifyListeners();
+      }
     }
+    if (_disposed) return;
     await _ensureSeeded();
+    if (_disposed) return;
     await _loadNotificationsForCurrentUser();
     _startRealtimeListeners();
+  }
+
+  /// How long a list may show its loading state before it gives up waiting
+  /// (a slow or dropped connection) and shows what it has.
+  static const loadTimeout = Duration(seconds: 10);
+
+  /// A signed-in user is known but their listeners haven't started: lists
+  /// show loading, and give up waiting after [loadTimeout].
+  void _beginLoadPending() {
+    if (_disposed) return;
+    _loadTimeout?.cancel();
+    _loadPending = true;
+    _loadTimeout = Timer(loadTimeout, () {
+      _loadPending = false;
+      notifyListeners();
+    });
+  }
+
+  /// Begins load tracking afresh for the listeners about to start. Runs once
+  /// per (re)start, before any listener registers what it expects.
+  void _resetLoadState() {
+    _loadTimeout?.cancel();
+    _loadPending = false;
+    _loadExpected.clear();
+    _loadReady.clear();
+    _loadTracking = true;
+    _loadTimeout = Timer(loadTimeout, () {
+      if (_loadReady.length >= _loadExpected.length) return;
+      _loadReady.addAll(_loadExpected);
+      notifyListeners();
+    });
+  }
+
+  /// Stops load tracking (sign-out), so a later session starts clean.
+  void _clearLoadState() {
+    _loadTimeout?.cancel();
+    _loadPending = false;
+    _loadExpected.clear();
+    _loadReady.clear();
+    _loadTracking = false;
+  }
+
+  void _expectLoad(String label) => _loadExpected.add(label);
+
+  void _markLoaded(String label) => _loadReady.add(label);
+
+  /// Whether the live queries whose label starts with [prefix] ('Tasks',
+  /// 'Reports', 'Users', ...) have each answered once. True for one this
+  /// role never opens, and before the listeners have started at all.
+  bool isLoaded(String prefix) {
+    if (_loadPending) return false;
+    if (!_loadTracking) return true;
+    for (final label in _loadExpected) {
+      if (label.startsWith(prefix) && !_loadReady.contains(label)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// (Re)starts the Firestore listeners. Called on app start and again after
@@ -376,12 +455,16 @@ class AppState extends ChangeNotifier {
   /// sign-in fail with permission-denied and would otherwise stay dead
   /// (leaving lists like announcements empty) until the app is restarted.
   void _startRealtimeListeners() {
+    if (_disposed) return;
+    _resetLoadState();
     // Start listening to Firestore announcements (if available).
     try {
       _firestoreService ??= FirestoreService();
       _annSub?.cancel();
+      _expectLoad('Announcements');
       _annSub = _firestoreService!.announcementsStream().listen(
         (list) {
+          _markLoaded('Announcements');
           announcements = list.map((m) {
             final createdAt = m['createdAt'];
             String postedAt = '';
@@ -429,6 +512,8 @@ class AppState extends ChangeNotifier {
         },
         onError: (Object error) {
           debugPrint('Announcements stream error: $error');
+          _markLoaded('Announcements');
+          notifyListeners();
         },
       );
       // Start listening to attendance collection in real-time so supervisors
@@ -436,6 +521,7 @@ class AppState extends ChangeNotifier {
       _attSub?.cancel();
       final isStaffUser = role == 'Head' || role == 'Supervisor';
       final seesAllAttendance = isStaffUser || role == 'Admin';
+      _expectLoad('Attendance');
       _attSub =
           (seesAllAttendance
                   ? _firestoreService!.attendanceStream()
@@ -444,6 +530,7 @@ class AppState extends ChangeNotifier {
                     ))
               .listen(
                 (list) {
+                  _markLoaded('Attendance');
                   attendance = list
                       .map((m) => AttendanceRecord.fromJson(m))
                       .toList();
@@ -455,6 +542,8 @@ class AppState extends ChangeNotifier {
                 // the subscription silently and the list just stays empty.
                 onError: (Object error) {
                   debugPrint('Attendance stream error: $error');
+                  _markLoaded('Attendance');
+                  notifyListeners();
                 },
               );
 
@@ -474,37 +563,62 @@ class AppState extends ChangeNotifier {
       // propagate to student assistants automatically.
       _taskSub?.cancel();
       if (isStaffUser) {
-        _taskSub = _firestoreService!.tasksStream().listen((list) {
-          tasks = list.map((m) => Task.fromJson(m)).toList();
-          notifyListeners();
-        });
+        _expectLoad('Tasks');
+        _taskSub = _firestoreService!.tasksStream().listen(
+          (list) {
+            _markLoaded('Tasks');
+            tasks = list.map((m) => Task.fromJson(m)).toList();
+            notifyListeners();
+          },
+          onError: (Object error) {
+            debugPrint('Tasks stream error: $error');
+            _markLoaded('Tasks');
+            notifyListeners();
+          },
+        );
       }
 
       _appSub?.cancel();
+      _expectLoad('Applications');
       _appSub =
           (isStaffUser
                   ? _firestoreService!.applicationsStream()
                   : _firestoreService!.applicationsStreamForApplicant(
                       currentUser!.id,
                     ))
-              .listen((list) {
-                applications = list
-                    .map((m) => Application.fromJson(m))
-                    .toList();
-                notifyListeners();
-              });
+              .listen(
+                (list) {
+                  _markLoaded('Applications');
+                  applications = list
+                      .map((m) => Application.fromJson(m))
+                      .toList();
+                  notifyListeners();
+                },
+                onError: (Object error) {
+                  debugPrint('Applications stream error: $error');
+                  _markLoaded('Applications');
+                  notifyListeners();
+                },
+              );
 
       // Head/Supervisor: keep "Sent to Head" items in sync in real time so
       // a forward shows up immediately even if the Head's screen was
       // already open, or they logged in before it was sent.
       _headForwardsSub?.cancel();
       if (isStaffUser) {
-        _headForwardsSub = _firestoreService!.headForwardsStream().listen((
-          list,
-        ) {
-          headForwards = list.map((m) => HeadForward.fromJson(m)).toList();
-          notifyListeners();
-        });
+        _expectLoad('Head forwards');
+        _headForwardsSub = _firestoreService!.headForwardsStream().listen(
+          (list) {
+            _markLoaded('Head forwards');
+            headForwards = list.map((m) => HeadForward.fromJson(m)).toList();
+            notifyListeners();
+          },
+          onError: (Object error) {
+            debugPrint('Head forwards stream error: $error');
+            _markLoaded('Head forwards');
+            notifyListeners();
+          },
+        );
       }
 
       // Admin: keep processed Payroll records in sync in real time.
@@ -512,17 +626,37 @@ class AppState extends ChangeNotifier {
       _payrollSheetsSub?.cancel();
       payrollRecordsLoaded = false;
       if (role == 'Admin') {
-        _payrollSub = _firestoreService!.payrollRecordsStream().listen((list) {
-          payrollRecords = list.map((m) => PayrollRecord.fromJson(m)).toList();
-          payrollRecordsLoaded = true;
-          notifyListeners();
-        });
-        _payrollSheetsSub = _firestoreService!.payrollSheetsStream().listen((
-          list,
-        ) {
-          payrollSheets = list.map((m) => PayrollSheet.fromJson(m)).toList();
-          notifyListeners();
-        });
+        _expectLoad('Payroll records');
+        _expectLoad('Payroll sheets');
+        _payrollSub = _firestoreService!.payrollRecordsStream().listen(
+          (list) {
+            payrollRecords = list
+                .map((m) => PayrollRecord.fromJson(m))
+                .toList();
+            payrollRecordsLoaded = true;
+            _markLoaded('Payroll records');
+            notifyListeners();
+          },
+          // payrollRecordsLoaded stays false: payroll can't be approved
+          // without knowing who has been paid.
+          onError: (Object error) {
+            debugPrint('Payroll records stream error: $error');
+            _markLoaded('Payroll records');
+            notifyListeners();
+          },
+        );
+        _payrollSheetsSub = _firestoreService!.payrollSheetsStream().listen(
+          (list) {
+            payrollSheets = list.map((m) => PayrollSheet.fromJson(m)).toList();
+            _markLoaded('Payroll sheets');
+            notifyListeners();
+          },
+          onError: (Object error) {
+            debugPrint('Payroll sheets stream error: $error');
+            _markLoaded('Payroll sheets');
+            notifyListeners();
+          },
+        );
       }
     } catch (_) {
       // Firestore not available or not initialized; ignore and keep in-memory behavior.
@@ -558,6 +692,7 @@ class AppState extends ChangeNotifier {
     }
     _liveSubs.clear();
     _liveGeneration++;
+    _clearLoadState();
   }
 
   /// Keeps the rest of the shared data live, so a change made in another
@@ -583,6 +718,7 @@ class AppState extends ChangeNotifier {
       Stream<T> stream,
       void Function(T data) onData,
     ) {
+      _expectLoad(label);
       _liveSubs.add(
         stream.listen(
           (data) {
@@ -591,11 +727,17 @@ class AppState extends ChangeNotifier {
             } catch (error) {
               debugPrint('$label update failed: $error');
             }
+            _markLoaded(label);
             notifyListeners();
           },
           // Without this a rejected query dies silently and the list just
-          // stops updating.
-          onError: (Object error) => debugPrint('$label stream error: $error'),
+          // stops updating. It counts as answered: the list shows what it
+          // has rather than loading forever.
+          onError: (Object error) {
+            debugPrint('$label stream error: $error');
+            _markLoaded(label);
+            notifyListeners();
+          },
         ),
       );
     }
@@ -774,11 +916,11 @@ class AppState extends ChangeNotifier {
       }
 
       listenReports(
-        'Own reports',
+        'Reports: own',
         fs.whereStream('reports', 'applicantId', user.id),
       );
       listenReports(
-        'Named reports',
+        'Reports: named',
         fs.whereStream('reports', 'studentName', user.name),
       );
 
@@ -795,22 +937,36 @@ class AppState extends ChangeNotifier {
         });
       }
 
-      listenTasks('Own tasks', fs.whereStream('tasks', 'assignedTo', user.id));
       listenTasks(
-        'Named tasks',
+        'Tasks: own',
+        fs.whereStream('tasks', 'assignedTo', user.id),
+      );
+      listenTasks(
+        'Tasks: named',
         fs.whereStream('tasks', 'assignedToName', user.name),
       );
+      // Registered now, before the lookup, so Tasks isn't "loaded" while
+      // this query is still to be opened.
+      _expectLoad('Tasks: student record');
       fs
           .getStudentIdsForUser(user.id)
           .then((ids) {
-            if (ids.isEmpty || generation != _liveGeneration) return;
+            if (generation != _liveGeneration) return;
+            if (ids.isEmpty) {
+              _markLoaded('Tasks: student record');
+              notifyListeners();
+              return;
+            }
             listenTasks(
-              'Student-record tasks',
+              'Tasks: student record',
               fs.whereInStream('tasks', 'assignedTo', ids.take(10).toList()),
             );
           })
           .catchError((Object error) {
             debugPrint('Student-record tasks lookup failed: $error');
+            if (generation != _liveGeneration) return;
+            _markLoaded('Tasks: student record');
+            notifyListeners();
           });
 
       listen(
@@ -847,6 +1003,7 @@ class AppState extends ChangeNotifier {
       // Each role sees different screens and reads different data, so
       // start them over for the new one.
       activeTab = 'dashboard';
+      _beginLoadPending();
       _loadAllFromFirestore().then((_) {
         _startRealtimeListeners();
         notifyListeners();
@@ -905,6 +1062,10 @@ class AppState extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    // Anything still waiting on an older generation (the student-record
+    // lookup, say) now knows it is stale.
+    _liveGeneration++;
     _annSub?.cancel();
     _attSub?.cancel();
     _taskSub?.cancel();
@@ -917,6 +1078,7 @@ class AppState extends ChangeNotifier {
     _archiveTimer?.cancel();
     _clockOutReminderAlerts.close();
     _pushMessagesSub?.cancel();
+    _loadTimeout?.cancel();
     for (final sub in _liveSubs) {
       sub.cancel();
     }

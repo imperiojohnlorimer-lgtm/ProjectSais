@@ -441,7 +441,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           subtitle: Text(
             '${selectedSkills.length} selected',
-            style: const TextStyle(fontSize: 12, color: AppTheme.slate400),
+            style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
           ),
           children: availableSkills.isEmpty
               ? [
@@ -449,7 +449,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'No saved skills available.',
-                      style: TextStyle(color: AppTheme.slate400),
+                      style: TextStyle(color: AppTheme.slate500),
                     ),
                   ),
                 ]

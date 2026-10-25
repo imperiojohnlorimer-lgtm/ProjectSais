@@ -113,7 +113,7 @@ class _SectionLabel extends StatelessWidget {
     style: const TextStyle(
       fontSize: 10,
       fontWeight: FontWeight.w800,
-      color: AppTheme.slate400,
+      color: AppTheme.slate500,
       letterSpacing: 1.0,
     ),
   );
@@ -521,7 +521,7 @@ class _MyApplicationCard extends StatelessWidget {
                 ? 'Student Assistant · submitted ${application.appliedAt}'
                 : '${application.announcementTitle} · submitted '
                       '${application.appliedAt}',
-            style: const TextStyle(fontSize: 12, color: AppTheme.slate400),
+            style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
           ),
           const SizedBox(height: 18),
           Row(
@@ -787,7 +787,7 @@ class _NoticeCard extends StatelessWidget {
                       'Posted by ${notice.postedBy} · ${notice.postedAt}',
                       style: const TextStyle(
                         fontSize: 11,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                   ],
@@ -1126,7 +1126,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
                 style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   letterSpacing: 1.0,
                 ),
               ),
@@ -1225,7 +1225,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
                   hintText: 'Add another skill',
                   hintStyle: const TextStyle(
                     fontSize: 13,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                   ),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(10),

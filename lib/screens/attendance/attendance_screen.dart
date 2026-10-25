@@ -259,7 +259,12 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                       records.isEmpty
                           ? ListView(
                               padding: const EdgeInsets.only(bottom: 28),
-                              children: [_emptyState()],
+                              children: [
+                                if (state.isLoaded('Attendance'))
+                                  _emptyState()
+                                else
+                                  const LoadingState(),
+                              ],
                             )
                           : ListView.separated(
                               padding: const EdgeInsets.only(bottom: 28),
@@ -504,7 +509,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
             'No attendance records found',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
               fontSize: 14,
             ),
           ),
@@ -738,7 +743,7 @@ class _ClockCardState extends State<_ClockCard> {
                           '$dayName, $dateStr',
                           style: const TextStyle(
                             fontSize: 11,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                             fontWeight: FontWeight.w700,
                             letterSpacing: 0.6,
                           ),
@@ -999,7 +1004,7 @@ class _WeeklySummaryCard extends StatelessWidget {
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                       textAlign: TextAlign.right,
                     ),
@@ -1098,7 +1103,7 @@ class _ScheduleTab extends StatelessWidget {
                 'Fill in the Class Schedule table on the\n'
                 'DTR/Accomplishment Report to see it here.',
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+                style: TextStyle(fontSize: 12, color: AppTheme.slate500),
               ),
             ],
           ),
@@ -1616,6 +1621,7 @@ class _QrScanDialogState extends State<_QrScanDialog> {
                     ),
                   ),
                   IconButton(
+                    tooltip: 'Close',
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(
                       Icons.close_rounded,
@@ -1929,6 +1935,7 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
                     ),
                   ),
                   IconButton(
+                    tooltip: 'Close',
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(
                       Icons.close_rounded,

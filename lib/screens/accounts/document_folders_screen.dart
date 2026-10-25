@@ -7,6 +7,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
 
 /// Head-only file manager: create named folders and upload arbitrary
 /// documents (memos, MOAs, misc. office files) into them — separate from
@@ -223,6 +224,7 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
             children: [
               if (openFolder != null)
                 IconButton(
+                  tooltip: 'Back',
                   onPressed: () => setState(() => _openFolderId = null),
                   icon: const Icon(Icons.arrow_back_rounded, color: AppTheme.slate600),
                 )
@@ -250,7 +252,7 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
                           : '${state.documentFolders.length} folder(s) for memos, MOAs, and other office files',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+                      style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
                     ),
                   ],
                 ),
@@ -286,6 +288,9 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
   }
 
   Widget _folderGrid(AppState state) {
+    if (state.documentFolders.isEmpty && !state.isLoaded('Document folders')) {
+      return const LoadingState();
+    }
     if (state.documentFolders.isEmpty) {
       return Center(
         child: Padding(
@@ -300,7 +305,7 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
               const SizedBox(height: 16),
               const Text(
                 'No folders yet',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate400),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -358,7 +363,7 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
                         const SizedBox(height: 3),
                         Text(
                           '$count file${count == 1 ? '' : 's'}',
-                          style: const TextStyle(fontSize: 11, color: AppTheme.slate400, fontWeight: FontWeight.w600),
+                          style: const TextStyle(fontSize: 11, color: AppTheme.slate500, fontWeight: FontWeight.w600),
                         ),
                       ],
                     ),
@@ -366,6 +371,7 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
                       top: -4,
                       right: -4,
                       child: IconButton(
+                        tooltip: 'Close',
                         onPressed: () => _deleteFolder(state, folder),
                         icon: const Icon(Icons.close_rounded, size: 16, color: AppTheme.slate400),
                         splashRadius: 16,
@@ -399,7 +405,7 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
               const SizedBox(height: 16),
               const Text(
                 'This folder is empty',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate400),
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -453,10 +459,12 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
                     ),
                   ),
                   IconButton(
+                    tooltip: 'Download',
                     onPressed: () => _download(doc),
                     icon: const Icon(Icons.download_rounded, size: 18, color: AppTheme.emerald500),
                   ),
                   IconButton(
+                    tooltip: 'Delete',
                     onPressed: () => _deleteDoc(state, doc),
                     icon: const Icon(Icons.delete_outline_rounded, size: 18, color: AppTheme.red500),
                   ),

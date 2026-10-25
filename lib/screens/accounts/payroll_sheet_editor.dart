@@ -316,7 +316,7 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12.5,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                   ],
@@ -623,7 +623,7 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
             alignment: Alignment.center,
             child: const Text(
               'No rows yet. Add one, or reload from the system.',
-              style: TextStyle(fontSize: 13, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 13, color: AppTheme.slate500),
             ),
           ),
         // One flat list, so a row keeps its fields when it moves campus.
@@ -787,7 +787,7 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
         children: [
           TextSpan(
             text: '$label ',
-            style: const TextStyle(color: AppTheme.slate400),
+            style: const TextStyle(color: AppTheme.slate500),
           ),
           TextSpan(
             text: '₱${_money(value)}',
@@ -935,7 +935,7 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
   InputDecoration _decoration(String label, {String? hint}) => InputDecoration(
     labelText: label,
     hintText: hint,
-    hintStyle: const TextStyle(fontSize: 12, color: AppTheme.slate400),
+    hintStyle: const TextStyle(fontSize: 12, color: AppTheme.slate500),
     isDense: true,
     filled: true,
     fillColor: AppTheme.slate50,

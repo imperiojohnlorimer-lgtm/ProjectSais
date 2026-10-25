@@ -306,6 +306,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               size: 20,
             ),
             suffixIcon: IconButton(
+              tooltip: 'Show or hide password',
               icon: Icon(
                 _obscurePassword
                     ? Icons.visibility_outlined

@@ -171,7 +171,9 @@ class _RehiringScreenState extends State<RehiringScreen> {
                   const SizedBox(height: 14),
                 ],
                 if (visible.isEmpty)
-                  _emptyState(candidates.isEmpty)
+                  (state.isLoaded('Rehire records') && state.isLoaded('Users'))
+                      ? _emptyState(candidates.isEmpty)
+                      : const LoadingState()
                 else
                   for (final user in visible)
                     _candidateCard(
@@ -196,7 +198,7 @@ class _RehiringScreenState extends State<RehiringScreen> {
     required ValueChanged<T> onChanged,
   }) => Container(
     height: 40,
-    constraints: BoxConstraints(minWidth: minWidth),
+    constraints: BoxConstraints(minWidth: minWidth, maxWidth: minWidth + 50),
     padding: const EdgeInsets.symmetric(horizontal: 12),
     decoration: BoxDecoration(
       color: Colors.white,
@@ -292,14 +294,14 @@ class _RehiringScreenState extends State<RehiringScreen> {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
           if (!noneAtAll) ...[
             const SizedBox(height: 4),
             const Text(
               'Try a different name or filter.',
-              style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12.5, color: AppTheme.slate500),
             ),
           ],
         ],
@@ -445,7 +447,7 @@ class _RehiringScreenState extends State<RehiringScreen> {
                               ].join(' · '),
                               style: const TextStyle(
                                 fontSize: 12,
-                                color: AppTheme.slate400,
+                                color: AppTheme.slate500,
                                 fontWeight: FontWeight.w500,
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -984,6 +986,7 @@ class _RehireDecisionDialogState extends State<_RehireDecisionDialog> {
                     ),
                   ),
                   IconButton(
+                    tooltip: 'Close',
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(
                       Icons.close_rounded,

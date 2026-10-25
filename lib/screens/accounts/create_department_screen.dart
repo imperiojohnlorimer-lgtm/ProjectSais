@@ -137,7 +137,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                               letterSpacing: 1.2,
                             ),
                           ),
@@ -261,7 +261,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                                               'Active Department',
                                               style: TextStyle(
                                                 fontSize: 11,
-                                                color: AppTheme.slate400,
+                                                color: AppTheme.slate500,
                                                 fontWeight: FontWeight.w500,
                                               ),
                                             ),
@@ -515,7 +515,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                             style: TextStyle(
                               fontSize: 10,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                               letterSpacing: 0.8,
                             ),
                           ),
@@ -675,7 +675,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
           decoration: InputDecoration(
             prefixIcon: Icon(icon, color: AppTheme.slate400, size: 18),
             hintText: 'Enter $label',
-            hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+            hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate500),
             contentPadding: const EdgeInsets.symmetric(
               horizontal: 14,
               vertical: 12,

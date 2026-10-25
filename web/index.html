@@ -17,6 +17,8 @@
   <base href="$FLUTTER_BASE_HREF">
 
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#8B1C3E">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="SAIS: Student Assistant Information System">
   <!-- Google Sign-In web client ID -->
@@ -34,8 +36,49 @@
 
   <title>SAIS</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    /* Shown while the app downloads and starts; removed on its first frame. */
+    html, body { margin: 0; height: 100%; background: #f8fafc; }
+    #sais-splash {
+      position: fixed; inset: 0; z-index: 1;
+      display: flex; flex-direction: column; align-items: center;
+      justify-content: center; gap: 16px;
+      font: 500 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: #475569; text-align: center; padding: 24px;
+    }
+    #sais-splash .spinner {
+      width: 36px; height: 36px; border-radius: 50%;
+      border: 3px solid #e2e8f0; border-top-color: #8b1c3e;
+      animation: sais-spin 0.9s linear infinite;
+    }
+    @keyframes sais-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) {
+      #sais-splash .spinner { animation-duration: 3s; }
+    }
+  </style>
 </head>
 <body>
+  <div id="sais-splash" role="status" aria-live="polite">
+    <div class="spinner" aria-hidden="true"></div>
+    <div id="sais-splash-text">Loading SAIS&hellip;</div>
+    <noscript>SAIS needs JavaScript. Please turn it on and reload.</noscript>
+  </div>
+  <script>
+    (function () {
+      var splash = document.getElementById('sais-splash');
+      var slow = setTimeout(function () {
+        var text = document.getElementById('sais-splash-text');
+        if (text) {
+          text.textContent =
+            'This is taking longer than usual. Check your connection, then reload.';
+        }
+      }, 20000);
+      window.addEventListener('flutter-first-frame', function () {
+        clearTimeout(slow);
+        if (splash) splash.remove();
+      });
+    })();
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

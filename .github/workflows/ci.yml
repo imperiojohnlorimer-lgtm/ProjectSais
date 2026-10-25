@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+
+jobs:
+  app:
+    name: Flutter analyze and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.41.5
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Hints (info level) are listed but don't fail the run; errors and
+      # warnings do.
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
+
+  functions:
+    name: Supabase function tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: clock-attendance
+        working-directory: supabase/functions/clock-attendance
+        run: node --test records.test.ts sessions.test.ts
+      - name: upload-document
+        working-directory: supabase/functions/upload-document
+        run: node --test paths.test.ts
+      - name: clockout-reminders
+        working-directory: supabase/functions/clockout-reminders
+        run: node --test reminders.test.ts
+
+  rules:
+    name: Firestore rules tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install
+        working-directory: test_rules
+        run: npm ci
+      - name: Run the rules tests on the Firestore emulator
+        working-directory: test_rules
+        run: >
+          npx --yes firebase-tools@15.26.0 emulators:exec
+          --only firestore --project demo-sais
+          "node --test firestore.rules.test.mjs"

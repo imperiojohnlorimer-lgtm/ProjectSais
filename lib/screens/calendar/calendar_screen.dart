@@ -380,7 +380,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       weekdayStyle: TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 11,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                       weekendStyle: TextStyle(
                         fontWeight: FontWeight.w700,
@@ -420,7 +420,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           : _fmtFull(selected),
                       style: const TextStyle(
                         fontSize: 12,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                   ],
@@ -487,7 +487,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     'No events scheduled',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       fontSize: 14,
                     ),
                   ),
@@ -2253,7 +2253,7 @@ class _ScheduleOwnerMenuState extends State<_ScheduleOwnerMenu> {
                     hintStyle: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w500,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                     ),
                     prefixIcon: Icon(
                       Icons.search_rounded,
@@ -2361,7 +2361,7 @@ class _ScheduleOwnerMenuState extends State<_ScheduleOwnerMenu> {
                           'No matches',
                           style: TextStyle(
                             fontSize: 13,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                             fontWeight: FontWeight.w600,
                           ),
                         ),
@@ -2723,7 +2723,7 @@ class _MenuRowState extends State<_MenuRow> {
                             style: const TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                             ),
                           ),
                         ],
@@ -3014,7 +3014,7 @@ class _DialogSectionLabel extends StatelessWidget {
       style: const TextStyle(
         fontSize: 11,
         fontWeight: FontWeight.w800,
-        color: AppTheme.slate400,
+        color: AppTheme.slate500,
         letterSpacing: 0.6,
       ),
     );
@@ -3275,7 +3275,7 @@ class _RecurringTimeField extends StatelessWidget {
                     label,
                     style: const TextStyle(
                       fontSize: 10,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       fontWeight: FontWeight.w700,
                     ),
                   ),

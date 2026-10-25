@@ -1,12 +1,13 @@
 {
     "name": "SAIS",
     "short_name": "SAIS",
+    "id": "/",
     "start_url": ".",
+    "scope": "/",
     "display": "standalone",
     "background_color": "#8B1C3E",
     "theme_color": "#8B1C3E",
     "description": "SAIS: Student Assistant Information System",
-    "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
         {

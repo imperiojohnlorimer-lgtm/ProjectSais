@@ -185,7 +185,9 @@ class _HeadForwardsScreenState extends State<HeadForwardsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (forwards.isEmpty)
+                if (forwards.isEmpty && !state.isLoaded('Head forwards'))
+                  const LoadingState()
+                else if (forwards.isEmpty)
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 60),
@@ -213,7 +215,7 @@ class _HeadForwardsScreenState extends State<HeadForwardsScreen> {
                             style: const TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                             ),
                           ),
                           const SizedBox(height: 4),
@@ -396,7 +398,7 @@ class _StudentGroupState extends State<_StudentGroup> {
                     '${widget.items.length} item${widget.items.length == 1 ? '' : 's'}',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       fontWeight: FontWeight.w600,
                     ),
                   ),

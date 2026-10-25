@@ -67,7 +67,7 @@ class SpNotificationsScreen extends StatelessWidget {
                           : 'Updates on your applications and announcements',
                         maxLines: 3,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+                        style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
                       ),
                     ),
                     if (unread > 0 || notifs.isNotEmpty) ...[
@@ -133,7 +133,7 @@ class SpNotificationsScreen extends StatelessWidget {
                                 : 'Updates on your applications and announcements',
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+                              style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
                             ),
                           ),
                         ],
@@ -190,7 +190,9 @@ class SpNotificationsScreen extends StatelessWidget {
                   onText: 'On for this device: new notifications arrive even with SAIS closed.',
                 ),
                 const SizedBox(height: 16),
-                if (notifs.isEmpty)
+                if (notifs.isEmpty && !state.isLoaded('Notifications'))
+                  const LoadingState()
+                else if (notifs.isEmpty)
                   Center(
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 60),
@@ -203,7 +205,7 @@ class SpNotificationsScreen extends StatelessWidget {
                           ),
                           const SizedBox(height: 16),
                           const Text('No notifications yet',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate400)),
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500)),
                           const SizedBox(height: 4),
                           const Text("You'll be notified about application updates here.",
                             style: TextStyle(fontSize: 13, color: AppTheme.slate500)),

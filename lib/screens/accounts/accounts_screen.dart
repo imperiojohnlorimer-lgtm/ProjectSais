@@ -113,7 +113,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                     padding: EdgeInsets.only(left: 14, top: 3),
                     child: Text(
                       'Manage user accounts and roles',
-                      style: TextStyle(fontSize: 13, color: AppTheme.slate400),
+                      style: TextStyle(fontSize: 13, color: AppTheme.slate500),
                     ),
                   ),
                 ],
@@ -308,7 +308,7 @@ class _AccountsScreenState extends State<AccountsScreen>
               decoration: InputDecoration(
                 hintText: 'Search accounts...',
                 hintStyle: const TextStyle(
-                  color: AppTheme.slate400,
+                  color: AppTheme.slate500,
                   fontSize: 13,
                 ),
                 prefixIcon: const Icon(
@@ -420,7 +420,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                     decoration: InputDecoration(
                       hintText: 'Search accounts...',
                       hintStyle: const TextStyle(
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                         fontSize: 13,
                       ),
                       prefixIcon: const Icon(
@@ -542,7 +542,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                   style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.slate400,
+                    color: AppTheme.slate500,
                     letterSpacing: 0.8,
                   ),
                 ),
@@ -693,7 +693,9 @@ class _AccountsScreenState extends State<AccountsScreen>
                     ),
                   ),
                 // Rows
-                if (users.isEmpty)
+                if (users.isEmpty && !state.isLoaded('Users'))
+                  const LoadingState()
+                else if (users.isEmpty)
                   _emptyState()
                 else
                   ListView.separated(
@@ -804,7 +806,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                     '${users.length} account${users.length != 1 ? 's' : ''} found',
                     style: const TextStyle(
                       fontSize: 12,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -852,7 +854,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                     const SizedBox(height: 6),
@@ -913,7 +915,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                       style: TextStyle(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                   ],
@@ -950,7 +952,7 @@ class _AccountsScreenState extends State<AccountsScreen>
           'No accounts found',
           style: TextStyle(
             fontWeight: FontWeight.w600,
-            color: AppTheme.slate400,
+            color: AppTheme.slate500,
             fontSize: 14,
           ),
         ),
@@ -1138,7 +1140,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                               'e.g. Certificate of Registration\nGrade Slip',
                           hintStyle: const TextStyle(
                             fontSize: 12,
-                            color: AppTheme.slate400,
+                            color: AppTheme.slate500,
                           ),
                           prefixIcon: const Icon(
                             Icons.checklist_rounded,
@@ -1951,7 +1953,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                       style: TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                         letterSpacing: 0.8,
                       ),
                     ),
@@ -2114,7 +2116,7 @@ class _StatCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       letterSpacing: 0.8,
                     ),
                   ),
@@ -2152,7 +2154,7 @@ class _ColHeader extends StatelessWidget {
     style: const TextStyle(
       fontSize: 10,
       fontWeight: FontWeight.w700,
-      color: AppTheme.slate400,
+      color: AppTheme.slate500,
       letterSpacing: 0.7,
     ),
   );
@@ -3375,7 +3377,7 @@ class _AdminApplicationCard extends StatelessWidget {
                       'Applied ${app.appliedAt}',
                       style: const TextStyle(
                         fontSize: 10,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                       ),
                     ),
                   ],
@@ -3677,7 +3679,7 @@ class _AdminApplicationCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w700,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -3696,7 +3698,7 @@ class _AdminApplicationCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w700,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -3715,7 +3717,7 @@ class _AdminApplicationCard extends StatelessWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w700,
-                                  color: AppTheme.slate400,
+                                  color: AppTheme.slate500,
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -3738,7 +3740,7 @@ class _AdminApplicationCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                               letterSpacing: 0.5,
                             ),
                           ),
@@ -3895,7 +3897,7 @@ class _AdminApplicationCard extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 9,
                               fontWeight: FontWeight.w700,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                               letterSpacing: 0.5,
                             ),
                           ),

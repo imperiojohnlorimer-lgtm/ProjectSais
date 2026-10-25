@@ -327,7 +327,111 @@ class EmptyState extends StatelessWidget {
             Text(
               message,
               style: const TextStyle(
-                color: AppTheme.slate400,
+                color: AppTheme.slate500,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Tap Target ─────────────────────────────────────
+/// A tappable area that a keyboard and a screen reader can use too: it is
+/// announced as a button (selected when [selected]), takes focus with Tab
+/// (outlined while focused) and activates with Enter or Space. Its look is
+/// its [child]'s; [label] is what a screen reader calls it.
+class TapTarget extends StatefulWidget {
+  final VoidCallback onTap;
+  final String label;
+  final bool selected;
+  final BorderRadius borderRadius;
+  final Widget child;
+
+  const TapTarget({
+    super.key,
+    required this.onTap,
+    required this.label,
+    required this.child,
+    this.selected = false,
+    this.borderRadius = const BorderRadius.all(Radius.circular(12)),
+  });
+
+  @override
+  State<TapTarget> createState() => _TapTargetState();
+}
+
+class _TapTargetState extends State<TapTarget> {
+  bool _focused = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      selected: widget.selected,
+      label: widget.label,
+      onTap: widget.onTap,
+      excludeSemantics: true,
+      child: FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        onShowFocusHighlight: (focused) => setState(() => _focused = focused),
+        actions: {
+          ActivateIntent: CallbackAction<ActivateIntent>(
+            onInvoke: (_) {
+              widget.onTap();
+              return null;
+            },
+          ),
+        },
+        child: GestureDetector(
+          onTap: widget.onTap,
+          child: Container(
+            foregroundDecoration: _focused
+                ? BoxDecoration(
+                    borderRadius: widget.borderRadius,
+                    border: Border.all(color: AppTheme.gold400, width: 2),
+                  )
+                : null,
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Loading State ──────────────────────────────────
+/// What a list shows until its first answer arrives (see
+/// `AppState.isLoaded`), in place of the [EmptyState] it would otherwise
+/// flash.
+class LoadingState extends StatelessWidget {
+  final String message;
+
+  const LoadingState({super.key, this.message = 'Loading…'});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(40),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(
+                strokeWidth: 3,
+                color: AppTheme.maroon,
+              ),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              message,
+              style: const TextStyle(
+                color: AppTheme.slate500,
                 fontWeight: FontWeight.w500,
               ),
             ),
@@ -640,7 +744,7 @@ class HeroBanner extends StatelessWidget {
                     subtitle,
                     style: const TextStyle(
                       fontSize: 12,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
@@ -890,7 +994,7 @@ class ProgressStrip extends StatelessWidget {
             style: const TextStyle(
               fontSize: 11.5,
               fontWeight: FontWeight.w700,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
         ],

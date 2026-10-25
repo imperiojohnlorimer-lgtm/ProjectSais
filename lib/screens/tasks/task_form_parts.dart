@@ -22,7 +22,7 @@ InputDecorationTheme taskInputTheme() {
       fontWeight: FontWeight.w700,
       fontSize: 13,
     ),
-    hintStyle: const TextStyle(color: AppTheme.slate400, fontSize: 13),
+    hintStyle: const TextStyle(color: AppTheme.slate500, fontSize: 13),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     border: border(AppTheme.slate200),
     enabledBorder: border(AppTheme.slate200),
@@ -47,7 +47,7 @@ class TaskSectionLabel extends StatelessWidget {
         style: const TextStyle(
           fontSize: 10.5,
           fontWeight: FontWeight.w800,
-          color: AppTheme.slate400,
+          color: AppTheme.slate500,
           letterSpacing: 1.0,
         ),
       ),
@@ -55,7 +55,7 @@ class TaskSectionLabel extends StatelessWidget {
         const SizedBox(width: 6),
         const Text(
           'optional',
-          style: TextStyle(fontSize: 10.5, color: AppTheme.slate400),
+          style: TextStyle(fontSize: 10.5, color: AppTheme.slate500),
         ),
       ],
     ],

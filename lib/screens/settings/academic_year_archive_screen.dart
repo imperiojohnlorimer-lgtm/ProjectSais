@@ -171,7 +171,7 @@ class _AcademicYearViewState extends State<_AcademicYearView> {
               padding: const EdgeInsets.only(left: 14, top: 4),
               child: Text(
                 '${_fullDate(start)} – ${_fullDate(end)}',
-                style: const TextStyle(fontSize: 13, color: AppTheme.slate400),
+                style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
               ),
             ),
           const SizedBox(height: 18),
@@ -417,7 +417,7 @@ class _AcademicYearViewState extends State<_AcademicYearView> {
                                       ? const TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w600,
-                                          color: AppTheme.slate400,
+                                          color: AppTheme.slate500,
                                         )
                                       : const TextStyle(
                                           fontSize: 24,

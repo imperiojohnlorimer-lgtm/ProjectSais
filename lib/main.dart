@@ -1,3 +1,5 @@
+import 'dart:ui' show PlatformDispatcher;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -13,6 +15,7 @@ import 'screens/student_portal/student_portal_shell.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/landing/landing_screen.dart';
+import 'screens/startup_failed_screen.dart';
 import 'services/schedule_service.dart';
 import 'services/firestore_schedule_repository.dart';
 
@@ -21,13 +24,37 @@ void main() async {
   // app for every path (firebase.json's rewrite), so they all load it.
   usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  await Supabase.initialize(
-    url: 'https://hksswjhioztqsypbrkjy.supabase.co',
-    publishableKey: 'sb_publishable_9gI1i8ibybNp5qLBJpQo1A_7FCIkycd',
-    accessToken: () async =>
-        fb_auth.FirebaseAuth.instance.currentUser?.getIdToken(),
-  );
+  // Errors are printed to the console (nothing is sent anywhere). An async
+  // error nobody caught is marked handled so it doesn't also crash the page.
+  FlutterError.onError = FlutterError.presentError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    debugPrint('Uncaught error: $error\n$stack');
+    return true;
+  };
+  await _start();
+}
+
+/// Starts the services the app needs, then the app. If they can't start
+/// (usually no connection) a page says so, with a button to try again,
+/// instead of a blank screen.
+Future<void> _start() async {
+  try {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+    await Supabase.initialize(
+      url: 'https://hksswjhioztqsypbrkjy.supabase.co',
+      publishableKey: 'sb_publishable_9gI1i8ibybNp5qLBJpQo1A_7FCIkycd',
+      accessToken: () async =>
+          fb_auth.FirebaseAuth.instance.currentUser?.getIdToken(),
+    );
+  } catch (error, stack) {
+    debugPrint('SAIS could not start: $error\n$stack');
+    runApp(StartupFailedApp(onRetry: _start));
+    return;
+  }
   runApp(const SAISApp());
 }
 

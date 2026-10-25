@@ -622,6 +622,91 @@ void main() {
     });
   });
 
+  group('shell redraws', () {
+    Future<void> pumpShell(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      state.currentUser = _head;
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: const MaterialApp(home: AppShell()),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets('the sidebar tells a screen reader how many are unread', (
+      tester,
+    ) async {
+      final handle = tester.ensureSemantics();
+      // The test font draws wider than the app's: a row overflowing by half
+      // a pixel here is not what this test is about.
+      final onError = FlutterError.onError;
+      FlutterError.onError = (details) =>
+          details.exceptionAsString().contains('overflowed')
+          ? null
+          : onError?.call(details);
+      addTearDown(() => FlutterError.onError = onError);
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      state
+        ..currentUser = _head
+        ..notifications = [_notif('n1', 'head1'), _notif('n2', 'head1')];
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: const MaterialApp(home: AppShell()),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.bySemanticsLabel(RegExp(r'^Notifications, 2 unread$')),
+        findsOneWidget,
+      );
+      handle.dispose();
+    });
+
+    testWidgets('only for what it shows, not for every snapshot', (
+      tester,
+    ) async {
+      var builds = 0;
+      debugOnRebuildDirtyWidget = (element, builtOnce) {
+        if (element.widget is AppShell) builds++;
+      };
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
+      await pumpShell(tester);
+      final before = builds;
+
+      // Data the pages show (a task, say) changes: the shell stays as it is.
+      state.tasks = [
+        Task(
+          id: 't1',
+          title: 'File the forms',
+          description: '',
+          status: 'Not Started',
+          priority: 'Medium',
+          dueDate: 'Oct 1, 2026',
+          assignedTo: 'sa1',
+          assignedBy: 'head1',
+        ),
+      ];
+      state.notifyListeners();
+      await tester.pump();
+      expect(builds, before, reason: 'unrelated data must not redraw it');
+
+      // Something it does show, the unread count on the bell, does.
+      state.notifications = [_notif('n1', 'head1')];
+      state.notifyListeners();
+      await tester.pump();
+      expect(builds, greaterThan(before));
+      expect(find.text('1'), findsWidgets);
+    });
+  });
+
   group('unread badge', () {
     Future<Size> badgeSize(WidgetTester tester, int count) async {
       await tester.pumpWidget(

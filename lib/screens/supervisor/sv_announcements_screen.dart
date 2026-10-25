@@ -114,7 +114,7 @@ class SvAnnouncementsScreen extends StatelessWidget {
                             style: TextStyle(
                               fontSize: 14,
                               fontWeight: FontWeight.w600,
-                              color: AppTheme.slate400,
+                              color: AppTheme.slate500,
                             ),
                           ),
                           const SizedBox(height: 6),
@@ -437,7 +437,7 @@ class _RequestDialogState extends State<_RequestDialog> {
       fontWeight: FontWeight.w700,
       fontSize: 13,
     ),
-    hintStyle: const TextStyle(color: AppTheme.slate400, fontSize: 13),
+    hintStyle: const TextStyle(color: AppTheme.slate500, fontSize: 13),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     border: _border(AppTheme.slate200),
     enabledBorder: _border(AppTheme.slate200),
@@ -703,7 +703,7 @@ class _RequestDialogState extends State<_RequestDialog> {
       child: shown.isEmpty
           ? const Text(
               'No skills to choose from yet. The Head keeps the skills list.',
-              style: TextStyle(fontSize: 12, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12, color: AppTheme.slate500),
             )
           : Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -809,7 +809,7 @@ class _RequestDialogState extends State<_RequestDialog> {
                     const SizedBox(height: 6),
                     const Text(
                       'Optional. PDF, Word or image, up to 10 MB.',
-                      style: TextStyle(fontSize: 11, color: AppTheme.slate400),
+                      style: TextStyle(fontSize: 11, color: AppTheme.slate500),
                     ),
                   ],
                 )
@@ -992,7 +992,7 @@ class _OfficePickerFieldState extends State<_OfficePickerField> {
             child: Text(
               'If there\'s no office by this name, approving your request '
               'creates it, with you as its supervisor.',
-              style: TextStyle(fontSize: 11, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 11, color: AppTheme.slate500),
             ),
           ),
           if (widget.offices.isNotEmpty)

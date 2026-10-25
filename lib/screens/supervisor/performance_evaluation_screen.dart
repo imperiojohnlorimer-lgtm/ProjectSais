@@ -143,7 +143,7 @@ class _PerformanceEvaluationScreenState
   /// Term picker, sized to sit in the header toolbar beside the search box.
   Widget _termFilter() => Container(
     height: 40,
-    constraints: const BoxConstraints(minWidth: 190),
+    constraints: const BoxConstraints(minWidth: 190, maxWidth: 240),
     padding: const EdgeInsets.symmetric(horizontal: 12),
     decoration: BoxDecoration(
       color: Colors.white,
@@ -199,14 +199,14 @@ class _PerformanceEvaluationScreenState
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
           if (!noneAtAll) ...[
             const SizedBox(height: 4),
             const Text(
               'Try a different name, department or term.',
-              style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12.5, color: AppTheme.slate500),
             ),
           ],
         ],
@@ -292,7 +292,7 @@ class _PerformanceEvaluationScreenState
                                     student.department,
                                     style: const TextStyle(
                                       fontSize: 12,
-                                      color: AppTheme.slate400,
+                                      color: AppTheme.slate500,
                                       fontWeight: FontWeight.w500,
                                     ),
                                     overflow: TextOverflow.ellipsis,
@@ -977,6 +977,7 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                       ),
                     ),
                     IconButton(
+                      tooltip: 'Close',
                       icon: const Icon(
                         Icons.close_rounded,
                         color: Colors.white,

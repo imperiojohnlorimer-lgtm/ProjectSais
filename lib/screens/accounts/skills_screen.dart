@@ -62,7 +62,9 @@ class _SkillsScreenState extends State<SkillsScreen> {
             ),
           ),
           const SizedBox(height: 20),
-          if (state.skills.isEmpty)
+          if (state.skills.isEmpty && !state.isLoaded('Skills'))
+            const LoadingState()
+          else if (state.skills.isEmpty)
             const EmptyState(
               icon: Icons.star_outline_rounded,
               message: 'No skills yet — add one to get started',

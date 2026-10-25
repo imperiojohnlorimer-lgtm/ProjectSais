@@ -149,7 +149,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ],
                     _statusFilters(statusCounts),
                     const SizedBox(height: 16),
-                    if (reports.isEmpty)
+                    if (reports.isEmpty && !state.isLoaded('Reports'))
+                      const LoadingState()
+                    else if (reports.isEmpty)
                       _emptyState(baseReports.isEmpty, isStudent)
                     else
                       for (final report in reports) ...[
@@ -193,7 +195,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
     };
     return Container(
       height: 40,
-      constraints: const BoxConstraints(minWidth: 200),
+      constraints: const BoxConstraints(minWidth: 200, maxWidth: 250),
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -267,7 +269,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
           style: TextStyle(
             fontSize: 10.5,
             fontWeight: FontWeight.w700,
-            color: AppTheme.slate400,
+            color: AppTheme.slate500,
             letterSpacing: 0.3,
           ),
         ),
@@ -376,14 +378,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
             style: const TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w600,
-              color: AppTheme.slate400,
+              color: AppTheme.slate500,
             ),
           ),
           if (!noneAtAll) ...[
             const SizedBox(height: 4),
             const Text(
               'Try a different status or academic year.',
-              style: TextStyle(fontSize: 12.5, color: AppTheme.slate400),
+              style: TextStyle(fontSize: 12.5, color: AppTheme.slate500),
             ),
           ],
         ],
@@ -488,6 +490,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ),
                       ),
                       IconButton(
+                        tooltip: 'Close',
                         icon: const Icon(Icons.close_rounded),
                         onPressed: () => Navigator.pop(context),
                         style: IconButton.styleFrom(
@@ -677,7 +680,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w800,
-                      color: AppTheme.slate400,
+                      color: AppTheme.slate500,
                       letterSpacing: 0.6,
                     ),
                   ),
@@ -1020,6 +1023,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                     ),
                   ),
                   IconButton(
+                    tooltip: 'Close',
                     icon: const Icon(Icons.close_rounded),
                     onPressed: () => Navigator.pop(context),
                     style: IconButton.styleFrom(
@@ -1315,6 +1319,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       ),
                     ),
                     IconButton(
+                      tooltip: 'Close',
                       icon: const Icon(Icons.close_rounded),
                       onPressed: () => Navigator.pop(context),
                       style: IconButton.styleFrom(

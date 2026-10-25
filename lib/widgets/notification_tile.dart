@@ -129,7 +129,7 @@ class NotificationTile extends StatelessWidget {
                       notif.createdAt,
                       style: const TextStyle(
                         fontSize: 11,
-                        color: AppTheme.slate400,
+                        color: AppTheme.slate500,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
