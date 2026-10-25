@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../utils/file_names.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
@@ -203,12 +204,11 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
             fb_auth.FirebaseAuth.instance.currentUser?.uid ??
             state.currentUser?.id ??
             'user';
-        final name = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         // 'announcements' is a public root in the upload-document function:
         // any signed-in user can refresh the download link once the signed
         // one expires, which students need for the Head's files.
         final path =
-            'announcements/$uid/${DateTime.now().millisecondsSinceEpoch}/$name';
+            'announcements/$uid/${DateTime.now().millisecondsSinceEpoch}/${randomObjectName(file.name)}';
         final extension = file.extension?.toLowerCase();
         _attachmentUrl = await SupabaseStorageService.instance.uploadDocument(
           bytes: file.bytes!,

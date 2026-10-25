@@ -7,6 +7,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/file_names.dart';
 
 /// Head-only screen that consolidates every document tied to a student
 /// assistant in one place: files submitted with their application
@@ -244,9 +245,9 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
       }
 
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final sanitizedName = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
       final uid = fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user';
-      final storagePath = 'reports/$uid/$timestamp/$sanitizedName';
+      final storagePath =
+          'reports/$uid/$timestamp/${randomObjectName(file.name)}';
       final extension = file.extension?.toLowerCase();
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,

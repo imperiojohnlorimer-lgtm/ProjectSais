@@ -7,6 +7,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/file_names.dart';
 import '../../widgets/shared_widgets.dart';
 
 /// Head-only file manager: create named folders and upload arbitrary
@@ -105,9 +106,9 @@ class _DocumentFoldersScreenState extends State<DocumentFoldersScreen> {
 
       setState(() => _uploading = true);
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final sanitizedName = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
       final uid = fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user';
-      final storagePath = 'reports/$uid/$timestamp/$sanitizedName';
+      final storagePath =
+          'reports/$uid/$timestamp/${randomObjectName(file.name)}';
       final extension = file.extension?.toLowerCase();
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,

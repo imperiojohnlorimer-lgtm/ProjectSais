@@ -15,6 +15,7 @@ import 'package:projectsais/services/performance_evaluation_document_service.dar
 import 'package:projectsais/services/push_service.dart';
 import 'package:projectsais/services/supabase_storage_service.dart';
 import 'package:projectsais/utils/auth_errors.dart';
+import 'package:projectsais/utils/file_names.dart';
 import '../firebase_options.dart';
 import 'assistant_attendance.dart';
 import 'models.dart';
@@ -44,7 +45,7 @@ class QrClockResult {
 }
 
 /// The pages a signed-out visitor can see: `/`, `/login` and `/register`.
-enum PublicPage { landing, login, register }
+enum PublicPage { landing, login, register, privacy }
 
 class AppState extends ChangeNotifier {
   /// [firestoreService] and [pushService] are for tests; the app lets them
@@ -1689,9 +1690,14 @@ class AppState extends ChangeNotifier {
         return 'An account with this email already exists.';
       }
       if (e.code == 'weak-password') return 'Password is too weak.';
-      return e.message ?? 'Registration failed: ${e.code}';
+      if (e.code == 'network-request-failed') {
+        return friendlyAuthError(e.code);
+      }
+      debugPrint('Registration failed: ${e.code}');
+      return 'Registration failed. Please try again.';
     } catch (error) {
-      return 'Registration failed: $error';
+      debugPrint('Registration failed: $error');
+      return 'Registration failed. Please try again.';
     }
 
     // Save the profile, then reserve its Student ID. Nobody can look up
@@ -1722,7 +1728,8 @@ class AppState extends ChangeNotifier {
         deleteProfile: profileSaved,
         releaseStudentId: idReserved ? studentIdKey : null,
       );
-      return 'Registration failed: $error';
+      debugPrint('Registration failed: $error');
+      return 'Registration failed. Please try again.';
     }
 
     // Don't fully log the user in yet — they still need to verify their
@@ -5850,7 +5857,8 @@ class AppState extends ChangeNotifier {
           fb_auth.FirebaseAuth.instance.currentUser?.uid ??
           currentUser?.id ??
           'user';
-      final storagePath = 'reports/$uploaderUid/$timestamp/${doc.fileName}';
+      final storagePath =
+          'reports/$uploaderUid/$timestamp/${randomObjectName(doc.fileName)}';
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,
         path: storagePath,
@@ -5931,7 +5939,8 @@ class AppState extends ChangeNotifier {
           fb_auth.FirebaseAuth.instance.currentUser?.uid ??
           currentUser?.id ??
           'user';
-      final storagePath = 'reports/$uploaderUid/$timestamp/$fileName';
+      final storagePath =
+          'reports/$uploaderUid/$timestamp/${randomObjectName(fileName)}';
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,
         path: storagePath,

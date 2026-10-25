@@ -38,7 +38,7 @@ jobs:
         run: node --test paths.test.ts
       - name: clockout-reminders
         working-directory: supabase/functions/clockout-reminders
-        run: node --test reminders.test.ts
+        run: node --test reminders.test.ts pushtext.test.ts
 
   rules:
     name: Firestore rules tests

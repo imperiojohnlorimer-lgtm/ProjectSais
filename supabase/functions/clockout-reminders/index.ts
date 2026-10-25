@@ -63,6 +63,30 @@ const fcmSendUrl =
 // Attendance runs on Philippine wall-clock time, taken from this server.
 const TZ_OFFSET_MINUTES = 8 * 60;
 
+// #region push text
+// What a push says on the lock screen. Pay, ratings, hiring decisions and
+// payroll requirements are private: a push's text shows on a locked phone
+// and passes through Google's servers, so these kinds are announced without
+// their details. The notification itself, in the app, is unchanged.
+const privateKinds = new Set([
+  "payroll",
+  "evaluation",
+  "payroll_requirement",
+  "rehire",
+]);
+
+export function pushTextFor(
+  kind: string | undefined,
+  title: string,
+  body: string,
+): { title: string; body: string } {
+  if (kind !== undefined && privateKinds.has(kind)) {
+    return { title: "SAIS", body: "You have a new update. Open SAIS to read it." };
+  }
+  return { title, body };
+}
+// #endregion push text
+
 // #region reminder rules
 // reminders.test.ts runs this region on its own, so it must not use
 // anything from the rest of this file. (It stays in this file so the
@@ -603,8 +627,11 @@ async function pushNotifications(ids: string[]): Promise<Response> {
         id,
         name: doc.name,
         userId,
-        title: f.title?.stringValue ?? "SAIS",
-        body: f.message?.stringValue ?? "",
+        ...pushTextFor(
+          f.type?.stringValue,
+          f.title?.stringValue ?? "SAIS",
+          f.message?.stringValue ?? "",
+        ),
       });
     } catch (error) {
       console.error(`Notification ${id} could not be claimed:`, error);

@@ -572,7 +572,7 @@ extension AppStateApplicationsAndFolders on AppState {
           ? doc.fileName.split('.').last
           : 'docx';
       final storagePath =
-          'applications/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? currentUser?.id ?? 'user'}/${doc.applicationId}/${doc.id}/${doc.fileName}';
+          'applications/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? currentUser?.id ?? 'user'}/${doc.applicationId}/${doc.id}/${randomObjectName(doc.fileName)}';
       final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
         bytes: bytes,
         path: storagePath,

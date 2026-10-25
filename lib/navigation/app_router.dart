@@ -12,6 +12,7 @@ abstract final class AppRoutes {
   static const landing = '/';
   static const login = '/login';
   static const register = '/register';
+  static const privacy = '/privacy';
 
   static const _academicYear = '/academic-year';
   static final _academicYearPath = RegExp(r'^/academic-year/(\d{4}-\d{4})$');
@@ -135,6 +136,7 @@ class AppRouterDelegate extends RouterDelegate<String>
             PublicPage.landing => AppRoutes.landing,
             PublicPage.login => AppRoutes.login,
             PublicPage.register => AppRoutes.register,
+            PublicPage.privacy => AppRoutes.privacy,
           };
     }
     final tab = _currentTab;
@@ -193,6 +195,8 @@ class AppRouterDelegate extends RouterDelegate<String>
           state.showPublicPage(PublicPage.login);
         case AppRoutes.register:
           state.showPublicPage(PublicPage.register);
+        case AppRoutes.privacy:
+          state.showPublicPage(PublicPage.privacy);
         default:
           _wanted = path;
           state.showPublicPage(PublicPage.login);

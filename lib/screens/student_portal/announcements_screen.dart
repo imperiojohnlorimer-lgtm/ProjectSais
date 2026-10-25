@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:provider/provider.dart';
+import '../../utils/file_names.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
@@ -937,9 +938,8 @@ class _ApplyDialogState extends State<ApplyDialog> {
         );
       }
       final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final safeName = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
       final storagePath =
-          'applications/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/$safeName';
+          'applications/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/${randomObjectName(file.name)}';
       if (!mounted) return;
       setState(() {
         uploadStarted = true;

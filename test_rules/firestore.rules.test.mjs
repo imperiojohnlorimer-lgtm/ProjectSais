@@ -478,3 +478,46 @@ test('a placement reads and rewrites the person\'s assignment with the offices',
   await assertFails(place(as('sup')));
   await assertSucceeds(place(as('head')));
 });
+
+// ── the Privacy Notice acceptance ──
+
+const newAccount = (over = {}) => ({
+  name: 'New Person',
+  email: 'fresh@example.com',
+  role: 'Student',
+  status: 'Active',
+  consentAt: '2026-10-26T01:02:03.000Z',
+  consentVersion: '2026-10-draft',
+  ...over,
+});
+
+test('a new account records when it accepted the notice', async () => {
+  await assertSucceeds(setDoc(doc(as('fresh'), 'users', 'fresh'), newAccount()));
+});
+
+test('an account made without it (older flows, the Admin) is still fine', async () => {
+  const bare = newAccount();
+  delete bare.consentAt;
+  delete bare.consentVersion;
+  await assertSucceeds(setDoc(doc(as('fresh'), 'users', 'fresh'), bare));
+});
+
+test('the recorded acceptance must be short text', async () => {
+  await assertFails(setDoc(doc(as('fresh'), 'users', 'fresh'), newAccount({ consentAt: 12345 })));
+  await assertFails(
+    setDoc(doc(as('fresh'), 'users', 'fresh'), newAccount({ consentVersion: 'v'.repeat(80) })),
+  );
+});
+
+test('nobody edits their own acceptance afterwards', async () => {
+  const db = as('fresh');
+  await assertSucceeds(setDoc(doc(db, 'users', 'fresh'), newAccount()));
+  await assertFails(updateDoc(doc(db, 'users', 'fresh'), { consentAt: '2030-01-01T00:00:00.000Z' }));
+  await assertFails(updateDoc(doc(db, 'users', 'fresh'), { consentVersion: 'other' }));
+  // Their other details still change.
+  await assertSucceeds(updateDoc(doc(db, 'users', 'fresh'), { phone: '0917 123 4567' }));
+});
+
+test('an account that has none cannot give itself one', async () => {
+  await assertFails(updateDoc(doc(as('stu'), 'users', 'stu'), { consentAt: '2026-10-26T00:00:00.000Z' }));
+});

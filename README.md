@@ -38,7 +38,7 @@ flutter test                                   # app tests
 (cd test_rules && npm ci && npm test)          # Firestore rules, on the emulator (needs Java)
 (cd supabase/functions/clock-attendance && node --test records.test.ts sessions.test.ts)
 (cd supabase/functions/upload-document && node --test paths.test.ts)
-(cd supabase/functions/clockout-reminders && node --test reminders.test.ts)
+(cd supabase/functions/clockout-reminders && node --test reminders.test.ts pushtext.test.ts)
 ```
 
 The function tests need Node 23.6 or newer. The same checks run on every push

@@ -5,6 +5,7 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../utils/password_validator.dart';
+import '../privacy/privacy_notice.dart';
 import 'auth_scaffold.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -38,6 +39,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   String _yearLevel = '1st Year';
   bool _isLoading = false;
   bool _obscurePassword = true;
+  bool _acceptedPrivacy = false;
   String? _error;
   PasswordValidationResult? _passwordValidation;
 
@@ -121,6 +123,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
+    // Last, once the form itself is right: the notice is accepted before
+    // anything is sent.
+    if (!_acceptedPrivacy) {
+      setState(
+        () => _error =
+            'Please read and accept the Privacy Notice to create an account.',
+      );
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _error = null;
@@ -144,6 +156,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       studentId: studentId.isEmpty ? null : studentId,
       courseProgram: program,
       yearLevel: _yearLevel,
+      consentAt: DateTime.now().toUtc().toIso8601String(),
+      consentVersion: PrivacyNotice.version,
     );
 
     final authError = await appState.registerWithEmail(
@@ -506,7 +520,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
       ),
-      const SizedBox(height: 32),
+      const SizedBox(height: 24),
+
+      _privacyConsent(),
+      const SizedBox(height: 24),
 
       AuthPrimaryButton(
         label: 'Create Account',
@@ -522,6 +539,66 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onTap: widget.onBackToLogin,
       ),
     ];
+  }
+
+  /// The Privacy Notice, to be accepted before an account is made.
+  Widget _privacyConsent() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 24,
+          height: 24,
+          child: Checkbox(
+            value: _acceptedPrivacy,
+            activeColor: AppTheme.maroon,
+            onChanged: (value) => setState(() {
+              _acceptedPrivacy = value ?? false;
+              _error = null;
+            }),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text.rich(
+              TextSpan(
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.4,
+                  color: AppTheme.slate700,
+                ),
+                children: [
+                  const TextSpan(
+                    text:
+                        'I have read how SAIS collects and uses my personal '
+                        'information, and I agree to it. ',
+                  ),
+                  WidgetSpan(
+                    alignment: PlaceholderAlignment.baseline,
+                    baseline: TextBaseline.alphabetic,
+                    child: InkWell(
+                      onTap: () => showPrivacyNoticeDialog(context),
+                      child: const Text(
+                        'Read the Privacy Notice',
+                        style: TextStyle(
+                          fontSize: 13,
+                          height: 1.4,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.maroon,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _nameField(

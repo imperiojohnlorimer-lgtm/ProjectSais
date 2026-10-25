@@ -178,6 +178,16 @@ service cloud.firestore {
         + (t.day() < 10 ? '0' : '') + string(t.day());
     }
 
+    // The Privacy Notice acceptance recorded at registration: when and which
+    // version, both text and short, or absent (older accounts, or one an
+    // Admin made).
+    function validConsent(data) {
+      let at = data.get('consentAt', null);
+      let version = data.get('consentVersion', null);
+      return (at == null || (at is string && at.size() <= 40))
+        && (version == null || (version is string && version.size() <= 40));
+    }
+
     match /users/{uid} {
       // Head and Supervisor need to read user/student profiles for
       // Students, Reports, Attendance, Tasks, and office matching. Admin
@@ -199,6 +209,7 @@ service cloud.firestore {
           && request.resource.data.get('deleted', false) == false
           && request.resource.data.email.lower()
             == request.auth.token.email.lower()
+          && validConsent(request.resource.data)
         );
 
       // Role/status changes (Accounts screen) stay Admin-only, with three
@@ -232,6 +243,8 @@ service cloud.firestore {
           && unchanged('email')
           && unchanged('studentId')
           && unchanged('saId')
+          && unchanged('consentAt')
+          && unchanged('consentVersion')
           && unchanged('department')
           && unchanged('campus')
           && unchanged('courseProgram')

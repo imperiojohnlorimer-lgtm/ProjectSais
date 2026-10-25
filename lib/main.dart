@@ -15,6 +15,7 @@ import 'screens/student_portal/student_portal_shell.dart';
 import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/landing/landing_screen.dart';
+import 'screens/privacy/privacy_notice.dart';
 import 'screens/startup_failed_screen.dart';
 import 'widgets/idle_sign_out_guard.dart';
 import 'services/schedule_service.dart';
@@ -140,6 +141,8 @@ class _AuthGate extends StatelessWidget {
           onShowRegister: () => go(PublicPage.register),
           onBack: () => go(PublicPage.landing),
         );
+      case PublicPage.privacy:
+        return PrivacyScreen(onBack: () => go(PublicPage.landing));
       case PublicPage.landing:
         return LandingScreen(
           onSignIn: () => go(PublicPage.login),

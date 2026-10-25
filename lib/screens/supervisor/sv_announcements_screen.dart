@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../utils/file_names.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
@@ -314,11 +315,10 @@ class _RequestDialogState extends State<_RequestDialog> {
             fb_auth.FirebaseAuth.instance.currentUser?.uid ??
             state.currentUser?.id ??
             'user';
-        final name = file.name.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
         // The same root as the Head's announcement attachments, which any
         // signed-in viewer can open.
         final path =
-            'announcements/$uid/${DateTime.now().millisecondsSinceEpoch}/$name';
+            'announcements/$uid/${DateTime.now().millisecondsSinceEpoch}/${randomObjectName(file.name)}';
         final extension = file.extension?.toLowerCase();
         _attachmentUrl = await SupabaseStorageService.instance.uploadDocument(
           bytes: file.bytes!,

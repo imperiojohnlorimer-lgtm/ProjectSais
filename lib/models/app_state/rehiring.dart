@@ -320,7 +320,7 @@ extension AppStateRehiring on AppState {
         currentUser?.id ??
         'user';
     final storagePath =
-        'reports/$uploaderUid/${today.millisecondsSinceEpoch}/${raw.fileName}';
+        'reports/$uploaderUid/${today.millisecondsSinceEpoch}/${randomObjectName(raw.fileName)}';
     final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
       bytes: bytes,
       path: storagePath,

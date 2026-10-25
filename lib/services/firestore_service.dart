@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../models/models.dart';
+import '../utils/file_names.dart';
 import '../models/schedule_event.dart';
 import '../models/task_duty.dart';
 import 'supabase_storage_service.dart';
@@ -621,7 +622,7 @@ class FirestoreService {
           continue;
         }
         final archivePath =
-            'academic_year_archives/$academicYear/reports/${report.id}/${attachment.fileName}';
+            'academic_year_archives/$academicYear/reports/${report.id}/${randomObjectName(attachment.fileName)}';
         try {
           final archivedUrl = await SupabaseStorageService.instance
               .archiveDocument(
@@ -668,7 +669,7 @@ class FirestoreService {
           continue;
         }
         final archivePath =
-            'academic_year_archives/$academicYear/applications/${application.id}/${document.fileName}';
+            'academic_year_archives/$academicYear/applications/${application.id}/${randomObjectName(document.fileName)}';
         try {
           final archivedUrl = await SupabaseStorageService.instance
               .archiveDocument(

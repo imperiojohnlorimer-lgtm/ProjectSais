@@ -376,6 +376,12 @@ class User {
   /// are hidden everywhere in the app.
   final bool isDeleted;
 
+  /// When this person accepted the Privacy Notice at registration (an ISO
+  /// timestamp), and which version of it. Null for accounts made before it
+  /// existed or by an Admin. Set once: the rules refuse a change.
+  final String? consentAt;
+  final String? consentVersion;
+
   User({
     required this.id,
     required this.name,
@@ -397,6 +403,8 @@ class User {
     this.yearLevel,
     this.saId,
     this.isDeleted = false,
+    this.consentAt,
+    this.consentVersion,
   });
 
   User copyWith({
@@ -437,6 +445,8 @@ class User {
     yearLevel: yearLevel ?? this.yearLevel,
     saId: saId ?? this.saId,
     isDeleted: isDeleted ?? this.isDeleted,
+    consentAt: consentAt,
+    consentVersion: consentVersion,
   );
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -462,6 +472,8 @@ class User {
     yearLevel: json['yearLevel'],
     saId: json['saId'],
     isDeleted: json['deleted'] == true,
+    consentAt: json['consentAt']?.toString(),
+    consentVersion: json['consentVersion']?.toString(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -489,6 +501,8 @@ class User {
     'yearLevel': yearLevel,
     'saId': saId,
     if (isDeleted) 'deleted': true,
+    if (consentAt != null) 'consentAt': consentAt,
+    if (consentVersion != null) 'consentVersion': consentVersion,
   };
 
   /// Whether the name has been split into parts. Older accounts have only

@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../utils/file_names.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
@@ -771,12 +772,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
 
                               final timestamp =
                                   DateTime.now().millisecondsSinceEpoch;
-                              final sanitizedName = file.name.replaceAll(
-                                RegExp(r'[^a-zA-Z0-9._-]'),
-                                '_',
-                              );
                               final storagePath =
-                                  'reports/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/$sanitizedName';
+                                  'reports/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/${randomObjectName(file.name)}';
                               final downloadUrl = await SupabaseStorageService
                                   .instance
                                   .uploadDocument(
