@@ -457,6 +457,8 @@ service cloud.firestore {
         && request.resource.data.status == 'Pending'
         && request.resource.data.studentName == currentName()
         && request.resource.data.get('feedback', null) == null
+        && request.resource.data.get('reviewedBy', null) == null
+        && request.resource.data.get('reviewedAt', null) == null
         && request.resource.data.get('sentToHead', false) == false
         && request.resource.data.get('sentToHeadAt', null) == null
         && request.resource.data.get('headAttachments', []).size() == 0;

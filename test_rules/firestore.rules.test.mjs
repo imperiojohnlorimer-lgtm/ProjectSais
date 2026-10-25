@@ -548,3 +548,23 @@ test('a Student Assistant reads their own payroll check, nobody else\'s', async 
   await assertFails(setDoc(doc(as('sa'), 'payrollChecks', 'sa'), check('sa')));
   await assertFails(deleteDoc(doc(as('sa'), 'payrollChecks', 'sa')));
 });
+
+// ── a report cannot arrive looking reviewed ──
+
+test('a report is made Pending and unreviewed', async () => {
+  const report = (extra = {}) => ({
+    applicantId: 'sa',
+    title: 'Week 1',
+    content: 'Did things',
+    studentName: 'Sia Assistant',
+    status: 'Pending',
+    ...extra,
+  });
+  await assertSucceeds(setDoc(doc(as('sa'), 'reports', 'r1'), report()));
+  await assertFails(
+    setDoc(doc(as('sa'), 'reports', 'r2'), report({ reviewedBy: 'Sam Supervisor' })),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'reports', 'r3'), report({ reviewedAt: '2026-10-01T00:00:00.000Z' })),
+  );
+});

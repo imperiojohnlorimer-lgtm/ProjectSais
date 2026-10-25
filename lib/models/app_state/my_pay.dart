@@ -85,16 +85,6 @@ extension AppStateMyPay on AppState {
       orElse: () => null,
     );
     PayrollCheckMark? mark(String key) => check?.items[key];
-    PayrollCheckMark? newestOf(String prefix) {
-      PayrollCheckMark? newest;
-      for (final entry in (check?.items ?? const {}).entries) {
-        if (!entry.key.startsWith(prefix)) continue;
-        if (newest == null || entry.value.at.compareTo(newest.at) > 0) {
-          newest = entry.value;
-        }
-      }
-      return newest;
-    }
 
     MyPayItem item(String label, PayrollCheckMark? m) =>
         MyPayItem(label: label, status: m?.status, note: m?.note);
@@ -105,7 +95,14 @@ extension AppStateMyPay on AppState {
         mark(PayrollRequirement.requirementsKey),
       ),
       item('Endorsement Letter', mark(PayrollRequirement.endorsementKey)),
-      item('Contract of Appointment', newestOf('contract|')),
+      item(
+        'Contract of Appointment',
+        mark(
+          PayrollRequirement.contractKey(
+            RehireRecord.termLabelFor(academicYear, academicSemester),
+          ),
+        ),
+      ),
       item(
         'DTR/Accomplishment Report for ${monthNames[today.month - 1]}',
         mark(PayrollRequirement.dtrKey(today.year, today.month)),

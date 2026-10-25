@@ -189,6 +189,30 @@ void main() {
       expect(find.text('Reason: The scan is blurry'), findsOneWidget);
     });
 
+    testWidgets('a contract checked for an earlier term does not count', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        checks: const [
+          PayrollCheck(
+            studentId: 'u_1',
+            items: {
+              'contract|1st Semester, AY 1999-2000': PayrollCheckMark(
+                status: PayrollCheckMark.checked,
+                by: 'Hana Head',
+                at: '2000-01-01T00:00:00.000',
+              ),
+            },
+          ),
+        ],
+      );
+      expect(find.text('Checked'), findsNothing);
+      expect(find.text('Not checked yet'), findsNWidgets(4));
+    });
+
     testWidgets('shows the latest released pay', (tester) async {
       await pumpDashboard(
         tester,

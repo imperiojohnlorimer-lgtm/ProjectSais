@@ -695,6 +695,43 @@ void main() {
       expect(state.reportableTasks, isEmpty);
     });
 
+    testWidgets('a corrected report keeps to the tasks of the one it corrects', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1280, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      state
+        ..currentUser = _assistant
+        ..users = [_assistant]
+        ..tasks = [
+          _approved(id: 'a', title: 'Shelve returns'),
+          // Approved after the report was rejected: not part of it.
+          _approved(id: 'b', title: 'Sort the mail'),
+        ]
+        ..reports = [
+          _report('r1', status: 'Rejected', content: 'My week', taskIds: ['a']),
+        ];
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: AppTheme.theme,
+            home: const Scaffold(body: ReportsScreen()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Submit a corrected report'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Submit Report'));
+      await tester.pumpAndSettle();
+
+      expect(store.reports.values.single.taskIds, ['a']);
+      // The other task is still there for the next report.
+      expect(state.reportableTasks.map((t) => t.id), ['b']);
+    });
+
     testWidgets('a rejected report can be sent again, starting from it', (
       tester,
     ) async {

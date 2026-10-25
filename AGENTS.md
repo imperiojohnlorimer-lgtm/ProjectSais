@@ -107,12 +107,45 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
   Student Assistant (`AppState.assistantAttendance`) with filters, no QR.
 - Hours count only for records timed out, not archived and not missed
   (`AttendanceRecord.countsTowardHours`).
+- Staff changes to a record (manual time-out, archive, restore, delete) go
+  through `AppState.setManualTimeOut` / `setAttendanceArchived` /
+  `deleteAttendance`: they save `editedBy`/`editedAt`/`editNote`, tell the
+  student, and put back only their own record if the save fails. Rebuild
+  records with `copyWith` so the edit fields aren't dropped.
+- "Today" and the week for hours are Philippine time (`philippineToday`,
+  `philippineClock`), never the machine's: tests must not use
+  `DateTime.now()` for a date the app stamps (CI runs in UTC).
 
 ### Payroll
 
 The Head checks each Student Assistant's payroll requirements
 (`payrollChecks/{id}`); the Admin can approve a term's payroll only when
-everyone in it is Ready.
+everyone in it is Ready. A Student Assistant reads only their own
+`payrollChecks` document and own `payrollRecords` (live listeners in
+`_startLiveData`); `AppState.myPay` feeds the dashboard's My Pay card.
+
+### Exports
+
+CSV files (Head Attendance, Students, Rehiring, Admin Payroll) are built
+with `lib/utils/csv.dart` (BOM, quoting, formula guard) and saved by
+`saveCsv`; the button is `ExportCsvButton`.
+
+### Privacy and sign-in
+
+- Registration requires accepting the Privacy Notice
+  (`lib/screens/privacy/privacy_notice.dart`, a DRAFT for the school's Data
+  Protection Officer); the profile keeps `consentAt`/`consentVersion`, which
+  the rules make final. `docs/privacy-data-inventory.md` lists where
+  personal data lives and how to erase one person by hand.
+- New uploads get random storage names (`randomObjectName`). Pushes for
+  pay, ratings, decisions and requirements say only "You have a new
+  update" (`pushTextFor` in `clockout-reminders`).
+- "Remember me" picks the Firebase persistence (unchecked: the tab only);
+  `IdleSignOutGuard` signs out after 30 minutes idle. Passwords need 10+
+  characters and not a common one.
+- Account, role and office changes save first (field-level updates and
+  transactions: `allocateSaId`, `updateOffices`); a failure is reported to
+  the person, not swallowed.
 
 ### Tasks, categories, templates and ongoing duties
 

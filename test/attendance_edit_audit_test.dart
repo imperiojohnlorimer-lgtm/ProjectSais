@@ -114,6 +114,29 @@ void main() {
     },
   );
 
+  test('two deletes that both fail put back both records', () async {
+    state.attendance = [
+      _record(),
+      AttendanceRecord(
+        id: 'r2',
+        studentId: 'sa2',
+        studentName: 'Ana Reyes',
+        date: 'Sep 10, 2026',
+        timeIn: '8:00 AM',
+        timeOut: '12:00 PM',
+        totalHours: 4,
+      ),
+    ];
+    fake.fail = true;
+
+    await Future.wait([
+      state.deleteAttendance('r1'),
+      state.deleteAttendance('r2'),
+    ]);
+
+    expect(state.attendance.map((r) => r.id).toSet(), {'r1', 'r2'});
+  });
+
   test('a deleted record leaves a notice to the student', () async {
     expect(await state.deleteAttendance('r1'), isTrue);
 

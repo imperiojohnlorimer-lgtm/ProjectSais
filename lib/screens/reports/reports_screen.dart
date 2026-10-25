@@ -436,7 +436,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
     // Only work the supervisor approved, and only once: a task already in
     // a report isn't offered again unless that report is rejected.
     final completedTasks = state.reportableTasks;
-    final includedTaskIds = completedTasks.map((t) => t.id).toSet();
+    // A corrected report takes the tasks of the report it corrects (they
+    // were freed when it was rejected), not whatever else has been
+    // approved since. An older report that recorded none starts with all.
+    final earlier = {
+      for (final task in completedTasks)
+        if (corrects != null && corrects.taskIds.contains(task.id)) task.id,
+    };
+    final includedTaskIds = earlier.isNotEmpty
+        ? earlier
+        : completedTasks.map((t) => t.id).toSet();
     final awaitingApproval = state.filteredTasks
         .where((t) => !t.isArchived && t.awaitingApproval)
         .length;

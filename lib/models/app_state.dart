@@ -4986,7 +4986,6 @@ class AppState extends ChangeNotifier {
         : _hoursWithinWeeklyCap(existing, elapsed);
 
     final edit = _attendanceEdit('Time-out recorded at $timeOut');
-    final previousAttendance = attendance;
     attendance = attendance
         .map(
           (r) => r.id != recordId
@@ -5017,7 +5016,7 @@ class AppState extends ChangeNotifier {
       return true;
     } catch (error) {
       debugPrint('Failed to save the manual time-out: $error');
-      attendance = previousAttendance;
+      if (existing != null) _putBackAttendance(existing);
       notifyListeners();
       return false;
     }
@@ -5230,7 +5229,6 @@ class AppState extends ChangeNotifier {
       orElse: () => null,
     );
     final edit = _attendanceEdit(archived ? 'Archived' : 'Restored');
-    final previousAttendance = attendance;
     // Archived by hand, a record is no longer one archived with its year,
     // which payroll would still pay for.
     attendance = attendance
@@ -5259,7 +5257,7 @@ class AppState extends ChangeNotifier {
       return true;
     } catch (error) {
       debugPrint('Could not archive attendance record: $error');
-      attendance = previousAttendance;
+      if (before != null) _putBackAttendance(before);
       notifyListeners();
       return false;
     }
@@ -5270,7 +5268,6 @@ class AppState extends ChangeNotifier {
       (a) => a?.id == id,
       orElse: () => null,
     );
-    final previousAttendance = attendance;
     attendance = attendance.where((a) => a.id != id).toList();
     notifyListeners();
 
@@ -5285,10 +5282,19 @@ class AppState extends ChangeNotifier {
       return true;
     } catch (error) {
       debugPrint('Could not delete attendance record: $error');
-      attendance = previousAttendance;
+      if (before != null) _putBackAttendance(before);
       notifyListeners();
       return false;
     }
+  }
+
+  /// Puts [record] back as it was after a change to it failed to save: only
+  /// this record, so another change in flight, or one the live feed brought,
+  /// isn't undone with it.
+  void _putBackAttendance(AttendanceRecord record) {
+    attendance = attendance.any((a) => a.id == record.id)
+        ? [for (final a in attendance) a.id == record.id ? record : a]
+        : [record, ...attendance];
   }
 
   /// Who is changing a record by hand now, and what for: stored with the
