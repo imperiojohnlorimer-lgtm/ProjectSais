@@ -463,3 +463,18 @@ test('the Head moves an assistant between offices in one transaction', async () 
   const o2 = await getDoc(doc(as('head'), 'offices', 'o2'));
   assert.deepEqual(o2.data().assistantIds, ['sa']);
 });
+
+test('a placement reads and rewrites the person\'s assignment with the offices', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'officeAssignments', 'sa'), { officeId: 'o1' });
+  });
+  const place = (db) =>
+    runTransaction(db, async (tx) => {
+      const assignment = await tx.get(doc(db, 'officeAssignments', 'sa'));
+      const old = await tx.get(doc(db, assignment.data() ? 'offices' : 'offices', assignment.data().officeId));
+      tx.set(doc(db, 'offices', 'o1'), { ...old.data(), assistantIds: [] });
+      tx.set(doc(db, 'officeAssignments', 'sa'), { officeId: 'o3' });
+    });
+  await assertFails(place(as('sup')));
+  await assertSucceeds(place(as('head')));
+});

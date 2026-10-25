@@ -14,6 +14,7 @@ import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/services/performance_evaluation_document_service.dart';
 import 'package:projectsais/services/push_service.dart';
 import 'package:projectsais/services/supabase_storage_service.dart';
+import 'package:projectsais/utils/auth_errors.dart';
 import '../firebase_options.dart';
 import 'assistant_attendance.dart';
 import 'models.dart';
@@ -1303,13 +1304,58 @@ class AppState extends ChangeNotifier {
       'verification email we sent (check Spam too), then log in again. If '
       'the link says it has expired or was already used, send a new one.';
 
+  /// Whether the last sign-in asked to stay signed in on this device. It
+  /// decides how long Firebase keeps the session: on this device until
+  /// someone signs out ("Remember me"), or only until the tab is closed.
+  bool? _rememberChoice;
+
+  @visibleForTesting
+  bool? get rememberChoice => _rememberChoice;
+
+  /// Tells Firebase how long to keep the sign-in about to happen. Must be
+  /// set before the sign-in (and again for a Google one, which signs in
+  /// separately). Web only; elsewhere there is nothing to choose.
+  Future<void> _applyPersistence(bool remember) async {
+    _rememberChoice = remember;
+    if (!kIsWeb) return;
+    try {
+      await fb_auth.FirebaseAuth.instance.setPersistence(
+        remember ? fb_auth.Persistence.LOCAL : fb_auth.Persistence.SESSION,
+      );
+    } catch (error) {
+      debugPrint('Could not set the sign-in persistence: $error');
+    }
+  }
+
+  /// What the Login page says after a sign-out the person didn't ask for,
+  /// shown once ([takeSignOutNotice]).
+  String? _signOutNotice;
+
+  String? takeSignOutNotice() {
+    final notice = _signOutNotice;
+    _signOutNotice = null;
+    return notice;
+  }
+
+  /// Signs out someone who has been idle for [after], and says why on the
+  /// Login page.
+  Future<void> signOutForInactivity(Duration after) async {
+    final minutes = after.inMinutes;
+    _signOutNotice =
+        'You were signed out after $minutes minutes without activity. Log '
+        'in again to continue.';
+    await signOut();
+  }
+
   Future<String?> signInWithEmailAndPassword(
     String email,
-    String password,
-  ) async {
+    String password, {
+    bool remember = true,
+  }) async {
     final lowerEmail = email.toLowerCase();
 
     try {
+      await _applyPersistence(remember);
       final credential = await fb_auth.FirebaseAuth.instance
           .signInWithEmailAndPassword(email: email, password: password);
       final authUser = credential.user;
@@ -1358,14 +1404,11 @@ class AppState extends ChangeNotifier {
       await login(existing.copyWith(id: authUser.uid));
       return null;
     } on fb_auth.FirebaseAuthException catch (e) {
-      if (e.code == 'user-not-found' ||
-          e.code == 'wrong-password' ||
-          e.code == 'invalid-email') {
-        return e.message ?? 'Login failed: ${e.code}';
-      }
-      return e.message ?? 'Login failed: ${e.code}';
+      debugPrint('Login failed: ${e.code}');
+      return friendlyAuthError(e.code);
     } catch (error) {
-      return 'Login failed: $error';
+      debugPrint('Login failed: $error');
+      return friendlyAuthError(null);
     }
   }
 
@@ -1452,7 +1495,7 @@ class AppState extends ChangeNotifier {
     await authUser.sendEmailVerification();
   }
 
-  Future<String?> signInWithGoogle() async {
+  Future<String?> signInWithGoogle({bool remember = true}) async {
     await _ensureSeeded();
 
     try {
@@ -1472,6 +1515,7 @@ class AppState extends ChangeNotifier {
       );
 
       try {
+        await _applyPersistence(remember);
         final result = await fb_auth.FirebaseAuth.instance.signInWithCredential(
           credential,
         );
@@ -1536,10 +1580,12 @@ class AppState extends ChangeNotifier {
           );
           return linkedError;
         }
-        return e.message ?? 'Google login failed: ${e.code}';
+        debugPrint('Google login failed: ${e.code}');
+        return friendlyAuthError(e.code);
       }
     } catch (error) {
-      return 'Google login failed: $error';
+      debugPrint('Google login failed: $error');
+      return 'Google login failed. Please try again.';
     }
   }
 
@@ -1842,119 +1888,141 @@ class AppState extends ChangeNotifier {
 
   Future<void> _loadAllFromFirestore() async {
     _firestoreService ??= FirestoreService();
+    final service = _firestoreService!;
     final generation = _liveGeneration;
+    // After every answer, before it is used: if the account signed out or
+    // another session began meanwhile, this load's answers belong to nobody
+    // (a private list must not reappear for the next person), so it stops.
+    bool overtaken() => _loadIsStale(generation);
     try {
       // Users: prefer Firestore as source-of-truth, but keep currentUser if not present.
       List<User> firestoreUsers = [];
       try {
-        firestoreUsers = await _firestoreService!.getAllUserProfiles();
+        final fetched = await service.getAllUserProfiles();
+        if (overtaken()) return;
+        firestoreUsers = fetched;
       } catch (error) {
         debugPrint('Failed to load user profiles: $error');
       }
 
       Map<String, dynamic>? academicSettings;
       try {
-        academicSettings = await _firestoreService!.getAcademicYearSettings();
+        academicSettings = await service.getAcademicYearSettings();
       } catch (error) {
         debugPrint('Failed to load academic settings: $error');
       }
+      if (overtaken()) return;
       if (academicSettings != null) _applyAcademicSettings(academicSettings);
       try {
-        academicYearArchives = await _firestoreService!
-            .getAcademicYearArchives();
+        final fetched = await service.getAcademicYearArchives();
+        if (overtaken()) return;
+        academicYearArchives = fetched;
       } catch (_) {
+        if (overtaken()) return;
         academicYearArchives = [];
       }
       try {
-        offices = await _firestoreService!.getAllOffices();
+        final fetched = await service.getAllOffices();
+        if (overtaken()) return;
+        offices = fetched;
       } catch (_) {
+        if (overtaken()) return;
         offices = [];
       }
       try {
-        final storedDepartments = await _firestoreService!.getAllDepartments();
+        final storedDepartments = await service.getAllDepartments();
+        final codes = await service.getDepartmentCodes();
+        if (overtaken()) return;
         departments = storedDepartments;
-        departmentCodes = await _firestoreService!.getDepartmentCodes();
+        departmentCodes = codes;
       } catch (_) {}
       try {
-        programs = _sortedPrograms(await _firestoreService!.getAllPrograms());
+        final fetched = await service.getAllPrograms();
+        if (overtaken()) return;
+        programs = _sortedPrograms(fetched);
       } catch (_) {}
       try {
-        _setSkills(await _firestoreService!.getAllSkills());
+        final fetched = await service.getAllSkills();
+        if (overtaken()) return;
+        _setSkills(fetched);
       } catch (_) {}
       try {
-        screeningRecords = _dedupeScreeningRecords(
-          await _firestoreService!.getAllScreeningRecords(),
-        );
+        final fetched = await service.getAllScreeningRecords();
+        if (overtaken()) return;
+        screeningRecords = _dedupeScreeningRecords(fetched);
       } catch (_) {}
 
       // Students
       try {
-        final fsStudents = await _firestoreService!.getAllStudents();
+        final fsStudents = await service.getAllStudents();
+        if (overtaken()) return;
         students = fsStudents;
       } catch (_) {
+        if (overtaken()) return;
         students = [];
       }
 
-      if (_loadIsStale(generation)) return;
+      if (overtaken()) return;
       _setAllUsers(firestoreUsers);
 
       // Attendance
       try {
         final rawAttendance =
             (role == 'Head' || role == 'Supervisor' || role == 'Admin')
-            ? await _firestoreService!.getAllAttendance()
-            : await _firestoreService!.getAttendanceForStudent(currentUser!.id);
+            ? await service.getAllAttendance()
+            : await service.getAttendanceForStudent(currentUser!.id);
+        if (overtaken()) return;
         attendance = rawAttendance
             .map((m) => AttendanceRecord.fromJson(m))
             .toList();
       } catch (_) {
+        if (overtaken()) return;
         attendance = [];
       }
 
       // Class Schedules (weekly, used to auto-fill DTR/Accomplishment
       // Report's Class Schedule grid)
       try {
-        classSchedules = (role == 'Head' || role == 'Supervisor')
-            ? await _firestoreService!.getAllClassSchedules()
-            : await _firestoreService!.getClassSchedulesForStudent(
-                currentUser!.id,
-              );
+        final fetched = (role == 'Head' || role == 'Supervisor')
+            ? await service.getAllClassSchedules()
+            : await service.getClassSchedulesForStudent(currentUser!.id);
+        if (overtaken()) return;
+        classSchedules = fetched;
       } catch (_) {
+        if (overtaken()) return;
         classSchedules = [];
       }
-      if (_loadIsStale(generation)) return;
+      if (overtaken()) return;
       await _archiveFinishedAcademicYears(academicSettings);
       await _restampUndoneAcademicYear();
-      if (_loadIsStale(generation)) return;
+      if (overtaken()) return;
 
       // Tasks
       try {
         final fsTasks = <Task>[];
         if (role == 'Head' || role == 'Supervisor') {
-          fsTasks.addAll(await _firestoreService!.getAllTasks());
+          fsTasks.addAll(await service.getAllTasks());
         } else {
           try {
-            fsTasks.addAll(
-              await _firestoreService!.getTasksForUser(currentUser!.id),
-            );
+            fsTasks.addAll(await service.getTasksForUser(currentUser!.id));
           } catch (_) {}
           try {
-            final studentIds = await _firestoreService!.getStudentIdsForUser(
+            final studentIds = await service.getStudentIdsForUser(
               currentUser!.id,
             );
-            fsTasks.addAll(
-              await _firestoreService!.getTasksForAssigneeIds(studentIds),
-            );
+            fsTasks.addAll(await service.getTasksForAssigneeIds(studentIds));
           } catch (_) {}
           // No lookup by name: the Firestore rules only share a task with
           // the account it is assigned to, since anyone can register under
           // a classmate's name.
         }
+        if (overtaken()) return;
         final taskById = <String, Task>{
           for (final task in fsTasks) task.id: task,
         };
         tasks = taskById.values.toList();
       } catch (_) {
+        if (overtaken()) return;
         tasks = [];
       }
 
@@ -1962,20 +2030,23 @@ class AppState extends ChangeNotifier {
       try {
         final fsReports =
             (role == 'Head' || role == 'Supervisor' || role == 'Admin')
-            ? await _firestoreService!.getAllReports()
+            ? await service.getAllReports()
             // By account only, never by name — see Tasks above.
-            : await _firestoreService!.getReportsForApplicant(currentUser!.id);
+            : await service.getReportsForApplicant(currentUser!.id);
+        if (overtaken()) return;
         reports = fsReports;
       } catch (_) {
+        if (overtaken()) return;
         reports = [];
       }
 
-      if (_loadIsStale(generation)) return;
       // Performance Evaluations
       try {
-        final fsEvaluations = await _firestoreService!.getAllEvaluations();
+        final fsEvaluations = await service.getAllEvaluations();
+        if (overtaken()) return;
         evaluations = fsEvaluations;
       } catch (_) {
+        if (overtaken()) return;
         evaluations = [];
       }
 
@@ -1984,9 +2055,12 @@ class AppState extends ChangeNotifier {
       // involved, so this runs in the Head's session.
       if (role == 'Head') {
         try {
-          rehireRecords = await _firestoreService!.getAllRehireRecords();
+          final fetched = await service.getAllRehireRecords();
+          if (overtaken()) return;
+          rehireRecords = fetched;
           await _applyDueRehireDecisions();
         } catch (_) {
+          if (overtaken()) return;
           rehireRecords = [];
         }
         await _syncOfficeAssignments();
@@ -1996,38 +2070,45 @@ class AppState extends ChangeNotifier {
       // Items supervisors have forwarded to the Head.
       if (role == 'Head' || role == 'Supervisor') {
         try {
-          headForwards = await _firestoreService!.getAllHeadForwards();
+          final fetched = await service.getAllHeadForwards();
+          if (overtaken()) return;
+          headForwards = fetched;
         } catch (_) {
+          if (overtaken()) return;
           headForwards = [];
         }
       }
 
-      if (_loadIsStale(generation)) return;
       // Applications
       try {
-        final fsApps = await _firestoreService!.getAllApplications();
+        final fsApps = await service.getAllApplications();
+        if (overtaken()) return;
         applications = fsApps;
         await _syncApprovedApplicationSkills();
       } catch (_) {
+        if (overtaken()) return;
         applications = [];
       }
       // Documents
       try {
-        final fsDocs = await _firestoreService!.getAllDocuments();
+        final fsDocs = await service.getAllDocuments();
+        if (overtaken()) return;
         documents = fsDocs;
       } catch (_) {
+        if (overtaken()) return;
         documents = [];
       }
       // Document Folders
       try {
-        documentFolders = _sortedFolders(
-          await _firestoreService!.getAllDocumentFolders(),
-        );
+        final fetched = await service.getAllDocumentFolders();
+        if (overtaken()) return;
+        documentFolders = _sortedFolders(fetched);
       } catch (_) {
+        if (overtaken()) return;
         documentFolders = [];
       }
 
-      if (_loadIsStale(generation)) return;
+      if (overtaken()) return;
       notifications = [];
 
       // Ensure currentUser (if set by auth) is present in users
@@ -3078,34 +3159,62 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Departments ───────────────────────────────────
-  Future<void> saveOffice(Office office) async {
+  /// Saves an office's details (name, code, capacity, skills, active) and
+  /// its supervisors. [basedOn] is the office [office] was made from (what a
+  /// dialog opened on); with it, only the supervisors added or removed since
+  /// are applied, to the supervisors stored now. The student assistants are
+  /// never taken from [office]: they stay as stored, so a copy opened a while
+  /// ago can't erase someone placed since. A new office is simply saved.
+  Future<void> saveOffice(Office office, {Office? basedOn}) async {
     _firestoreService ??= FirestoreService();
     final known = offices.where((item) => item.id == office.id).firstOrNull;
+    final base = basedOn ?? known;
     var saved = office;
-    if (known != null &&
-        _sameList(known.assistantIds, office.assistantIds) &&
-        _sameList(known.assistantNames, office.assistantNames) &&
-        _sameList(known.headIds, office.headIds) &&
-        _sameList(known.headNames, office.headNames)) {
-      // Name, code, capacity, skills: the people stay as stored now, so a
-      // stale copy of this office can't erase someone just placed in it.
+    if (base == null) {
+      await _firestoreService!.setOffice(office);
+    } else {
+      final removedHeads = [
+        for (var i = 0; i < base.headIds.length; i++)
+          if (!office.headIds.contains(base.headIds[i]))
+            (
+              id: base.headIds[i],
+              name: i < base.headNames.length ? base.headNames[i] : '',
+            ),
+      ];
+      final addedHeads = [
+        for (var i = 0; i < office.headIds.length; i++)
+          if (!base.headIds.contains(office.headIds[i]))
+            (
+              id: office.headIds[i],
+              name: i < office.headNames.length ? office.headNames[i] : '',
+            ),
+      ];
       final result = await _firestoreService!.updateOffices({office.id}, (
         stored,
       ) {
         final current = stored[office.id];
         if (current == null) return {office.id: office};
+        var merged = current;
+        for (final gone in removedHeads) {
+          merged = merged.withoutHead(gone.id, gone.name);
+        }
+        for (final head in addedHeads) {
+          if (merged.hasHead(head.id, head.name)) continue;
+          merged = merged.copyWith(
+            headIds: [...merged.headIds, head.id],
+            headNames: [...merged.headNames, head.name],
+          );
+        }
         return {
           office.id: office.copyWith(
             assistantIds: current.assistantIds,
             assistantNames: current.assistantNames,
-            headIds: current.headIds,
-            headNames: current.headNames,
+            headIds: merged.headIds,
+            headNames: merged.headNames,
           ),
         };
       });
       saved = result?[office.id] ?? office;
-    } else {
-      await _firestoreService!.setOffice(office);
     }
     final index = offices.indexWhere((item) => item.id == office.id);
     offices = index < 0 ? [...offices, saved] : [...offices]
@@ -3113,6 +3222,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     await _syncOfficeAssignments();
   }
+
+  /// Whether two copies of an office differ in who is in it (ids or names,
+  /// assistants or supervisors: an older entry may be a name alone).
+  static bool _peopleDiffer(Office a, Office b) =>
+      !_sameList(a.assistantIds, b.assistantIds) ||
+      !_sameList(a.assistantNames, b.assistantNames) ||
+      !_sameList(a.headIds, b.headIds) ||
+      !_sameList(a.headNames, b.headNames);
 
   static bool _sameList(List<String> a, List<String> b) {
     if (a.length != b.length) return false;
@@ -3276,12 +3393,10 @@ class AppState extends ChangeNotifier {
               other = other.withoutAssistant(a.id, a.name);
             }
           }
-          if (other.assistantIds.length != entry.value.assistantIds.length) {
-            changed[entry.key] = other;
-          }
+          if (_peopleDiffer(other, entry.value)) changed[entry.key] = other;
         }
         return changed;
-      });
+      }, people: [for (final a in added) a.id, for (final g in removed) g.id]);
     } catch (error) {
       debugPrint('Failed to save the office roster: $error');
       return false;
@@ -4258,9 +4373,11 @@ class AppState extends ChangeNotifier {
           debugPrint('Failed to persist notification: $error');
           // It never reached anyone: take back the copy shown here, and say
           // so rather than let the sender think they were told.
+          // Only this optimistic copy: a saved one the live feed already
+          // delivered (a reminder the server made first) stays.
           notifications = [
             for (final item in notifications)
-              if (item.id != savedId) item,
+              if (!identical(item, local)) item,
           ];
           if (!_disposed) {
             notifyListeners();
@@ -6215,10 +6332,7 @@ class AppState extends ChangeNotifier {
               office = office.withoutHead(gone.id, gone.name);
             }
           }
-          if (office.assistantIds.length != entry.value.assistantIds.length ||
-              office.headIds.length != entry.value.headIds.length) {
-            changed[entry.key] = office;
-          }
+          if (_peopleDiffer(office, entry.value)) changed[entry.key] = office;
         }
         return changed;
       });
@@ -6277,11 +6391,15 @@ class AppState extends ChangeNotifier {
     final user = users.where((u) => u.id == id).firstOrNull;
     if (user == null) return null;
     final oldRole = user.role;
-    if (oldRole == newRole) return null;
+    final promoted = newRole == 'Student Assistant';
+    final roleChanges = oldRole != newRole;
+    // Already in the role: nothing to save for it. A Head still makes sure a
+    // Student Assistant has an active students record, which is how a
+    // promotion cut short is finished by saving the approval again.
+    if (!roleChanges && !(promoted && role == 'Head')) return null;
     _firestoreService ??= FirestoreService();
     final service = _firestoreService!;
 
-    final promoted = newRole == 'Student Assistant';
     final updatedUser = user.copyWith(role: newRole);
     // A new students record, written with the role (Head only).
     Student? newRecord;
@@ -6298,12 +6416,14 @@ class AppState extends ChangeNotifier {
       );
     }
     try {
-      if (newRecord != null) {
+      if (roleChanges && newRecord != null) {
         await service.updateUserFieldsWithStudent(id, {
           'role': newRole,
         }, newRecord);
-      } else {
+      } else if (roleChanges) {
         await service.updateUserFields(id, {'role': newRole});
+      } else if (newRecord != null) {
+        await service.setStudent(newRecord);
       }
     } catch (error) {
       debugPrint('Failed to change the role of $id: $error');
@@ -6312,11 +6432,13 @@ class AppState extends ChangeNotifier {
 
     // Saved: now it shows. Their notifications, applications, tasks and
     // reports stay with them; if it's the signed-in user, the role follows.
-    users = [for (final u in users) u.id == id ? updatedUser : u];
-    if (newRecord != null) students = [newRecord, ...students];
-    if (currentUser?.id == id) {
-      currentUser = currentUser!.copyWith(role: newRole);
+    if (roleChanges) {
+      users = [for (final u in users) u.id == id ? updatedUser : u];
+      if (currentUser?.id == id) {
+        currentUser = currentUser!.copyWith(role: newRole);
+      }
     }
+    if (newRecord != null) students = [newRecord, ...students];
 
     String? problem;
     if (promoted && newRecord == null && role == 'Head') {
@@ -6333,7 +6455,7 @@ class AppState extends ChangeNotifier {
       }
     }
     // Notify the user that their role was changed
-    if (notify) {
+    if (notify && roleChanges) {
       _addNotification(
         AppNotification(
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_role_change_$id',

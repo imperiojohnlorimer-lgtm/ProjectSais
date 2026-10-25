@@ -16,6 +16,9 @@ mixin AccountWrites on FirestoreService {
   /// The offices as saved, by id.
   final officeDocs = <String, Office>{};
 
+  /// The officeAssignments documents: account id to office id.
+  final assignmentDocs = <String, String>{};
+
   /// The next SA number; 0 means the counter document doesn't exist yet.
   int saCounter = 0;
 
@@ -76,16 +79,32 @@ mixin AccountWrites on FirestoreService {
   @override
   Future<Map<String, Office>?> updateOffices(
     Iterable<String> ids,
-    Map<String, Office>? Function(Map<String, Office> stored) edit,
-  ) async {
+    Map<String, Office>? Function(Map<String, Office> stored) edit, {
+    Iterable<String> people = const [],
+  }) async {
     if (failAccountWrites) throw Exception('permission-denied');
+    final officeIds = {...ids};
+    for (final person in people) {
+      final office = assignmentDocs[person];
+      if (office != null) officeIds.add(office);
+    }
     final stored = {
-      for (final id in ids)
+      for (final id in officeIds)
         if (officeDocs[id] != null) id: officeDocs[id]!,
     };
     final changed = edit(stored);
     if (changed == null) return null;
     officeDocs.addAll(changed);
+    for (final person in people) {
+      final home = officeDocs.values
+          .where((office) => office.assistantIds.contains(person))
+          .firstOrNull;
+      if (home == null) {
+        assignmentDocs.remove(person);
+      } else {
+        assignmentDocs[person] = home.id;
+      }
+    }
     return changed;
   }
 }

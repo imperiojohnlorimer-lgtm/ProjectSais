@@ -795,7 +795,10 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                   isActive: isActive,
                                   requiredSkills: requiredSkills,
                                 );
-                                await state.saveOffice(savedOffice);
+                                await state.saveOffice(
+                                  savedOffice,
+                                  basedOn: office,
+                                );
                                 if (dialogContext.mounted) {
                                   Navigator.pop(dialogContext, true);
                                 }

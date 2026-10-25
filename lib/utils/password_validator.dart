@@ -6,11 +6,54 @@ class PasswordValidationResult {
 }
 
 class PasswordValidator {
+  /// The shortest password accepted.
+  static const minLength = 10;
+
+  /// Passwords people choose first. They'd pass the other rules ("Welcome1!"),
+  /// and an attacker tries them first.
+  static const _common = <String>{
+    'password',
+    'passw0rd',
+    'welcome',
+    'letmein',
+    'admin',
+    'login',
+    'iloveyou',
+    'monkey',
+    'dragon',
+    'master',
+    'sunshine',
+    'princess',
+    'football',
+    'baseball',
+    'superman',
+    'batman',
+    'shadow',
+    'marsu',
+    'marsuedu',
+    'marinduque',
+    'student',
+    'sais',
+    'changeme',
+    'qazwsx',
+  };
+
+  /// A common password, with or without the digits, symbols or capitals a
+  /// person adds to satisfy the rules ("Password123!").
+  static bool _isCommon(String password) {
+    final letters = password.toLowerCase().replaceAll(RegExp(r'[^a-z]'), '');
+    return _common.contains(letters);
+  }
+
   static PasswordValidationResult validate(String password) {
     final errors = <String>[];
 
-    if (password.length < 8) {
-      errors.add('Password must be at least 8 characters long.');
+    if (password.length < minLength) {
+      errors.add('Password must be at least $minLength characters long.');
+    }
+
+    if (_isCommon(password)) {
+      errors.add('That password is too common. Choose something less obvious.');
     }
 
     final hasUppercase = RegExp(r'[A-Z]').hasMatch(password);

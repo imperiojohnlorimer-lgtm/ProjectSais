@@ -834,13 +834,33 @@ class FirestoreService {
   /// null to change nothing (a full office, a vanished one). It may run more
   /// than once, so it must only look at what it is given. Returns what was
   /// saved, or null when [edit] declined.
+  ///
+  /// [people] are the account ids whose place is being decided. Their
+  /// officeAssignments documents are read first (so the office each is in
+  /// *now* is read too, whichever the caller thought), and rewritten to
+  /// follow the result. Two Heads placing the same person in different
+  /// offices then collide on that one document: the second is retried and
+  /// sees the first's office instead of leaving the person in both.
   Future<Map<String, Office>?> updateOffices(
     Iterable<String> ids,
-    Map<String, Office>? Function(Map<String, Office> stored) edit,
-  ) {
+    Map<String, Office>? Function(Map<String, Office> stored) edit, {
+    Iterable<String> people = const [],
+  }) {
     return _db.runTransaction((transaction) async {
+      final officeIds = {...ids};
+      final assigned = <String, String>{};
+      for (final person in people) {
+        final snapshot = await transaction.get(_officeAssignments.doc(person));
+        final office = snapshot.exists
+            ? (snapshot.data() as Map<String, dynamic>)['officeId']?.toString()
+            : null;
+        if (office != null && office.isNotEmpty) {
+          assigned[person] = office;
+          officeIds.add(office);
+        }
+      }
       final stored = <String, Office>{};
-      for (final id in ids) {
+      for (final id in officeIds) {
         final snapshot = await transaction.get(_offices.doc(id));
         if (!snapshot.exists) continue;
         stored[id] = Office.fromJson({
@@ -852,6 +872,19 @@ class FirestoreService {
       if (changed == null) return null;
       for (final entry in changed.entries) {
         transaction.set(_offices.doc(entry.key), entry.value.toJson());
+      }
+      // Each person's document follows the offices as they now stand.
+      final result = {...stored, ...changed};
+      for (final person in people) {
+        final home = result.values
+            .where((office) => office.assistantIds.contains(person))
+            .firstOrNull;
+        final ref = _officeAssignments.doc(person);
+        if (home == null) {
+          transaction.delete(ref);
+        } else {
+          transaction.set(ref, {'officeId': home.id});
+        }
       }
       return changed;
     });

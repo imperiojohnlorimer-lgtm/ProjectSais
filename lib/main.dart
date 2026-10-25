@@ -16,6 +16,7 @@ import 'screens/auth/login_screen.dart';
 import 'screens/auth/register_screen.dart';
 import 'screens/landing/landing_screen.dart';
 import 'screens/startup_failed_screen.dart';
+import 'widgets/idle_sign_out_guard.dart';
 import 'services/schedule_service.dart';
 import 'services/firestore_schedule_repository.dart';
 
@@ -95,6 +96,9 @@ class _SAISAppState extends State<SAISApp> {
         theme: AppTheme.theme,
         routerDelegate: _router,
         routeInformationParser: const AppRouteParser(),
+        // Signs out someone who has stopped using SAIS.
+        builder: (context, child) =>
+            IdleSignOutGuard(child: child ?? const SizedBox.shrink()),
       ),
     );
   }

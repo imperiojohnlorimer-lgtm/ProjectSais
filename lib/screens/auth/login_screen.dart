@@ -29,8 +29,15 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _unverified = false;
   bool _sendingLink = false;
 
-  /// What "Send a new link" did, in green.
+  /// What "Send a new link" did, in green. Also why the person was signed
+  /// out when it wasn't their doing (idle too long).
   String? _notice;
+
+  @override
+  void initState() {
+    super.initState();
+    _notice = context.read<AppState>().takeSignOutNotice();
+  }
 
   void _clearMessages() {
     if (_error == null && _notice == null) return;
@@ -66,6 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
     final authError = await appState.signInWithEmailAndPassword(
       email,
       password,
+      remember: _rememberMe,
     );
     if (!mounted) return;
 
@@ -247,7 +255,7 @@ class _LoginScreenState extends State<LoginScreen> {
     });
 
     final appState = context.read<AppState>();
-    final authError = await appState.signInWithGoogle();
+    final authError = await appState.signInWithGoogle(remember: _rememberMe);
     if (!mounted) return;
 
     if (authError != null) {

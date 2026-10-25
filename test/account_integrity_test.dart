@@ -382,6 +382,29 @@ void main() {
       },
     );
 
+    test(
+      'two Heads placing one person in different offices leave them in one',
+      () async {
+        final library = _office(id: 'o1');
+        final registrar = _office(id: 'o2').copyWith(name: 'Registrar');
+        store.officeDocs['o1'] = library;
+        store.officeDocs['o2'] = registrar;
+        final one = session(_head)..offices = [library, registrar];
+        final two = session(_head)..offices = [library, registrar];
+
+        // Both see Ana unplaced.
+        expect(await one.assignStudentAssistantsToOffice('o1', [ana]), isTrue);
+        expect(await two.assignStudentAssistantsToOffice('o2', [ana]), isTrue);
+
+        final inLibrary = store.officeDocs['o1']!.assistantIds.contains('sa1');
+        final inRegistrar = store.officeDocs['o2']!.assistantIds.contains(
+          'sa1',
+        );
+        expect(inLibrary != inRegistrar, isTrue);
+        expect(store.assignmentDocs['sa1'], inRegistrar ? 'o2' : 'o1');
+      },
+    );
+
     test('a refused save returns false and shows nothing new', () async {
       final shown = _office();
       store.officeDocs['o1'] = shown;
@@ -403,6 +426,32 @@ void main() {
       expect(await state.assignSupervisorsToOffice('nope', []), isFalse);
     });
 
+    test('a dialog opened earlier keeps the roster and changes supervisors by '
+        'what it changed', () async {
+      final opened = _office(ids: ['sa1'], names: ['Ana Reyes']);
+      // Meanwhile someone was placed, and a second supervisor added.
+      store.officeDocs['o1'] = opened.copyWith(
+        assistantIds: ['sa1', 'sa2'],
+        assistantNames: ['Ana Reyes', 'Ben Cruz'],
+        headIds: ['sup1', 'sup3'],
+        headNames: ['Sid Supervisor', 'Tia Supervisor'],
+      );
+      final state = session(_head)..offices = [opened];
+
+      // The dialog (opened on the old office) adds Tess and drops nobody.
+      await state.saveOffice(
+        opened.copyWith(
+          headIds: ['sup1', 'sup2'],
+          headNames: ['Sid Supervisor', 'Tess Supervisor'],
+        ),
+        basedOn: opened,
+      );
+
+      final saved = store.officeDocs['o1']!;
+      expect(saved.assistantIds, ['sa1', 'sa2']);
+      expect(saved.headIds, ['sup1', 'sup3', 'sup2']);
+    });
+
     test('renaming an office keeps the people stored now', () async {
       final shown = _office(ids: ['sa1'], names: ['Ana Reyes']);
       store.officeDocs['o1'] = shown.copyWith(
@@ -418,7 +467,68 @@ void main() {
     });
   });
 
+  group('finishing a promotion', () {
+    final stu = _user('stu1', 'Sam Student', 'Student');
+
+    test(
+      'saving the approval again repairs a missing students record',
+      () async {
+        // The role was saved before, the roster record never was.
+        final assistant = stu.copyWith(role: 'Student Assistant');
+        store.profiles['stu1'] = assistant;
+        final state = session(_head, users: [assistant]);
+
+        expect(await state.changeUserRole('stu1', 'Student Assistant'), isNull);
+
+        expect(store.students.keys, ['stu1']);
+      },
+    );
+
+    test('and brings back an archived one', () async {
+      final assistant = stu.copyWith(role: 'Student Assistant');
+      store.profiles['stu1'] = assistant;
+      final archived = Student(
+        id: 'stu1',
+        name: stu.name,
+        email: stu.email,
+        department: 'CICS',
+        userId: 'stu1',
+        status: 'Archived',
+      );
+      store.students['stu1'] = archived;
+      final state = session(_head, users: [assistant])..students = [archived];
+
+      expect(await state.changeUserRole('stu1', 'Student Assistant'), isNull);
+
+      expect(store.students['stu1']!.status, 'Active');
+      expect(store.profileFieldWrites, isEmpty);
+    });
+  });
+
   group('a Head clears what a deleted account left', () {
+    test('an older office entry that has only a name', () async {
+      final gone = _user(
+        'gone1',
+        'Gina Gone',
+        'Student Assistant',
+      ).copyWith(isDeleted: true, status: 'Archived');
+      // Saved before accounts had ids: a name with no id beside it.
+      store.officeDocs['o1'] = _office(ids: [''], names: ['Gina Gone']);
+      final state = session(_head);
+      await state.init();
+
+      store.list('offices').add([
+        {...store.officeDocs['o1']!.toJson(), 'id': 'o1'},
+      ]);
+      store.list('users').add([_head.toJson(), gone.toJson()]);
+      for (var i = 0; i < 6; i++) {
+        await _settle();
+      }
+
+      expect(store.officeDocs['o1']!.assistantNames, isEmpty);
+      state.dispose();
+    });
+
     test('its roster record and office places', () async {
       final gone = _user(
         'gone1',

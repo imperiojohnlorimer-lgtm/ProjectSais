@@ -15,12 +15,17 @@ class _FakeAuthState extends AppState {
   int signIns = 0;
   int linksSent = 0;
 
+  /// What the last sign-in asked for ("Remember me" ticked or not).
+  bool? lastRemember;
+
   @override
   Future<String?> signInWithEmailAndPassword(
     String email,
-    String password,
-  ) async {
+    String password, {
+    bool remember = true,
+  }) async {
     signIns++;
+    lastRemember = remember;
     return signInAnswer;
   }
 

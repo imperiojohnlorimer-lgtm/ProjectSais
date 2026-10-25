@@ -366,7 +366,12 @@ extension AppStateRehiring on AppState {
     if (user != null) {
       if (record.isRehired) {
         if (user.role == 'Student') {
-          await changeUserRole(user.id, 'Student Assistant', notify: false);
+          final problem = await changeUserRole(
+            user.id,
+            'Student Assistant',
+            notify: false,
+          );
+          if (problem != null) throw StateError(problem);
         } else {
           await _setStudentRecordsStatus(user, 'Active');
         }
@@ -377,7 +382,12 @@ extension AppStateRehiring on AppState {
         await _setAssistantOffice(user, null);
         await _setStudentRecordsStatus(user, 'Archived');
         if (user.role == 'Student Assistant') {
-          await changeUserRole(user.id, 'Student', notify: false);
+          final problem = await changeUserRole(
+            user.id,
+            'Student',
+            notify: false,
+          );
+          if (problem != null) throw StateError(problem);
         }
       }
     }
@@ -425,6 +435,9 @@ extension AppStateRehiring on AppState {
     // One transaction over the offices as stored now: a move never lands on
     // only one of them, and nobody else's placement is overwritten.
     final saved = await _firestoreService!.updateOffices(touched, (stored) {
+      // The office they are to join has gone: leave them where they are
+      // rather than take them out of the old one and put them nowhere.
+      if (officeId != null && !stored.containsKey(officeId)) return null;
       final changed = <String, Office>{};
       for (final entry in stored.entries) {
         final office = entry.value;
@@ -440,8 +453,13 @@ extension AppStateRehiring on AppState {
         }
       }
       return changed;
-    });
-    if (saved != null && saved.isNotEmpty) await _showSavedOffices(saved);
+    }, people: [user.id]);
+    if (saved == null) {
+      throw StateError(
+        "That office no longer exists, so ${user.name} wasn't placed in it.",
+      );
+    }
+    if (saved.isNotEmpty) await _showSavedOffices(saved);
   }
 
   AttendanceRecord? get activeAttendanceRecord {
