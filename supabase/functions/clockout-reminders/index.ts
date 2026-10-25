@@ -247,6 +247,7 @@ async function googleToken(): Promise<string> {
 
 type FirestoreDoc = {
   name: string;
+  updateTime?: string;
   fields?: Record<
     string,
     { stringValue?: string; booleanValue?: boolean; timestampValue?: string }
@@ -286,6 +287,32 @@ async function runQuery(
   return (Array.isArray(rows) ? rows : [])
     .map((row: { document?: FirestoreDoc }) => row.document)
     .filter((doc): doc is FirestoreDoc => Boolean(doc));
+}
+
+/** Whether the account [userId] has been deactivated. */
+async function isDeactivated(userId: string, token: string): Promise<boolean> {
+  const profile = await getDocument(`users/${encodeURIComponent(userId)}`, token);
+  return profile?.fields?.status?.stringValue === "Archived";
+}
+
+/** Of [userIds], the accounts that haven't been deactivated. */
+async function activeUsers(
+  userIds: string[],
+  token: string,
+): Promise<Set<string>> {
+  // An account whose status can't be read is left out, not a reason to
+  // stop everyone else's reminder.
+  const checked = await Promise.all(
+    userIds.map(async (id) => {
+      try {
+        return [id, !(await isDeactivated(id, token))] as const;
+      } catch (error) {
+        console.error(`Could not check account ${id}:`, error);
+        return [id, false] as const;
+      }
+    }),
+  );
+  return new Set(checked.filter(([, active]) => active).map(([id]) => id));
 }
 
 /** The devices registered under [userIds] (pushTokens, saved by the app). */
@@ -433,7 +460,7 @@ async function sendReminders(): Promise<Response> {
       },
     },
   }, token);
-  const due = today.filter((doc) => {
+  const open = today.filter((doc) => {
     const f = doc.fields ?? {};
     return !f.timeOut?.stringValue &&
       f.isArchived?.booleanValue !== true &&
@@ -441,6 +468,11 @@ async function sendReminders(): Promise<Response> {
       Boolean(f.studentId?.stringValue) &&
       isDue(f.timeIn?.stringValue ?? "", half);
   });
+  const active = await activeUsers(
+    [...new Set(open.map((d) => d.fields!.studentId!.stringValue!))],
+    token,
+  );
+  const due = open.filter((d) => active.has(d.fields!.studentId!.stringValue!));
   if (due.length === 0) return json({ reminded: 0, sent: 0 });
 
   const title = "Time to Clock Out";
@@ -461,20 +493,26 @@ async function sendReminders(): Promise<Response> {
   for (const record of due) {
     const userId = record.fields!.studentId!.stringValue!;
     const notificationId = `clockout_${record.name.split("/").pop()}`;
-    await saveNotification(notificationId, userId, title, body, token);
-    for (const device of devices.filter((d) => d.userId === userId)) {
-      const result = await send(device, {
-        title,
-        body,
-        tag: notificationId,
-        ttlSeconds,
-        requireInteraction: true,
-        page: "attendance",
-        data: { type: "clockout", notificationId, title, body },
-      }, token);
-      if (result === "sent") sent++;
-      else if (result === "gone") gone++;
-      else errors.push(result);
+    // One student's failure must not stop everyone after them.
+    try {
+      await saveNotification(notificationId, userId, title, body, token);
+      for (const device of devices.filter((d) => d.userId === userId)) {
+        const result = await send(device, {
+          title,
+          body,
+          tag: notificationId,
+          ttlSeconds,
+          requireInteraction: true,
+          page: "attendance",
+          data: { type: "clockout", notificationId, title, body },
+        }, token);
+        if (result === "sent") sent++;
+        else if (result === "gone") gone++;
+        else errors.push(result);
+      }
+    } catch (error) {
+      console.error(`Reminder ${notificationId} failed:`, error);
+      errors.push(String(error));
     }
   }
   if (errors.length) console.error("Some reminders failed:", errors);
@@ -521,41 +559,56 @@ async function caller(request: Request): Promise<string | Response> {
  */
 async function pushNotifications(ids: string[]): Promise<Response> {
   const token = await googleToken();
-  const due: { id: string; userId: string; title: string; body: string }[] =
+  const due: { id: string; name: string; userId: string; title: string; body: string }[] =
     [];
+  const deactivated = new Map<string, boolean>();
   for (const id of ids) {
     if (!id || id.includes("/") || id.startsWith("clockout_")) continue;
-    const doc = await getDocument(
-      `notifications/${encodeURIComponent(id)}`,
-      token,
-    );
-    const f = doc?.fields;
-    const userId = f?.userId?.stringValue;
-    if (!doc || !f || !userId || f.pushedAt) continue;
-    const savedAt = Date.parse(f.createdAt?.timestampValue ?? "");
-    if (!(Date.now() - savedAt < FRESH_MS)) continue;
+    // One notification that can't be read or claimed must not stop the rest.
+    try {
+      const doc = await getDocument(
+        `notifications/${encodeURIComponent(id)}`,
+        token,
+      );
+      const f = doc?.fields;
+      const userId = f?.userId?.stringValue;
+      if (!doc || !f || !userId || f.pushedAt || !doc.updateTime) continue;
+      const savedAt = Date.parse(f.createdAt?.timestampValue ?? "");
+      if (!(Date.now() - savedAt < FRESH_MS)) continue;
 
-    const marked = await fetch(
-      `https://firestore.googleapis.com/v1/${doc.name}` +
-        "?updateMask.fieldPaths=pushedAt&currentDocument.exists=true",
-      {
-        method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
+      if (!deactivated.has(userId)) {
+        deactivated.set(userId, await isDeactivated(userId, token));
+      }
+      if (deactivated.get(userId)) continue;
+
+      // The claim only holds if the notification is unchanged since it was
+      // read: of two requests for the same one, the second is refused.
+      const marked = await fetch(
+        `https://firestore.googleapis.com/v1/${doc.name}` +
+          "?updateMask.fieldPaths=pushedAt" +
+          `&currentDocument.updateTime=${encodeURIComponent(doc.updateTime)}`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            fields: { pushedAt: { timestampValue: new Date().toISOString() } },
+          }),
         },
-        body: JSON.stringify({
-          fields: { pushedAt: { timestampValue: new Date().toISOString() } },
-        }),
-      },
-    );
-    if (!marked.ok) continue; // deleted meanwhile
-    due.push({
-      id,
-      userId,
-      title: f.title?.stringValue ?? "SAIS",
-      body: f.message?.stringValue ?? "",
-    });
+      );
+      if (!marked.ok) continue; // claimed by another request, or deleted
+      due.push({
+        id,
+        name: doc.name,
+        userId,
+        title: f.title?.stringValue ?? "SAIS",
+        body: f.message?.stringValue ?? "",
+      });
+    } catch (error) {
+      console.error(`Notification ${id} could not be claimed:`, error);
+    }
   }
   if (due.length === 0) return json({ pushed: 0, sent: 0 });
 
@@ -563,25 +616,53 @@ async function pushNotifications(ids: string[]): Promise<Response> {
   let sent = 0;
   const errors: string[] = [];
   for (const n of due) {
+    let delivered = 0;
+    let failed = 0;
     for (const device of devices.filter((d) => d.userId === n.userId)) {
-      const result = await send(device, {
-        title: n.title,
-        body: n.body,
-        tag: n.id,
-        ttlSeconds: 24 * 60 * 60,
-        requireInteraction: false,
-        // Every role's Notifications page is /notifications; the new one is
-        // at the top, and tapping it opens what it's about.
-        page: "notifications",
-        data: {
-          type: "notification",
-          notificationId: n.id,
+      try {
+        const result = await send(device, {
           title: n.title,
           body: n.body,
+          tag: n.id,
+          ttlSeconds: 24 * 60 * 60,
+          requireInteraction: false,
+          // Every role's Notifications page is /notifications; the new one is
+          // at the top, and tapping it opens what it's about.
+          page: "notifications",
+          data: {
+            type: "notification",
+            notificationId: n.id,
+            title: n.title,
+            body: n.body,
+          },
+        }, token);
+        if (result === "sent") {
+          sent++;
+          delivered++;
+        } else if (result !== "gone") {
+          errors.push(result);
+          failed++;
+        }
+      } catch (error) {
+        errors.push(String(error));
+        failed++;
+      }
+    }
+    // Nothing got through and something failed (not just "no devices"):
+    // let the app's retry, or the next request, try again.
+    if (delivered === 0 && failed > 0) {
+      await fetch(
+        `https://firestore.googleapis.com/v1/${n.name}` +
+          "?updateMask.fieldPaths=pushedAt&currentDocument.exists=true",
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ fields: {} }),
         },
-      }, token);
-      if (result === "sent") sent++;
-      else if (result !== "gone") errors.push(result);
+      ).catch(() => {});
     }
   }
   if (errors.length) console.error("Some pushes failed:", errors);
@@ -656,6 +737,9 @@ Deno.serve(async (request) => {
 
     const userId = await caller(request);
     if (userId instanceof Response) return userId;
+    if (await isDeactivated(userId, await googleToken())) {
+      return json({ error: "This account has been deactivated." }, 403);
+    }
     const body = await request.json().catch(() => ({}));
 
     if (Array.isArray(body?.notificationIds)) {

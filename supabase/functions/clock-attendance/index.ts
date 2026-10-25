@@ -104,6 +104,48 @@ export function sortOpenRecords<T extends OpenRecord>(
 }
 // #endregion session rules
 
+// #region record rules
+// records.test.ts runs this region on its own, so it must not use anything
+// from the rest of this file.
+
+/**
+ * The id for a student's next attendance record of a day: `prefix` is
+ * `<student>_<yyyyMMdd>`, [names] the full names of the records already on
+ * file for that student and date. Every clock-in takes the next number, so
+ * two scans of the same clock-in (a double tap) ask for the same id and the
+ * second is refused by Firestore instead of making a duplicate record.
+ * Numbered from the highest one on file, not a count, so deleting a record
+ * never hands out an id that is still in use.
+ */
+export function nextAttendanceId(prefix: string, names: string[]): string {
+  let next = 0;
+  for (const name of names) {
+    const id = name.split("/").pop() ?? "";
+    if (!id.startsWith(`${prefix}_`)) continue;
+    const number = Number(id.slice(prefix.length + 1));
+    if (Number.isInteger(number) && number >= next) next = number + 1;
+  }
+  return `${prefix}_${next}`;
+}
+
+/**
+ * Whether one of today's sessions was closed in this very minute: a scan
+ * right after a clock-out is a second tap on the same code, not someone
+ * clocking back in.
+ */
+export function justClockedOut(timeOuts: string[], now: string): boolean {
+  return timeOuts.some((timeOut) => timeOut === now);
+}
+/**
+ * Whether the open record was clocked in during this very minute: a scan
+ * right after a clock-in is a second tap on the same code, which would
+ * otherwise clock the student straight back out with no hours.
+ */
+export function justClockedIn(timeIn: string, now: string): boolean {
+  return timeIn !== "" && timeIn === now;
+}
+// #endregion record rules
+
 // The Admin's "Weekly Hours Cap" setting: at most this many hours are
 // credited per Monday–Sunday week. The settings screen promises 20.
 const WEEKLY_HOUR_CAP = 20;
@@ -256,25 +298,48 @@ async function hoursOn(
   dates: string[],
   token: string,
 ): Promise<number> {
-  const response = await fetch(`${documentsRoot}:runQuery`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const ask = (where: unknown) =>
+    fetch(`${documentsRoot}:runQuery`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        structuredQuery: { from: [{ collectionId: "attendance" }], where },
+      }),
+    });
+  const ofStudent = {
+    fieldFilter: {
+      field: { fieldPath: "studentId" },
+      op: "EQUAL",
+      value: { stringValue: userId },
     },
-    body: JSON.stringify({
-      structuredQuery: {
-        from: [{ collectionId: "attendance" }],
-        where: {
+  };
+
+  // Only the week's seven dates are read, not everything the student has
+  // ever recorded. If Firestore won't run that combination, fall back to
+  // all of the student's records (the rows are filtered below either way).
+  let response = await ask({
+    compositeFilter: {
+      op: "AND",
+      filters: [
+        ofStudent,
+        {
           fieldFilter: {
-            field: { fieldPath: "studentId" },
-            op: "EQUAL",
-            value: { stringValue: userId },
+            field: { fieldPath: "date" },
+            op: "IN",
+            value: {
+              arrayValue: {
+                values: dates.map((date) => ({ stringValue: date })),
+              },
+            },
           },
         },
-      },
-    }),
+      ],
+    },
   });
+  if (!response.ok) response = await ask(ofStudent);
   if (!response.ok) {
     throw new Error(`Firestore query failed (${response.status}).`);
   }
@@ -318,14 +383,19 @@ Deno.serve(async (request) => {
       return json({ error: "Please sign in first." }, 401);
     }
 
-    const verified = await jwtVerify(
-      authorization.substring("Bearer ".length),
-      firebaseKeys,
-      {
-        issuer: `https://securetoken.google.com/${firebaseProjectId}`,
-        audience: firebaseProjectId,
-      },
-    );
+    let verified;
+    try {
+      verified = await jwtVerify(
+        authorization.substring("Bearer ".length),
+        firebaseKeys,
+        {
+          issuer: `https://securetoken.google.com/${firebaseProjectId}`,
+          audience: firebaseProjectId,
+        },
+      );
+    } catch (_) {
+      return json({ error: "Please sign in again." }, 401);
+    }
     const userId = verified.payload.sub;
     if (!userId || typeof userId !== "string") {
       return json({ error: "Invalid Firebase user ID." }, 401);
@@ -492,6 +562,10 @@ Deno.serve(async (request) => {
 
     if (open) {
       const timeIn = open.fields?.timeIn?.stringValue ?? "";
+      if (justClockedIn(timeIn, now)) {
+        // A second tap in the minute of the clock-in, not a clock-out.
+        return json({ action: "in", time: timeIn });
+      }
       const worked = hoursBetween(timeIn, now);
       // Credit no more than what's left of the week's cap. The time-in and
       // time-out stay as they happened; the full figure is kept alongside.
@@ -537,6 +611,24 @@ Deno.serve(async (request) => {
       });
     }
 
+    const allToday = (Array.isArray(rows) ? rows : [])
+      .map((row: { document?: AttendanceDoc }) => row.document)
+      .filter((doc): doc is AttendanceDoc => Boolean(doc));
+    const todaysDocs = allToday.filter((doc) =>
+      doc.fields?.isArchived?.booleanValue !== true
+    );
+    if (
+      justClockedOut(
+        todaysDocs.map((doc) => doc.fields?.timeOut?.stringValue ?? ""),
+        now,
+      )
+    ) {
+      return json({
+        error: "You just clocked out. Scan again in a minute if you meant " +
+          "to clock back in.",
+      }, 409);
+    }
+
     if (capOn && weekHours >= WEEKLY_HOUR_CAP) {
       return json({
         error: `You've already worked ${WEEKLY_HOUR_CAP} hours this week, ` +
@@ -557,14 +649,29 @@ Deno.serve(async (request) => {
     };
     if (academicYear) fields.academicYear = { stringValue: academicYear };
 
-    const created = await fetch(`${documentsRoot}/attendance`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
+    const dayKey = String(wc.year).padStart(4, "0") +
+      String(wc.month + 1).padStart(2, "0") +
+      String(wc.day).padStart(2, "0");
+    const recordId = nextAttendanceId(
+      `${userId}_${dayKey}`,
+      allToday.map((doc) => doc.name),
+    );
+
+    const created = await fetch(
+      `${documentsRoot}/attendance?documentId=${encodeURIComponent(recordId)}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ fields }),
       },
-      body: JSON.stringify({ fields }),
-    });
+    );
+    if (created.status === 409) {
+      // The same clock-in arrived twice and the other one was saved first.
+      return json({ action: "in", time: now });
+    }
     if (!created.ok) {
       throw new Error(`Could not save the clock-in (${created.status}).`);
     }

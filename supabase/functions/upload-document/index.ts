@@ -49,6 +49,9 @@ function json(data: unknown, status = 200) {
   });
 }
 
+// #region path rules
+// paths.test.ts runs this region on its own, so it must not use anything
+// from the rest of this file.
 function validPathParts(path: string) {
   const parts = path.split("/");
 
@@ -75,7 +78,37 @@ function validPathParts(path: string) {
   return validShape && validRoot && safeParts;
 }
 
-function ownedPath(path: string, userId: string) {
+// Where staff (not the file's owner) may ask for a download link. The Head
+// reads applicants' documents and the archived copies of past years; a
+// Supervisor only the reports their students send, plus announcement
+// attachments (public to every signed-in user). Every part must be a real
+// name: no empty parts, "." or "..", and a bounded length.
+const headRoots = [
+  "reports",
+  "applications",
+  "announcements",
+  "academic_year_archives",
+];
+const supervisorRoots = ["reports", "announcements"];
+
+export function staffMayRead(path: string, role: string | undefined) {
+  if (path.length > 400) return false;
+  // Storage decodes the path it is given, so "%2e%2e" would climb out of the
+  // folder that was checked. No real file name here contains these.
+  if (path.includes("%") || path.includes("\\") || /[\u0000-\u001f]/.test(path)) {
+    return false;
+  }
+  const parts = path.split("/");
+  if (parts.length < 4 || parts.length > 6) return false;
+  if (parts.some((part) => part.length === 0 || part === "." || part === "..")) {
+    return false;
+  }
+  if (role === "Head") return headRoots.includes(parts[0]);
+  if (role === "Supervisor") return supervisorRoots.includes(parts[0]);
+  return false;
+}
+
+export function ownedPath(path: string, userId: string) {
   return validPathParts(path) && path.split("/")[1] === userId;
 }
 
@@ -84,14 +117,20 @@ function ownedPath(path: string, userId: string) {
 // regardless of who uploaded it. Uploading still requires ownedPath (or
 // isStaffUser via the caller), so only the Head posting the announcement
 // can write into this root in normal app usage.
-function isPublicAnnouncementPath(path: string) {
+export function isPublicAnnouncementPath(path: string) {
   return validPathParts(path) && path.split("/")[0] === "announcements";
 }
+
+// #endregion path rules
+
+/** Thrown when the profile can't be read for a reason other than "none". */
+class ProfileUnavailable extends Error {}
 
 /**
  * The caller's own profile, read with their own token (the Firestore rules
  * let any signed-in user read their own document), or null if there isn't
- * one.
+ * one. Throws [ProfileUnavailable] when Firestore can't answer (an outage or
+ * its quota), so a failed lookup never reads as "not staff, not archived".
  */
 async function loadProfile(
   userId: string,
@@ -106,7 +145,8 @@ async function loadProfile(
     },
   );
 
-  if (!response.ok) return null;
+  if (response.status === 404) return null;
+  if (!response.ok) throw new ProfileUnavailable();
 
   const document = await response.json();
   return {
@@ -119,6 +159,36 @@ function isStaffProfile(profile: { role?: string } | null) {
   // Admin no longer manages Reports or Applications — that moved to Head.
   // Supervisor still owns the Reports/DTR approval flow.
   return profile?.role === "Head" || profile?.role === "Supervisor";
+}
+
+// The largest file the app uploads is 10 MB; the rest is the multipart
+// framing around it.
+const maxFileBytes = 10 * 1024 * 1024;
+const maxBodyBytes = maxFileBytes + 512 * 1024;
+
+/**
+ * The request's body, read no further than [maxBodyBytes]: a declared
+ * length can lie, and formData() would otherwise buffer whatever arrives.
+ * Null when it is larger than that.
+ */
+async function readBodyWithin(request: Request): Promise<Blob | null> {
+  const declared = Number(request.headers.get("content-length") ?? "0");
+  if (declared > maxBodyBytes) return null;
+  const reader = request.body?.getReader();
+  if (!reader) return new Blob([]);
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > maxBodyBytes) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  return new Blob(chunks);
 }
 
 Deno.serve(async (request) => {
@@ -139,10 +209,15 @@ Deno.serve(async (request) => {
 
     const token = authorization.substring("Bearer ".length);
 
-    const verified = await jwtVerify(token, firebaseKeys, {
-      issuer: `https://securetoken.google.com/${firebaseProjectId}`,
-      audience: firebaseProjectId,
-    });
+    let verified;
+    try {
+      verified = await jwtVerify(token, firebaseKeys, {
+        issuer: `https://securetoken.google.com/${firebaseProjectId}`,
+        audience: firebaseProjectId,
+      });
+    } catch (_) {
+      return json({ error: "Please sign in again." }, 401);
+    }
 
     const userId = verified.payload.sub;
 
@@ -175,7 +250,8 @@ Deno.serve(async (request) => {
       const requestedPath = body.path;
       const ownsFile = ownedPath(requestedPath, userId);
       const publicAnnouncement = isPublicAnnouncementPath(requestedPath);
-      const staffUser = !publicAnnouncement && isStaffProfile(profile);
+      const staffUser = !publicAnnouncement &&
+        staffMayRead(requestedPath, profile?.role);
 
       if (!ownsFile && !publicAnnouncement && !staffUser) {
         return json({ error: "Invalid document path." }, 403);
@@ -187,12 +263,7 @@ Deno.serve(async (request) => {
           .createSignedUrl(requestedPath, 3600);
 
       if (signedUrlError || !signedFile) {
-        return json(
-          {
-            error: signedUrlError?.message ?? "Document not found.",
-          },
-          404,
-        );
+        return json({ error: "Document not found." }, 404);
       }
 
       return json({
@@ -202,7 +273,16 @@ Deno.serve(async (request) => {
     }
 
     // Upload a new file.
-    const form = await request.formData();
+    const body = await readBodyWithin(request);
+    if (!body) {
+      return json({ error: "Files must be between 1 byte and 10 MB." }, 413);
+    }
+    const form = await new Response(body, {
+      headers: { "content-type": requestContentType },
+    }).formData().catch(() => null);
+    if (!form) {
+      return json({ error: "That upload could not be read." }, 400);
+    }
     const file = form.get("file");
     const requestedPath = form.get("path");
 
@@ -218,8 +298,16 @@ Deno.serve(async (request) => {
     if (!ownedPath(requestedPath, userId)) {
       return json({ error: "Invalid upload path." }, 403);
     }
+    // Announcement attachments are public to every signed-in user, so only
+    // the staff who post announcements may add them.
+    if (
+      requestedPath.split("/")[0] === "announcements" &&
+      !isStaffProfile(profile)
+    ) {
+      return json({ error: "Invalid upload path." }, 403);
+    }
 
-    if (file.size === 0 || file.size > 10 * 1024 * 1024) {
+    if (file.size === 0 || file.size > maxFileBytes) {
       return json(
         { error: "Files must be between 1 byte and 10 MB." },
         400,
@@ -248,7 +336,8 @@ Deno.serve(async (request) => {
       });
 
     if (uploadError) {
-      return json({ error: uploadError.message }, 500);
+      console.error("upload-document: upload failed:", uploadError.message);
+      return json({ error: "The file could not be saved." }, 500);
     }
 
     const { data: signedFile, error: signedUrlError } =
@@ -257,14 +346,8 @@ Deno.serve(async (request) => {
         .createSignedUrl(requestedPath, 3600);
 
     if (signedUrlError || !signedFile) {
-      return json(
-        {
-          error:
-            signedUrlError?.message ??
-            "Unable to create signed URL.",
-        },
-        500,
-      );
+      console.error("upload-document: signing failed:", signedUrlError?.message);
+      return json({ error: "Unable to create a download link." }, 500);
     }
 
     return json({
@@ -272,16 +355,14 @@ Deno.serve(async (request) => {
       downloadUrl: signedFile.signedUrl,
     });
   } catch (error) {
-    console.error(error);
+    console.error("upload-document failed:", error);
 
-    return json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Invalid Firebase authentication token.",
-      },
-      401,
-    );
+    if (error instanceof ProfileUnavailable) {
+      return json(
+        { error: "Could not check your account right now. Try again." },
+        503,
+      );
+    }
+    return json({ error: "The request could not be completed." }, 500);
   }
 });
