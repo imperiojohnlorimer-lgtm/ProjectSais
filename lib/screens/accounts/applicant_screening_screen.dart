@@ -716,21 +716,6 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     setState(() {});
   }
 
-  Widget _badge(String text) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: AppTheme.maroon50,
-      borderRadius: BorderRadius.circular(7),
-    ),
-    child: Text(
-      text,
-      style: const TextStyle(
-        fontSize: 9,
-        color: AppTheme.maroon,
-        fontWeight: FontWeight.w700,
-      ),
-    ),
-  );
   Widget _action(String label, IconData icon, VoidCallback action) =>
       FilledButton.icon(
         onPressed: action,
