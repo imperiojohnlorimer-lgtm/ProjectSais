@@ -48,7 +48,7 @@ The function tests need Node 23.6 or newer. The same checks run on every push
 
 The project owner deploys. Order matters when a change touches the rules:
 
-1. `firebase deploy --only firestore:rules,storage` (the rules)
+1. `firebase deploy --only firestore:rules` (the rules; files live in Supabase Storage, not Firebase Storage, so there is nothing to deploy for it)
 2. `flutter build web --release`, then `firebase deploy --only hosting`
 3. Supabase functions: paste each `supabase/functions/<name>/index.ts` into
    the function's editor in the Supabase dashboard.
