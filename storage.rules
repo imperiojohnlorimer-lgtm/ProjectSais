@@ -1,11 +1,8 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /reports/{userId}/{reportId}/{fileName} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
-    }
-
+    // SAIS keeps its files in Supabase Storage (the private Documents
+    // bucket), never here, so nothing in this bucket is open to anyone.
     match /{allPaths=**} {
       allow read, write: if false;
     }

@@ -64,3 +64,6 @@ lib.zip
 # Supabase CLI local state
 supabase/.temp/
 supabase/.branches/
+
+# Rules tests (npm)
+test_rules/node_modules/

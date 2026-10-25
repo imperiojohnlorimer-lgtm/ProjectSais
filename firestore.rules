@@ -305,9 +305,41 @@ service cloud.firestore {
       allow create, update, delete: if isHead();
     }
 
+    // The Head posts hiring calls and notices, and approves or rejects the
+    // Supervisors' requests. A Supervisor may only file a request in their
+    // own name, Pending and closed: what decides whether a call takes
+    // applications (isOpenHiringCall below) is the Head's approval, so a
+    // Supervisor must never be able to write it, or to change a request's
+    // owner or role. Until a request is decided they may withdraw it.
     match /announcements/{id} {
       allow read: if signedIn();
-      allow create, update, delete: if isStaff();
+
+      allow create: if isHead()
+        || (
+          isSupervisor()
+          && request.resource.data.get('postedById', null) == request.auth.uid
+          && request.resource.data.get('postedByRole', null) == 'Supervisor'
+          && request.resource.data.get('approvalStatus', null) == 'Pending'
+          && request.resource.data.get('isOpen', null) == false
+        );
+
+      allow update: if isHead()
+        || (
+          isOwnPendingRequest()
+          && unchanged('postedById')
+          && unchanged('postedByRole')
+          && unchanged('approvalStatus')
+          && unchanged('isOpen')
+        );
+
+      allow delete: if isHead() || isOwnPendingRequest();
+
+      function isOwnPendingRequest() {
+        return isSupervisor()
+          && resource.data.get('postedById', null) == request.auth.uid
+          && resource.data.get('postedByRole', null) == 'Supervisor'
+          && resource.data.get('approvalStatus', null) == 'Pending';
+      }
     }
 
     // Applications & Applicant Screening are Head-exclusive now.
@@ -428,16 +460,36 @@ service cloud.firestore {
       // Firebase service account. Leaving this staff-only is what stops a
       // student from calling the API directly and forging their own hours.
       // A Supervisor is further limited to their own office's students.
-      allow create: if isHead()
-        || isSupervisorOf(request.resource.data.studentId);
+      //
+      // Hours on a record are blank (still clocked in) or between 0 and 12:
+      // a session is at most 4.5 hours, a corrected time-out a little more,
+      // and nothing a person types in should credit a day and a half. (The
+      // weekly cap itself can't be a rule: it adds up many records. The
+      // app and clock-attendance both apply it.)
+      allow create: if (
+          isHead()
+          || isSupervisorOf(request.resource.data.studentId)
+        )
+        && validHours();
 
-      allow update: if isHead()
-        || (
-          isSupervisorOf(resource.data.studentId)
-          && unchanged('studentId')
-        );
+      allow update: if (
+          isHead()
+          || (
+            isSupervisorOf(resource.data.studentId)
+            && unchanged('studentId')
+          )
+        )
+        && validHours();
 
       allow delete: if isHead() || isSupervisorOf(resource.data.studentId);
+
+      function validHours() {
+        let hours = request.resource.data.get('totalHours', null);
+        let before = request.resource.data.get('hoursBeforeWeeklyCap', null);
+        return (hours == null || (hours is number && hours >= 0 && hours <= 12))
+          && (before == null
+            || (before is number && before >= 0 && before <= 24));
+      }
     }
 
     match /tasks/{id} {
@@ -712,19 +764,30 @@ service cloud.firestore {
       // one of the alerts the app raises for them — a new application, a
       // new report, a task's status changing — as plain text, with no
       // attachment link to lure them to.
-      allow create: if isStaff() || isAdmin()
-        || (
-          signedIn()
-          && request.resource.data.userId == request.auth.uid
+      //
+      // Whoever sends it, the text is short: a title of up to 100 and a
+      // message of up to 500 characters (the app cuts longer ones).
+      allow create: if (
+          isStaff() || isAdmin()
+          || (
+            signedIn()
+            && request.resource.data.userId == request.auth.uid
+          )
+          || (
+            signedIn()
+            && request.resource.data.type in ['application', 'report', 'task']
+            && request.resource.data.get('attachmentUrl', null) == null
+            && request.resource.data.get('attachmentName', null) == null
+            && request.resource.data.get('isRead', false) == false
+            && isStaffAccount(request.resource.data.userId)
+          )
         )
-        || (
-          signedIn()
-          && request.resource.data.type in ['application', 'report', 'task']
-          && request.resource.data.get('attachmentUrl', null) == null
-          && request.resource.data.get('attachmentName', null) == null
-          && request.resource.data.get('isRead', false) == false
-          && isStaffAccount(request.resource.data.userId)
-        );
+        && shortText(request.resource.data.get('title', ''), 100)
+        && shortText(request.resource.data.get('message', ''), 500);
+
+      function shortText(value, max) {
+        return value is string && value.size() <= max;
+      }
 
       // Marking read is the only change the app makes.
       allow update: if signedIn()
@@ -945,8 +1008,17 @@ service cloud.firestore {
       allow read: if signedIn() && document != 'current_qr';
       allow write: if isStaff()
         && !(document in [
-          'academic_year_settings', 'task_categories', 'task_templates'
+          'academic_year_settings', 'task_categories', 'task_templates',
+          'heads'
         ]);
+    }
+
+    // Who the Heads are, so students' alerts (a new application, say) reach
+    // them. A Head's or the Admin's session keeps it in step with the
+    // roster; a Supervisor must not be able to point alerts elsewhere.
+    match /meta/heads {
+      allow read: if signedIn();
+      allow write: if isHead() || isAdmin();
     }
 
     // Finished academic years: one summary per year, which the Reports

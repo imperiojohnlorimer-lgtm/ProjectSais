@@ -34,8 +34,11 @@ DTR/Accomplishment Reports, rehiring, documents and payroll.
   Philippine time), `upload-document`, `clockout-reminders` (push through
   Firebase Cloud Messaging, run by `pg_cron`).
 - **Security** lives in `firestore.rules`: every role's access is enforced
-  on the server. A new write path needs a rules change, checked with the
-  Firestore emulator (`@firebase/rules-unit-testing`) before it ships.
+  on the server. A new write path needs a rules change, and a case in
+  `test_rules/firestore.rules.test.mjs` (run with `npm test` there; it starts
+  the Firestore emulator) before it ships. Anything the app checks that a
+  signed-in user could skip by calling Firestore or a function directly
+  belongs on the server too.
 
 ## Where things are
 
@@ -53,7 +56,9 @@ DTR/Accomplishment Reports, rehiring, documents and payroll.
 | `lib/widgets/` | Shared widgets (`HeroBanner`, `UserAvatar`, `showConfirmDialog`, …). |
 | `lib/theme/app_theme.dart` | Colours (`AppTheme.maroon`, slate scale) and text theme (font family `Inter`). |
 | `test/` | Unit and widget tests (`flutter test`). |
-| `firestore.rules` | Server-side access rules. |
+| `firestore.rules`, `storage.rules` | Server-side access rules (Firebase Storage is unused: its rules deny everything). |
+| `test_rules/` | Rules tests: `cd test_rules && npm install && npm test` (needs Java for the emulator). |
+| `supabase/functions/*/*.test.ts` | Tests of each function's pure rules: `node --test <file>.test.ts` (Node 23.6+), run from the function's folder. |
 
 ## How the main flows work
 
@@ -167,6 +172,7 @@ differ only in case.
 flutter pub get
 flutter analyze
 flutter test
+(cd test_rules && npm test)   # after any firestore.rules change
 flutter build web --release     # after adding a plugin, delete .dart_tool/flutter_build first
 firebase deploy --only firestore:rules   # the project owner deploys
 firebase deploy --only hosting

@@ -255,6 +255,17 @@ void main() {
       ]);
     });
 
+    test("a Supervisor's session never publishes the Heads", () async {
+      // The rules let only a Head or the Admin write meta/heads.
+      state.currentUser = _supervisor;
+      await state.init();
+
+      fake.list('users').add([_head.toJson(), _supervisor.toJson()]);
+      await _settle();
+
+      expect(fake.publishedHeadIds, isEmpty);
+    });
+
     test('a student\'s session never publishes the Heads', () async {
       state.currentUser = _student;
       await state.init();

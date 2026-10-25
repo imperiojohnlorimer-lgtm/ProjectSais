@@ -631,4 +631,227 @@ void main() {
       expect(fake.attendanceUpdates['r1']?['isInvalid'], isFalse);
     });
   });
+
+  group('the weekly hours cap on corrections', () {
+    // Monday Sep 7 to Sunday Sep 13, 2026: 18 hours already credited by
+    // Friday, so only 2 of the 20 are left for Saturday.
+    List<AttendanceRecord> week() => [
+      for (final day in [7, 8, 9, 10])
+        _record(
+          'w$day',
+          studentId: 'sa1',
+          studentName: 'Ana Reyes',
+          date: 'Sep $day, 2026',
+        ),
+      _record(
+        'w11',
+        studentId: 'sa1',
+        studentName: 'Ana Reyes',
+        date: 'Sep 11, 2026',
+        timeOut: '10:00 AM',
+        totalHours: 2,
+      ),
+    ];
+
+    AttendanceRecord saturdayOpen() => _record(
+      'sat',
+      studentId: 'sa1',
+      studentName: 'Ana Reyes',
+      date: 'Sep 12, 2026',
+      timeOut: null,
+      totalHours: null,
+    );
+
+    test('a manual time-out credits only what the week has room for', () async {
+      state.attendance = [...week(), saturdayOpen()];
+
+      expect(await state.setManualTimeOut('sat', '12:00 PM'), isTrue);
+
+      final saved = state.attendance.firstWhere((r) => r.id == 'sat');
+      expect(saved.totalHours, 2.0);
+      expect(fake.attendanceUpdates['sat']?['totalHours'], 2.0);
+      // The full figure is kept alongside, as clock-attendance does.
+      expect(fake.attendanceUpdates['sat']?['hoursBeforeWeeklyCap'], 4.0);
+    });
+
+    test('a manual time-out is not trimmed when the cap is off', () async {
+      state
+        ..enforceAssistantHourCap = false
+        ..attendance = [...week(), saturdayOpen()];
+
+      await state.setManualTimeOut('sat', '12:00 PM');
+
+      expect(state.attendance.firstWhere((r) => r.id == 'sat').totalHours, 4.0);
+      expect(
+        fake.attendanceUpdates['sat']!.containsKey('hoursBeforeWeeklyCap'),
+        isFalse,
+      );
+    });
+
+    test('a manual time-out within the cap keeps the full hours', () async {
+      state.attendance = [week().first, saturdayOpen()];
+
+      await state.setManualTimeOut('sat', '12:00 PM');
+
+      expect(state.attendance.firstWhere((r) => r.id == 'sat').totalHours, 4.0);
+    });
+
+    test('Recalculate leaves hours the cap trimmed as they are', () async {
+      // Clocked 8:00 to 12:00 but credited 2: the server trimmed it.
+      state.attendance = [
+        ...week(),
+        _record(
+          'sat',
+          studentId: 'sa1',
+          studentName: 'Ana Reyes',
+          date: 'Sep 12, 2026',
+          totalHours: 2,
+        ),
+      ];
+
+      final result = await state.recalculateAttendanceHours();
+
+      expect(result, (fixed: 0, failed: 0));
+      expect(fake.attendanceUpdates, isEmpty);
+    });
+
+    test(
+      'Recalculate still brings a placeholder down to the real time',
+      () async {
+        state.attendance = [
+          _record(
+            'r1',
+            studentId: 'sa1',
+            studentName: 'Ana Reyes',
+            timeOut: '11:30 AM',
+            totalHours: 4,
+          ),
+        ];
+
+        final result = await state.recalculateAttendanceHours();
+
+        expect(result, (fixed: 1, failed: 0));
+        expect(fake.attendanceUpdates['r1']?['totalHours'], 3.5);
+      },
+    );
+
+    test(
+      "Recalculate shares one week's room between the records it fills",
+      () async {
+        state.attendance = [
+          ...week(),
+          for (final day in [12, 13])
+            _record(
+              'd$day',
+              studentId: 'sa1',
+              studentName: 'Ana Reyes',
+              date: 'Sep $day, 2026',
+              totalHours: null,
+            ),
+        ];
+
+        final result = await state.recalculateAttendanceHours();
+
+        expect(result, (fixed: 2, failed: 0));
+        // Two hours were left: the older record takes them, the next gets none.
+        expect(fake.attendanceUpdates['d12']?['totalHours'], 2.0);
+        expect(fake.attendanceUpdates['d13']?['totalHours'], 0.0);
+      },
+    );
+
+    test("Recalculate leaves a stored zero alone", () async {
+      state.attendance = [
+        ...week(),
+        _record(
+          'sat',
+          studentId: 'sa1',
+          studentName: 'Ana Reyes',
+          date: 'Sep 12, 2026',
+          totalHours: 0,
+        ),
+      ];
+
+      final result = await state.recalculateAttendanceHours();
+
+      expect(result, (fixed: 0, failed: 0));
+      expect(fake.attendanceUpdates, isEmpty);
+    });
+
+    test('Recalculate fills a missing figure, within the cap', () async {
+      state.attendance = [
+        ...week(),
+        _record(
+          'sat',
+          studentId: 'sa1',
+          studentName: 'Ana Reyes',
+          date: 'Sep 12, 2026',
+          totalHours: null,
+        ),
+      ];
+
+      final result = await state.recalculateAttendanceHours();
+
+      expect(result, (fixed: 1, failed: 0));
+      expect(fake.attendanceUpdates['sat']?['totalHours'], 2.0);
+    });
+  });
+
+  group('notification text', () {
+    test('is cut to the length the rules allow', () {
+      final long = 'x' * 600;
+
+      final title = AppState.clipNotificationText(
+        long,
+        AppState.notificationTitleMax,
+      );
+      final message = AppState.clipNotificationText(
+        long,
+        AppState.notificationMessageMax,
+      );
+
+      expect(title.length, AppState.notificationTitleMax);
+      expect(title.endsWith('…'), isTrue);
+      expect(message.length, AppState.notificationMessageMax);
+    });
+
+    test('a long rejection reason is cut before it is saved', () async {
+      state.announcements = [
+        Announcement(
+          id: '',
+          title: 'Need two assistants',
+          body: 'Library',
+          postedBy: 'Sam Supervisor',
+          postedByRole: 'Supervisor',
+          postedAt: 'Oct 1, 2026',
+          postedById: 'sup1',
+          approvalStatus: 'Pending',
+        ),
+      ];
+
+      await state.rejectAnnouncement('', reason: 'z' * 800);
+
+      final saved = fake.added.single;
+      expect(
+        (saved['message'] as String).length,
+        AppState.notificationMessageMax,
+      );
+      expect(saved['title'], 'Announcement Rejected');
+      expect(
+        state.notifications.single.message.length,
+        AppState.notificationMessageMax,
+      );
+    });
+
+    test('is left alone when it already fits', () {
+      expect(
+        AppState.clipNotificationText('Short', AppState.notificationTitleMax),
+        'Short',
+      );
+      final exact = 'y' * AppState.notificationTitleMax;
+      expect(
+        AppState.clipNotificationText(exact, AppState.notificationTitleMax),
+        exact,
+      );
+    });
+  });
 }

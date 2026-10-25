@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, visibleForTesting;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -670,7 +670,8 @@ class AppState extends ChangeNotifier {
     if (isStaff || isAdmin) {
       listen('Users', fs.collectionStream('users'), (list) {
         _setUsers(list.map(User.fromJson).toList());
-        if (isStaff) _publishHeadIds();
+        // Only a Head or the Admin may publish it (firestore.rules).
+        if (isHead || isAdmin) _publishHeadIds();
         if (isAdmin || isHead) _syncStudentIdClaims();
       });
       listen('Students', fs.collectionStream('students'), (list) {
@@ -4621,6 +4622,17 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Notifications ─────────────────────────────────
+  /// The longest title and message a notification may carry: firestore.rules
+  /// refuses more, so nobody can use a notification to send an essay (or a
+  /// page of text dressed up as an alert) to the Head.
+  static const notificationTitleMax = 100;
+  static const notificationMessageMax = 500;
+
+  /// [text] cut to [max] characters, ending in an ellipsis when it was cut.
+  @visibleForTesting
+  static String clipNotificationText(String text, int max) =>
+      text.length <= max ? text : '${text.substring(0, max - 1).trimRight()}…';
+
   static const _docIdChars =
       'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   final _docIdRandom = Random.secure();
@@ -4638,8 +4650,14 @@ class AppState extends ChangeNotifier {
     // The local copy gets the id the saved one will have, so marking it read
     // or deleting it before the live feed catches up reaches the saved one.
     id ??= _newDocId();
-    final local = AppNotification.fromJson({
+    // The rules refuse longer text, so a long reason or remark is cut here.
+    final payload = {
       ...n.toJson(),
+      'title': clipNotificationText(n.title, notificationTitleMax),
+      'message': clipNotificationText(n.message, notificationMessageMax),
+    };
+    final local = AppNotification.fromJson({
+      ...payload,
       'id': id,
       'createdAt': DateTime.now(),
     });
@@ -4647,7 +4665,7 @@ class AppState extends ChangeNotifier {
     _firestoreService ??= FirestoreService();
     final savedId = id;
     _firestoreService!
-        .addNotification({...n.toJson(), 'id': id})
+        .addNotification({...payload, 'id': id})
         .then((_) {
           // Only once it's saved: the push function reads it from there.
           if (push) _queuePush(savedId);
@@ -5203,7 +5221,12 @@ class AppState extends ChangeNotifier {
       (r) => r?.id == recordId,
       orElse: () => null,
     );
-    final totalHours = _hoursBetween(existing?.timeIn, timeOut);
+    final elapsed = _hoursBetween(existing?.timeIn, timeOut);
+    // A person confirming the time-out doesn't lift the weekly cap: the
+    // clock-attendance function would have trimmed these hours the same way.
+    final totalHours = existing == null
+        ? elapsed
+        : _hoursWithinWeeklyCap(existing, elapsed);
 
     final previousAttendance = attendance;
     attendance = attendance.map((r) {
@@ -5230,6 +5253,8 @@ class AppState extends ChangeNotifier {
         'timeOut': timeOut,
         'totalHours': totalHours,
         'isInvalid': false,
+        // Kept alongside, as clock-attendance does, when the cap trimmed it.
+        if (totalHours < elapsed) 'hoursBeforeWeeklyCap': elapsed,
       });
       return true;
     } catch (error) {
@@ -5238,6 +5263,46 @@ class AppState extends ChangeNotifier {
       notifyListeners();
       return false;
     }
+  }
+
+  /// How much of [elapsed] hours, worked in the session [record] holds, the
+  /// student's weekly cap still credits: the cap (when the Admin has it on)
+  /// less what their other finished sessions that Monday–Sunday week already
+  /// count. The same rule clock-attendance applies at the time-out.
+  ///
+  /// [pending] holds hours about to be saved (by record id) that stand in
+  /// for what the records show, so corrections made together share one
+  /// budget instead of each seeing the same room.
+  double _hoursWithinWeeklyCap(
+    AttendanceRecord record,
+    double elapsed, {
+    Map<String, double> pending = const {},
+  }) {
+    if (!enforceAssistantHourCap) return elapsed;
+    final day = _parseFormattedDate(record.date);
+    if (day == null) return elapsed;
+    final monday = DateTime(
+      day.year,
+      day.month,
+      day.day,
+    ).subtract(Duration(days: day.weekday - 1));
+    final nextMonday = monday.add(const Duration(days: 7));
+    final used = attendance
+        .where((r) {
+          if (r.id == record.id || r.studentId != record.studentId) {
+            return false;
+          }
+          if (r.isActive || r.isArchived || r.isInvalid) return false;
+          final d = _parseFormattedDate(r.date);
+          return d != null && !d.isBefore(monday) && d.isBefore(nextMonday);
+        })
+        .fold<double>(
+          0,
+          (total, r) => total + (pending[r.id] ?? r.totalHours ?? 0),
+        );
+    final room = weeklyHourCap - used;
+    if (room <= 0) return 0;
+    return elapsed < room ? elapsed : room;
   }
 
   /// Repair for attendance records saved with a placeholder duration rather
@@ -5249,6 +5314,12 @@ class AppState extends ChangeNotifier {
   /// record from its own stored timestamps and re-saves only the ones that
   /// actually changed.
   ///
+  /// It only ever corrects a record downwards, or fills one that has no
+  /// hours at all (within the weekly cap, oldest first, so they share one
+  /// budget). It never raises hours a record already has, even zero: those
+  /// may have been trimmed by the weekly cap when the student clocked out,
+  /// and putting the full elapsed time back would undo that.
+  ///
   /// Returns how many records were written and how many could not be. A
   /// failed write leaves the local value fixed but the stored one stale,
   /// and the attendance stream then pushes the old value straight back —
@@ -5258,12 +5329,30 @@ class AppState extends ChangeNotifier {
     _firestoreService ??= FirestoreService();
     final corrections = <String, double>{};
 
+    final unfilled = <AttendanceRecord>[];
     for (final r in attendance) {
       if (r.isActive) continue; // no time-out yet — nothing to recompute.
-      final correct = _hoursBetween(r.timeIn, r.timeOut!);
-      if (r.totalHours == null || (r.totalHours! - correct).abs() > 0.01) {
-        corrections[r.id] = correct;
+      final stored = r.totalHours;
+      if (stored == null) {
+        unfilled.add(r);
+        continue;
       }
+      final elapsed = _hoursBetween(r.timeIn, r.timeOut!);
+      if (stored - elapsed > 0.01) corrections[r.id] = elapsed;
+    }
+    // Oldest first: each fill uses up part of the week's room, and the
+    // lowered figures above have already given some back.
+    DateTime when(AttendanceRecord r) =>
+        (_parseFormattedDate(r.date) ?? DateTime(1970)).add(
+          Duration(minutes: _parseTimeOfDayMinutes(r.timeIn) ?? 0),
+        );
+    unfilled.sort((a, b) => when(a).compareTo(when(b)));
+    for (final r in unfilled) {
+      corrections[r.id] = _hoursWithinWeeklyCap(
+        r,
+        _hoursBetween(r.timeIn, r.timeOut!),
+        pending: corrections,
+      );
     }
 
     if (corrections.isEmpty) return (fixed: 0, failed: 0);
