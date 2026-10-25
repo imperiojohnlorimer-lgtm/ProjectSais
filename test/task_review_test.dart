@@ -70,7 +70,8 @@ const _months = [
 /// "Oct 1, 2026", the way tasks and attendance store a date.
 String _day(DateTime d) => '${_months[d.month - 1]} ${d.day}, ${d.year}';
 
-final _today = _day(DateTime.now());
+// The app names a day in Philippine time (UTC+8), wherever the tests run.
+final _today = _day(DateTime.now().toUtc().add(const Duration(hours: 8)));
 
 Task _task({
   String id = 't1',
