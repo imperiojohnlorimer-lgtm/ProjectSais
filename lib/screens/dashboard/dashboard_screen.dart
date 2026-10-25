@@ -193,6 +193,8 @@ class _StudentAssistantDashboard extends StatelessWidget {
         ),
       ],
       sections: [
+        const _MyPayCard(),
+        const SizedBox(height: 18),
         DashboardSectionCard(
           title: 'My Tasks',
           actionLabel: 'View all',
@@ -244,6 +246,162 @@ class _StudentAssistantDashboard extends StatelessWidget {
                 ),
         ),
       ],
+    );
+  }
+}
+
+// ─── Student Assistant: My pay card ────────────────────
+/// This month's verified hours against the monthly minimum, what the Head
+/// has checked or returned among the requirements that hold up pay, and the
+/// latest payout. Everything on it is the student's own.
+class _MyPayCard extends StatelessWidget {
+  const _MyPayCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final pay = context.watch<AppState>().myPay;
+    if (pay == null) return const SizedBox.shrink();
+
+    final progress = (pay.hoursThisMonth / pay.minimumHours).clamp(0.0, 1.0);
+    final hours = pay.hoursThisMonth.toStringAsFixed(1);
+    final minimum = pay.minimumHours.toStringAsFixed(0);
+
+    return DashboardSectionCard(
+      title: 'My Pay',
+      subtitle: pay.monthLabel,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            pay.reachedMinimum
+                ? '$hours hours verified · the ${minimum}-hour minimum is met'
+                : '$hours of $minimum hours verified · ${pay.hoursToGo.toStringAsFixed(1)} to go',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slate800,
+            ),
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor: AppTheme.slate100,
+              color: pay.reachedMinimum ? AppTheme.emerald500 : AppTheme.maroon,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Pay is for 25 to 40 hours a month. Hours from missed time-outs '
+            'and archived records don\'t count.',
+            style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+          ),
+          const SizedBox(height: 14),
+          const Text(
+            'Checked by the Head before your pay is approved',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.slate600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final item in pay.items) _MyPayItemRow(item: item),
+          if (pay.approved != null || pay.lastReleased != null) ...[
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 10),
+              child: Divider(height: 1, color: AppTheme.slate100),
+            ),
+            if (pay.approved != null)
+              _payLine(
+                Icons.hourglass_top_rounded,
+                AppTheme.amber500,
+                'Approved, being released: ${pay.approved!.periodLabel} · '
+                '₱${pay.approved!.grossPay.toStringAsFixed(2)}',
+              ),
+            if (pay.lastReleased != null)
+              _payLine(
+                Icons.payments_rounded,
+                AppTheme.emerald500,
+                'Last pay: ${pay.lastReleased!.periodLabel} · '
+                '₱${pay.lastReleased!.grossPay.toStringAsFixed(2)}'
+                '${pay.lastReleased!.releasedAt == null ? '' : ', released ${pay.lastReleased!.releasedAt}'}',
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static Widget _payLine(IconData icon, Color color, String text) => Padding(
+    padding: const EdgeInsets.only(top: 4),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(fontSize: 12.5, color: AppTheme.slate700),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MyPayItemRow extends StatelessWidget {
+  final MyPayItem item;
+  const _MyPayItemRow({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, color, status) = item.isChecked
+        ? (Icons.check_circle_rounded, AppTheme.emerald500, 'Checked')
+        : item.isReturned
+        ? (Icons.undo_rounded, AppTheme.red500, 'Returned')
+        : (Icons.radio_button_unchecked, AppTheme.slate400, 'Not checked yet');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 16, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  item.label,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppTheme.slate800,
+                  ),
+                ),
+              ),
+              Text(
+                status,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+          if (item.isReturned && (item.note ?? '').isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(left: 24, top: 2),
+              child: Text(
+                'Reason: ${item.note}',
+                style: const TextStyle(fontSize: 12, color: AppTheme.red500),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

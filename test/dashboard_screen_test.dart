@@ -25,6 +25,8 @@ void main() {
     List<AttendanceRecord>? attendance,
     List<Student>? students,
     List<Map<String, dynamic>>? archives,
+    List<PayrollCheck>? checks,
+    List<PayrollRecord>? payments,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -37,6 +39,8 @@ void main() {
           if (attendance != null) state.attendance = attendance;
           if (students != null) state.students = students;
           if (archives != null) state.academicYearArchives = archives;
+          if (checks != null) state.payrollChecks = checks;
+          if (payments != null) state.payrollRecords = payments;
           return state;
         },
         child: MaterialApp(
@@ -102,6 +106,122 @@ void main() {
       // One column fills the row; four columns take about a quarter each.
       expect(narrow, greaterThan(250));
       expect(wide, lessThan(narrow * 1.6));
+    });
+  });
+
+  group('Student Assistant My Pay card', () {
+    final today = _philippineNow();
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    AttendanceRecord verified(String id, double hours) => AttendanceRecord(
+      id: id,
+      studentName: 'Juan dela Cruz',
+      studentId: 'u_1',
+      date: '${months[today.month - 1]} ${today.day}, ${today.year}',
+      timeIn: '8:00 AM',
+      timeOut: '11:00 AM',
+      totalHours: hours,
+    );
+
+    testWidgets('shows the month against the 25-hour minimum', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 10), verified('b', 4.5)],
+      );
+      expect(find.text('My Pay'), findsOneWidget);
+      expect(
+        find.text('14.5 of 25 hours verified · 10.5 to go'),
+        findsOneWidget,
+      );
+      // Nothing checked yet.
+      expect(find.text('Not checked yet'), findsNWidgets(4));
+    });
+
+    testWidgets('says what the Head checked and returned, and why', (
+      tester,
+    ) async {
+      const mark = PayrollCheckMark(
+        status: PayrollCheckMark.checked,
+        by: 'Hana Head',
+        at: '2026-10-01T09:00:00.000',
+      );
+      const returned = PayrollCheckMark(
+        status: PayrollCheckMark.returned,
+        note: 'The scan is blurry',
+        by: 'Hana Head',
+        at: '2026-10-02T09:00:00.000',
+      );
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        checks: const [
+          PayrollCheck(
+            studentId: 'u_1',
+            items: {
+              PayrollRequirement.requirementsKey: mark,
+              PayrollRequirement.endorsementKey: returned,
+            },
+          ),
+          // Someone else's is never shown.
+          PayrollCheck(
+            studentId: 'u_2',
+            items: {PayrollRequirement.endorsementKey: mark},
+          ),
+        ],
+      );
+      expect(find.text('Checked'), findsOneWidget);
+      expect(find.text('Returned'), findsOneWidget);
+      expect(find.text('Reason: The scan is blurry'), findsOneWidget);
+    });
+
+    testWidgets('shows the latest released pay', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        payments: [
+          PayrollRecord(
+            id: 'p1',
+            studentId: 'u_1',
+            studentName: 'Juan dela Cruz',
+            office: 'Library',
+            periodStart: '2026-08-01',
+            periodEnd: '2026-08-31',
+            periodLabel: 'August 2026',
+            monthlyBreakdown: const [
+              PayrollMonthBreakdown(
+                month: 8,
+                year: 2026,
+                hoursWorked: 30,
+                payableHours: 30,
+              ),
+            ],
+            dtrVerified: true,
+            reportVerified: true,
+            status: 'Released',
+            releasedAt: 'Sep 5, 2026',
+          ),
+        ],
+      );
+      expect(
+        find.text('Last pay: August 2026 · ₱750.00, released Sep 5, 2026'),
+        findsOneWidget,
+      );
     });
   });
 

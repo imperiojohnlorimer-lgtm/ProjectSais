@@ -115,8 +115,8 @@ class _DtrAccomplishmentReportScreenState
               icon: Icons.fact_check_rounded,
               title: 'DTR / Accomplishment Report',
               subtitle:
-                  'Generate the official form for a student assistant, '
-                  'pre-filled from verified DTR records',
+                  'The official monthly form for a student assistant, pre-filled '
+                  'from verified DTR records (reports they send are under Reports)',
               searchHint: 'Search by name or department...',
               onSearch: (value) => setState(() => _search = value),
               filters: [SizedBox(width: 190, child: _monthDropdown())],

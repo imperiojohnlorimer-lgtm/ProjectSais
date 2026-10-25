@@ -3,6 +3,9 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/csv.dart';
+import '../../utils/csv_export.dart';
+import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
 import 'payroll_sheet_editor.dart';
 
@@ -382,7 +385,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
       children: [
         Padding(
           padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-          child: _header(),
+          child: _header(preview),
         ),
         const SizedBox(height: 16),
         Expanded(
@@ -460,7 +463,45 @@ class _PayrollScreenState extends State<PayrollScreen> {
     );
   }
 
-  Widget _header() => Row(
+  /// What the page lists for the period, as a spreadsheet: hours, pay and
+  /// whatever still holds each person up.
+  void _export(List<PayrollRecord> rows) {
+    saveCsv('payroll-${csvFileSafe(_periodLabel)}.csv', [
+      [
+        'Student Assistant',
+        'SA ID',
+        'Office',
+        'Campus',
+        'Department',
+        'Period',
+        'Status',
+        'Hours worked',
+        'Payable hours',
+        'Gross pay (PHP)',
+        'Still to be checked',
+      ],
+      for (final p in rows)
+        [
+          p.studentName,
+          p.saId,
+          p.office,
+          p.campus,
+          p.department,
+          _periodLabel,
+          switch (p.status) {
+            'Incomplete' => 'Not ready',
+            'Excluded' => 'Left out',
+            final other => other,
+          },
+          double.parse(p.hoursWorked.toStringAsFixed(2)),
+          double.parse(p.payableHours.toStringAsFixed(2)),
+          double.parse(p.grossPay.toStringAsFixed(2)),
+          p.unchecked.map((r) => r.label).join('; '),
+        ],
+    ]);
+  }
+
+  Widget _header(List<PayrollRecord> rows) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       Container(
@@ -507,6 +548,10 @@ class _PayrollScreenState extends State<PayrollScreen> {
             ),
           ],
         ),
+      ),
+      const SizedBox(width: 10),
+      ExportCsvButton(
+        onPressed: rows.isEmpty ? null : () => _export(rows),
       ),
     ],
   );

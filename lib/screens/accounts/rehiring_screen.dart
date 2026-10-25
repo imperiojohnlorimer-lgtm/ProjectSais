@@ -6,6 +6,9 @@ import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/csv.dart';
+import '../../utils/csv_export.dart';
+import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 typedef _Term = ({String academicYear, String semester});
@@ -117,6 +120,42 @@ class _RehiringScreenState extends State<RehiringScreen> {
             searchHint: 'Search by name or SA ID...',
             onSearch: (value) => setState(() => _search = value),
             filters: [
+              ExportCsvButton(
+                onPressed: visible.isEmpty
+                    ? null
+                    : () => saveCsv(
+                        'rehiring-${csvFileSafe(termLabel)}.csv',
+                        [
+                          [
+                            'Student Assistant',
+                            'SA ID',
+                            'Term',
+                            'Latest evaluation',
+                            'Recommended for rehire',
+                            'Decision',
+                            'Decided by',
+                            'Decided on',
+                            'Remarks',
+                          ],
+                          for (final u in visible)
+                            [
+                              u.name,
+                              u.saId,
+                              termLabel,
+                              evaluationFor[u.id]?.overallRating,
+                              switch (evaluationFor[u.id]?.eligibleForRehire) {
+                                true => 'Yes',
+                                false => 'No',
+                                null => 'No evaluation',
+                              },
+                              recordFor[u.id]?.decision ?? 'Pending',
+                              recordFor[u.id]?.decidedByName,
+                              recordFor[u.id]?.decidedAt,
+                              recordFor[u.id]?.remarks,
+                            ],
+                        ],
+                      ),
+              ),
               _dropdown<_Term>(
                 value: term,
                 minWidth: 230,

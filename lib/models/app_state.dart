@@ -28,6 +28,7 @@ part 'app_state/push.dart';
 part 'app_state/applications_and_folders.dart';
 part 'app_state/payroll.dart';
 part 'app_state/payroll_requirements.dart';
+part 'app_state/my_pay.dart';
 part 'app_state/rehiring.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
@@ -850,6 +851,23 @@ class AppState extends ChangeNotifier {
       listen(
         'Payroll checks',
         fs.collectionStream('payrollChecks'),
+        (list) => payrollChecks = list.map(PayrollCheck.fromJson).toList(),
+      );
+    }
+
+    // A Student Assistant reads only their own pay: the payouts made to
+    // them and the Head's check of their requirements (firestore.rules).
+    if (role == 'Student Assistant') {
+      listen(
+        'My payroll',
+        fs.whereStream('payrollRecords', 'studentId', user.id),
+        (list) => payrollRecords = list.map(PayrollRecord.fromJson).toList(),
+      );
+      listen(
+        'My payroll check',
+        fs
+            .docStream('payrollChecks', user.id)
+            .map((doc) => [if (doc != null) doc]),
         (list) => payrollChecks = list.map(PayrollCheck.fromJson).toList(),
       );
     }
@@ -4967,23 +4985,22 @@ class AppState extends ChangeNotifier {
         ? elapsed
         : _hoursWithinWeeklyCap(existing, elapsed);
 
+    final edit = _attendanceEdit('Time-out recorded at $timeOut');
     final previousAttendance = attendance;
-    attendance = attendance.map((r) {
-      if (r.id != recordId) return r;
-      return AttendanceRecord(
-        id: r.id,
-        studentName: r.studentName,
-        studentId: r.studentId,
-        date: r.date,
-        timeIn: r.timeIn,
-        timeOut: timeOut,
-        totalHours: totalHours,
-        academicYear: r.academicYear,
-        isArchived: r.isArchived,
-        archivedAcademicYear: r.archivedAcademicYear,
-        isInvalid: false,
-      );
-    }).toList();
+    attendance = attendance
+        .map(
+          (r) => r.id != recordId
+              ? r
+              : r.copyWith(
+                  timeOut: timeOut,
+                  totalHours: totalHours,
+                  isInvalid: false,
+                  editedBy: edit.by,
+                  editedAt: edit.at,
+                  editNote: edit.note,
+                ),
+        )
+        .toList();
     notifyListeners();
 
     try {
@@ -4994,7 +5011,9 @@ class AppState extends ChangeNotifier {
         'isInvalid': false,
         // Kept alongside, as clock-attendance does, when the cap trimmed it.
         if (totalHours < elapsed) 'hoursBeforeWeeklyCap': elapsed,
+        ...edit.fields,
       });
+      if (existing != null) _tellStudentOfEdit(existing, edit.note);
       return true;
     } catch (error) {
       debugPrint('Failed to save the manual time-out: $error');
@@ -5099,19 +5118,7 @@ class AppState extends ChangeNotifier {
     attendance = attendance.map((r) {
       final fixed = corrections[r.id];
       if (fixed == null) return r;
-      return AttendanceRecord(
-        id: r.id,
-        studentName: r.studentName,
-        studentId: r.studentId,
-        date: r.date,
-        timeIn: r.timeIn,
-        timeOut: r.timeOut,
-        totalHours: fixed,
-        academicYear: r.academicYear,
-        isArchived: r.isArchived,
-        archivedAcademicYear: r.archivedAcademicYear,
-        isInvalid: r.isInvalid,
-      );
+      return r.copyWith(totalHours: fixed);
     }).toList();
     notifyListeners();
 
@@ -5196,19 +5203,7 @@ class AppState extends ChangeNotifier {
     final invalidIds = toInvalidate.toSet();
     attendance = attendance.map((r) {
       if (!invalidIds.contains(r.id)) return r;
-      return AttendanceRecord(
-        id: r.id,
-        studentName: r.studentName,
-        studentId: r.studentId,
-        date: r.date,
-        timeIn: r.timeIn,
-        timeOut: r.timeOut,
-        totalHours: r.totalHours,
-        academicYear: r.academicYear,
-        isArchived: r.isArchived,
-        archivedAcademicYear: r.archivedAcademicYear,
-        isInvalid: true,
-      );
+      return r.copyWith(isInvalid: true);
     }).toList();
     notifyListeners();
 
@@ -5230,22 +5225,23 @@ class AppState extends ChangeNotifier {
   /// the working log and stops counting toward verified hours, but it stays
   /// on file for the DTR and the payroll trail.
   Future<bool> setAttendanceArchived(String id, bool archived) async {
+    final before = attendance.cast<AttendanceRecord?>().firstWhere(
+      (a) => a?.id == id,
+      orElse: () => null,
+    );
+    final edit = _attendanceEdit(archived ? 'Archived' : 'Restored');
+    final previousAttendance = attendance;
     // Archived by hand, a record is no longer one archived with its year,
     // which payroll would still pay for.
     attendance = attendance
         .map(
           (a) => a.id == id
-              ? AttendanceRecord(
-                  id: a.id,
-                  studentName: a.studentName,
-                  studentId: a.studentId,
-                  date: a.date,
-                  timeIn: a.timeIn,
-                  timeOut: a.timeOut,
-                  totalHours: a.totalHours,
-                  academicYear: a.academicYear,
+              ? a.copyWith(
                   isArchived: archived,
-                  isInvalid: a.isInvalid,
+                  clearArchivedYear: true,
+                  editedBy: edit.by,
+                  editedAt: edit.at,
+                  editNote: edit.note,
                 )
               : a,
         )
@@ -5257,15 +5253,24 @@ class AppState extends ChangeNotifier {
       await _firestoreService!.updateAttendance(id, {
         'isArchived': archived,
         'archivedAcademicYear': FieldValue.delete(),
+        ...edit.fields,
       });
+      if (before != null) _tellStudentOfEdit(before, edit.note);
       return true;
     } catch (error) {
       debugPrint('Could not archive attendance record: $error');
+      attendance = previousAttendance;
+      notifyListeners();
       return false;
     }
   }
 
   Future<bool> deleteAttendance(String id) async {
+    final before = attendance.cast<AttendanceRecord?>().firstWhere(
+      (a) => a?.id == id,
+      orElse: () => null,
+    );
+    final previousAttendance = attendance;
     attendance = attendance.where((a) => a.id != id).toList();
     notifyListeners();
 
@@ -5274,11 +5279,52 @@ class AppState extends ChangeNotifier {
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.deleteAttendance(id);
+      // The record is gone, so the student's notice is all that is left to
+      // show it happened.
+      if (before != null) _tellStudentOfEdit(before, 'Deleted');
       return true;
     } catch (error) {
       debugPrint('Could not delete attendance record: $error');
+      attendance = previousAttendance;
+      notifyListeners();
       return false;
     }
+  }
+
+  /// Who is changing a record by hand now, and what for: stored with the
+  /// change and shown on the record.
+  ({String by, String at, String note, Map<String, Object?> fields})
+  _attendanceEdit(String note) {
+    final by = currentUser?.name ?? '';
+    final at = DateTime.now().toUtc().toIso8601String();
+    return (
+      by: by,
+      at: at,
+      note: note,
+      fields: {'editedBy': by, 'editedAt': at, 'editNote': note},
+    );
+  }
+
+  /// Tells a student that staff changed one of their attendance records.
+  void _tellStudentOfEdit(AttendanceRecord record, String what) {
+    final owner = record.studentId;
+    if (owner == null || owner.isEmpty || owner == currentUser?.id) return;
+    final by = currentUser?.name ?? '';
+    final times = record.isActive
+        ? 'in ${record.timeIn}'
+        : 'in ${record.timeIn}, out ${record.timeOut}';
+    _addNotification(
+      AppNotification(
+        id: '',
+        userId: owner,
+        title: 'Attendance Record Changed',
+        message:
+            '$what: your record for ${record.date} ($times)'
+            '${by.isEmpty ? '' : ', changed by $by'}.',
+        type: 'attendance',
+        createdAt: _formattedToday(),
+      ),
+    );
   }
 
   // ─── Tasks CRUD ────────────────────────────────────
@@ -5668,6 +5714,13 @@ class AppState extends ChangeNotifier {
       sentToHeadAt: old.sentToHeadAt,
       headAttachments: old.headAttachments,
       taskIds: old.taskIds,
+      // Who made the decision, kept with the report.
+      reviewedBy: (status == 'Approved' || status == 'Rejected')
+          ? currentUser?.name
+          : old.reviewedBy,
+      reviewedAt: (status == 'Approved' || status == 'Rejected')
+          ? DateTime.now().toUtc().toIso8601String()
+          : old.reviewedAt,
     );
 
     _firestoreService ??= FirestoreService();
@@ -5811,6 +5864,8 @@ class AppState extends ChangeNotifier {
       sentToHeadAt: _formattedToday(),
       headAttachments: old.attachments,
       taskIds: old.taskIds,
+      reviewedBy: old.reviewedBy,
+      reviewedAt: old.reviewedAt,
     );
 
     _firestoreService ??= FirestoreService();

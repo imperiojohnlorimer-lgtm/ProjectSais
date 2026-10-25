@@ -1367,6 +1367,18 @@ class _RecordCard extends StatelessWidget {
                     ],
                   ),
 
+                  if ((record.editSummary as String?) != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Edited: ${record.editSummary}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontStyle: FontStyle.italic,
+                        color: AppTheme.slate500,
+                      ),
+                    ),
+                  ],
+
                   SizedBox(height: isMobile ? 5 : 8),
 
                   /// Time chips

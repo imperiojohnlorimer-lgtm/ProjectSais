@@ -97,8 +97,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 icon: Icons.description_rounded,
                 title: 'Reports',
                 subtitle: isStudent
-                    ? 'Submit accomplishment reports and follow their review'
-                    : 'Review submitted accomplishment reports',
+                    ? 'Send your own accomplishment reports and follow their review (the monthly DTR form is made by your supervisor)'
+                    : 'Review the accomplishment reports students send (the monthly form is under DTR/Accomplishment Report)',
                 addLabel: isStudent ? 'Submit' : null,
                 onAdd: isStudent
                     ? () => _showSubmitDialog(context, state)
@@ -161,6 +161,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           role: role,
                           onReview: role == 'Supervisor'
                               ? () => _showReviewDialog(context, state, report)
+                              : null,
+                          onResubmit:
+                              role == 'Student Assistant' &&
+                                  report.status == 'Rejected'
+                              ? () => _showSubmitDialog(
+                                  context,
+                                  state,
+                                  corrects: report,
+                                )
                               : null,
                           onSendToHead: role == 'Supervisor'
                               ? () => _showSendToHeadDialog(
@@ -411,8 +420,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
         .join('\n');
   }
 
-  void _showSubmitDialog(BuildContext context, AppState state) {
-    final titleCtrl = TextEditingController();
+  /// [corrects] is a rejected report the student is sending again: its
+  /// title and text start the new one, so only what was wrong is fixed.
+  void _showSubmitDialog(
+    BuildContext context,
+    AppState state, {
+    Report? corrects,
+  }) {
+    final titleCtrl = TextEditingController(text: corrects?.title ?? '');
     final contentCtrl = TextEditingController();
     final List<ReportAttachment> attachments = [];
     // Set while the report saves, so a second tap can't submit it twice.
@@ -425,7 +440,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final awaitingApproval = state.filteredTasks
         .where((t) => !t.isArchived && t.awaitingApproval)
         .length;
-    if (completedTasks.isNotEmpty) {
+    if (corrects != null && corrects.content.isNotEmpty) {
+      contentCtrl.text = corrects.content;
+    } else if (completedTasks.isNotEmpty) {
       contentCtrl.text = _composeAccomplishments(
         completedTasks,
         includedTaskIds,
@@ -1418,12 +1435,14 @@ class _ReportCard extends StatefulWidget {
   final String role;
   final VoidCallback? onReview;
   final VoidCallback? onSendToHead;
+  final VoidCallback? onResubmit;
 
   const _ReportCard({
     required this.report,
     required this.role,
     this.onReview,
     this.onSendToHead,
+    this.onResubmit,
   });
 
   @override
@@ -1437,6 +1456,7 @@ class _ReportCardState extends State<_ReportCard> {
   String get role => widget.role;
   VoidCallback? get onReview => widget.onReview;
   VoidCallback? get onSendToHead => widget.onSendToHead;
+  VoidCallback? get onResubmit => widget.onResubmit;
 
   Color get _statusColor {
     switch (report.status) {
@@ -1795,6 +1815,36 @@ class _ReportCardState extends State<_ReportCard> {
                             ),
                           ),
                         ],
+                      ),
+                    ),
+                  ],
+                  if (report.reviewSummary != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      report.reviewSummary!,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: AppTheme.slate500,
+                      ),
+                    ),
+                  ],
+                  if (onResubmit != null) ...[
+                    const SizedBox(height: 12),
+                    OutlinedButton.icon(
+                      onPressed: onResubmit,
+                      icon: const Icon(Icons.edit_note_rounded, size: 18),
+                      label: const Text('Submit a corrected report'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.maroon,
+                        side: const BorderSide(color: AppTheme.maroon),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        textStyle: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 13,
+                        ),
                       ),
                     ),
                   ],

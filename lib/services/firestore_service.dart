@@ -1515,6 +1515,8 @@ class FirestoreService {
           .map((attachment) => attachment.toJson())
           .toList(),
       'taskIds': r.taskIds.isEmpty ? null : r.taskIds,
+      'reviewedBy': r.reviewedBy,
+      'reviewedAt': r.reviewedAt,
     }..removeWhere((k, v) => v == null);
     if (r.id.isNotEmpty) {
       await _reports.doc(r.id).set(data);

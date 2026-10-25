@@ -205,6 +205,7 @@ void main() {
       expect(find.byType(HeadAttendanceScreen), findsOneWidget);
       expect(find.text('Generate QR Code'), findsNothing);
       expect(find.text('Sam Santos'), findsOneWidget);
+      expect(find.text('Export CSV'), findsOneWidget);
     });
 
     testWidgets('filters the summary', (tester) async {

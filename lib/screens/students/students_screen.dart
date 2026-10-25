@@ -4,6 +4,8 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/csv_export.dart';
+import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 class StudentsScreen extends StatefulWidget {
@@ -17,6 +19,24 @@ class _StudentsScreenState extends State<StudentsScreen> {
   String _dept = 'All Departments';
   String _office = 'All Offices';
   bool _showArchived = false;
+
+  /// The list as filtered, with the contact details staff already see on
+  /// the cards, as a spreadsheet.
+  void _export(List<Student> students) {
+    saveCsv(_showArchived ? 'students-archived.csv' : 'students.csv', [
+      ['Name', 'Email', 'Department', 'Campus', 'Phone', 'Status', 'Hours'],
+      for (final s in students)
+        [
+          s.name,
+          s.email,
+          s.department,
+          s.campus,
+          s.phone,
+          s.status,
+          double.parse(s.totalHours.toStringAsFixed(2)),
+        ],
+    ]);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -132,6 +152,9 @@ class _StudentsScreenState extends State<StudentsScreen> {
                 isMobile: isMobile,
               ),
               _archiveToggle(),
+              ExportCsvButton(
+                onPressed: students.isEmpty ? null : () => _export(students),
+              ),
             ],
           ),
           const SizedBox(height: 18),

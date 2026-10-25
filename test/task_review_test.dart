@@ -350,6 +350,20 @@ void main() {
       expect(store.reports['r1']!.taskIds, ['a']);
     });
 
+    test('a decision records who made it and when', () async {
+      state
+        ..currentUser = _supervisor
+        ..reports = [_report('r1')];
+
+      await state.updateReportStatus('r1', 'Rejected', feedback: 'Page 2');
+
+      final saved = store.reports['r1']!;
+      expect(saved.reviewedBy, 'Sid Supervisor');
+      expect(DateTime.tryParse(saved.reviewedAt ?? ''), isNotNull);
+      expect(saved.reviewSummary, startsWith('Reviewed by Sid Supervisor on '));
+      expect(_report('r2').reviewSummary, isNull);
+    });
+
     test('are recorded when a report is read back', () {
       final report = Report.fromJson({
         'id': 'r1',
@@ -679,6 +693,46 @@ void main() {
       expect(saved.content, '• Shelve returns');
       // The next report doesn't offer it again.
       expect(state.reportableTasks, isEmpty);
+    });
+
+    testWidgets('a rejected report can be sent again, starting from it', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1280, 1400);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      state
+        ..currentUser = _assistant
+        ..users = [_assistant]
+        ..tasks = [_approved(id: 'a', title: 'Shelve returns')]
+        ..reports = [
+          _report('r1', status: 'Rejected', content: 'My week'),
+          _report('r2', status: 'Pending'),
+        ];
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: AppTheme.theme,
+            home: const Scaffold(body: ReportsScreen()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Only the rejected one offers it.
+      expect(find.text('Submit a corrected report'), findsOneWidget);
+      await tester.tap(find.text('Submit a corrected report'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<TextField>(find.widgetWithText(TextField, 'Report Title'))
+            .controller!
+            .text,
+        'Report r1',
+      );
+      expect(find.widgetWithText(TextField, 'My week'), findsOneWidget);
     });
   });
 }

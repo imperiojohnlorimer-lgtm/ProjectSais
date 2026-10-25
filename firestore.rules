@@ -929,7 +929,9 @@ service cloud.firestore {
     // one document per student (their account id). The Admin reads it to
     // see whether a term's payroll can be approved.
     match /payrollChecks/{studentId} {
-      allow read: if isHead() || isAdmin();
+      // A Student Assistant reads their own, to see what the Head returned.
+      allow read: if isHead() || isAdmin()
+        || (signedIn() && request.auth.uid == studentId);
       allow create, update: if isHead()
         && request.resource.data.keys().hasOnly(
           ['studentId', 'studentName', 'items', 'exclusions', 'updatedAt']

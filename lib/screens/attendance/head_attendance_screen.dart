@@ -4,6 +4,9 @@ import '../../models/app_state.dart';
 import '../../models/assistant_attendance.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/csv.dart';
+import '../../utils/csv_export.dart';
+import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 /// The periods the Head's summary covers.
@@ -79,6 +82,40 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
   }
 
   String _day(DateTime d) => '${_months[d.month - 1]} ${d.day}';
+
+  /// The summary as listed (search and filters applied), one row per
+  /// Student Assistant, as a spreadsheet.
+  void _export(List<AssistantAttendance> rows, DateTime? from, DateTime? to) {
+    String iso(DateTime? d) => d == null
+        ? ''
+        : '${d.year}-${d.month.toString().padLeft(2, '0')}-'
+              '${d.day.toString().padLeft(2, '0')}';
+    saveCsv('attendance-${csvFileSafe('${iso(from)}-to-${iso(to)}')}.csv', [
+      [
+        'Student Assistant',
+        'SA ID',
+        'Office',
+        'Department',
+        'Verified hours',
+        'Days with hours',
+        'Missed time-outs',
+        'Clocked in now',
+        'Last record',
+      ],
+      for (final row in rows)
+        [
+          row.assistant.name,
+          row.assistant.saId,
+          row.officeLabel,
+          row.assistant.department,
+          double.parse(row.hours.toStringAsFixed(2)),
+          row.verifiedDays,
+          row.missedTimeOuts,
+          row.clockedIn ? 'Yes' : 'No',
+          row.lastDate,
+        ],
+    ]);
+  }
 
   String _periodLabel(_Period period) => switch (period) {
     _Period.thisWeek => 'This week',
@@ -183,7 +220,14 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
                 subtitle: "A summary of every Student Assistant's attendance",
                 searchHint: 'Search student assistants...',
                 onSearch: (value) => setState(() => _search = value),
-                filters: [_archivedToggle()],
+                filters: [
+                  _archivedToggle(),
+                  ExportCsvButton(
+                    onPressed: rows.isEmpty
+                        ? null
+                        : () => _export(rows, from, to),
+                  ),
+                ],
                 stats: [
                   HeroStatData(
                     label: 'Student Assistants',
@@ -712,11 +756,26 @@ class _RecordLine extends StatelessWidget {
         : record.isActive
         ? ('Clocked in', AppTheme.emerald500)
         : ('Verified', AppTheme.slate500);
-    final times = Text(
-      record.isActive
-          ? 'In ${record.timeIn}'
-          : 'In ${record.timeIn} · Out ${record.timeOut}',
-      style: const TextStyle(fontSize: 12, color: AppTheme.slate600),
+    final edited = record.editSummary;
+    final times = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          record.isActive
+              ? 'In ${record.timeIn}'
+              : 'In ${record.timeIn} · Out ${record.timeOut}',
+          style: const TextStyle(fontSize: 12, color: AppTheme.slate600),
+        ),
+        if (edited != null)
+          Text(
+            'Edited: $edited',
+            style: const TextStyle(
+              fontSize: 11,
+              fontStyle: FontStyle.italic,
+              color: AppTheme.slate500,
+            ),
+          ),
+      ],
     );
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 6, 4, 6),

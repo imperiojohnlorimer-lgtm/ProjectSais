@@ -621,6 +621,11 @@ class AttendanceRecord {
   // closed while they were still clocked in — they missed their time-out,
   // so the record no longer counts toward verified hours.
   final bool isInvalid;
+  // The last change a person made by hand (a time-out recorded for the
+  // student, archiving, restoring): who, when (ISO, UTC) and what.
+  final String? editedBy;
+  final String? editedAt;
+  final String? editNote;
 
   AttendanceRecord({
     required this.id,
@@ -634,7 +639,37 @@ class AttendanceRecord {
     this.isArchived = false,
     this.archivedAcademicYear,
     this.isInvalid = false,
+    this.editedBy,
+    this.editedAt,
+    this.editNote,
   });
+
+  /// "Time-out recorded at 4:30 PM by Maria on Oct 26", or null for a record
+  /// nobody has changed by hand.
+  String? get editSummary {
+    final note = editNote;
+    if (note == null || note.isEmpty) return null;
+    final by = (editedBy ?? '').isEmpty ? '' : ' by $editedBy';
+    final at = DateTime.tryParse(
+      editedAt ?? '',
+    )?.toUtc().add(const Duration(hours: 8));
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final on = at == null ? '' : ' on ${months[at.month - 1]} ${at.day}';
+    return '$note$by$on';
+  }
 
   bool get isActive => timeOut == null || timeOut!.isEmpty;
 
@@ -656,6 +691,12 @@ class AttendanceRecord {
     double? totalHours,
     bool? isArchived,
     bool? isInvalid,
+    // True when staff archive or restore a record by hand: it is then no
+    // longer one archived along with its academic year.
+    bool clearArchivedYear = false,
+    String? editedBy,
+    String? editedAt,
+    String? editNote,
   }) => AttendanceRecord(
     id: id,
     studentName: studentName,
@@ -666,8 +707,11 @@ class AttendanceRecord {
     totalHours: totalHours ?? this.totalHours,
     academicYear: academicYear,
     isArchived: isArchived ?? this.isArchived,
-    archivedAcademicYear: archivedAcademicYear,
+    archivedAcademicYear: clearArchivedYear ? null : archivedAcademicYear,
     isInvalid: isInvalid ?? this.isInvalid,
+    editedBy: editedBy ?? this.editedBy,
+    editedAt: editedAt ?? this.editedAt,
+    editNote: editNote ?? this.editNote,
   );
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) =>
@@ -685,6 +729,9 @@ class AttendanceRecord {
         isArchived: json['isArchived'] == true,
         archivedAcademicYear: json['archivedAcademicYear']?.toString(),
         isInvalid: json['isInvalid'] == true,
+        editedBy: json['editedBy']?.toString(),
+        editedAt: json['editedAt']?.toString(),
+        editNote: json['editNote']?.toString(),
       );
 }
 
@@ -999,6 +1046,10 @@ class Report {
   /// reports sent before reports recorded their tasks.
   final List<String> taskIds;
 
+  /// Who approved or rejected it, and when (ISO, UTC).
+  final String? reviewedBy;
+  final String? reviewedAt;
+
   Report({
     required this.id,
     this.applicantId,
@@ -1014,7 +1065,34 @@ class Report {
     this.sentToHeadAt,
     this.headAttachments = const [],
     this.taskIds = const [],
+    this.reviewedBy,
+    this.reviewedAt,
   });
+
+  /// "Reviewed by Maria on Oct 26", or null before anyone reviewed it.
+  String? get reviewSummary {
+    final by = reviewedBy;
+    if (by == null || by.isEmpty) return null;
+    final at = DateTime.tryParse(
+      reviewedAt ?? '',
+    )?.toUtc().add(const Duration(hours: 8));
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final on = at == null ? '' : ' on ${months[at.month - 1]} ${at.day}';
+    return 'Reviewed by $by$on';
+  }
 
   factory Report.fromJson(Map<String, dynamic> json) => Report(
     id: json['_id'] ?? json['id'] ?? '',
@@ -1047,6 +1125,8 @@ class Report {
             ?.map((e) => e.toString())
             .toList() ??
         const [],
+    reviewedBy: json['reviewedBy']?.toString(),
+    reviewedAt: json['reviewedAt']?.toString(),
   );
 }
 

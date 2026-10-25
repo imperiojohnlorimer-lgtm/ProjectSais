@@ -534,3 +534,17 @@ test('nobody edits their own acceptance afterwards', async () => {
 test('an account that has none cannot give itself one', async () => {
   await assertFails(updateDoc(doc(as('stu'), 'users', 'stu'), { consentAt: '2026-10-26T00:00:00.000Z' }));
 });
+
+// ── a Student Assistant's own payroll check ──
+
+test('a Student Assistant reads their own payroll check, nobody else\'s', async () => {
+  const check = (id) => ({ studentId: id, studentName: id, items: {}, exclusions: {} });
+  await assertSucceeds(setDoc(doc(as('head'), 'payrollChecks', 'sa'), check('sa')));
+  await assertSucceeds(setDoc(doc(as('head'), 'payrollChecks', 'other'), check('other')));
+
+  await assertSucceeds(getDoc(doc(as('sa'), 'payrollChecks', 'sa')));
+  await assertFails(getDoc(doc(as('sa'), 'payrollChecks', 'other')));
+  // Reading is all they may do.
+  await assertFails(setDoc(doc(as('sa'), 'payrollChecks', 'sa'), check('sa')));
+  await assertFails(deleteDoc(doc(as('sa'), 'payrollChecks', 'sa')));
+});
