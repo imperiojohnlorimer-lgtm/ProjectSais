@@ -1,6 +1,4 @@
 import 'dart:convert' show base64Encode;
-import 'dart:typed_data';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,9 +7,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
-import '../../utils/web_download_stub.dart'
-    if (dart.library.html) '../../utils/web_download.dart'
-    as web_download;
+import '../../widgets/document_preview.dart';
 import '../../widgets/shared_widgets.dart';
 
 const _roles = ['Admin', 'Head', 'Supervisor', 'Student Assistant', 'Student'];
@@ -705,13 +701,14 @@ class _AccountsScreenState extends State<AccountsScreen>
                     separatorBuilder: (_, __) =>
                         Container(height: 1, color: AppTheme.slate100),
                     itemBuilder: (_, i) => _AccountRow(
+                      key: ValueKey(users[i].id),
                       user: users[i],
                       state: state,
                       isMobile: isMobile,
                       onView: () => _showUserProfile(context, state, users[i]),
                       onEdit: () =>
                           _showUserDialog(context, state, user: users[i]),
-                      onDelete: () async {
+                      onDelete: (busy) async {
                         final ok = await showConfirmDialog(
                           context,
                           title: 'Delete Account Permanently',
@@ -721,8 +718,9 @@ class _AccountsScreenState extends State<AccountsScreen>
                           confirmColor: AppTheme.red500,
                         );
                         if (!ok) return;
-                        final deleted = await state.deleteManagedUser(
-                          users[i].id,
+                        final deleted = await busy(
+                          'delete',
+                          () => state.deleteManagedUser(users[i].id),
                         );
                         if (!context.mounted) return;
                         if (!deleted) {
@@ -734,16 +732,17 @@ class _AccountsScreenState extends State<AccountsScreen>
                         }
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text(
-                              'Account deleted from the system.',
-                            ),
+                            content: Text('Account deleted from the system.'),
                             backgroundColor: AppTheme.emerald500,
                             behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            margin: const EdgeInsets.all(16),
+                          ),
                         );
                       },
-                      onArchiveToggle: () async {
+                      onArchiveToggle: (busy) async {
                         if (users[i].id == state.currentUser?.id) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -752,13 +751,19 @@ class _AccountsScreenState extends State<AccountsScreen>
                               ),
                               backgroundColor: AppTheme.red500,
                               behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              margin: const EdgeInsets.all(16),
+                            ),
                           );
                           return;
                         }
                         if (users[i].status == 'Archived') {
-                          final restored = await state.restoreUser(users[i].id);
+                          final restored = await busy(
+                            'archive',
+                            () => state.restoreUser(users[i].id),
+                          );
                           if (!context.mounted) return;
                           if (!restored) {
                             _showProblem(
@@ -775,8 +780,11 @@ class _AccountsScreenState extends State<AccountsScreen>
                               backgroundColor: AppTheme.emerald500,
                               behavior: SnackBarBehavior.floating,
                               duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              margin: const EdgeInsets.all(16),
+                            ),
                           );
                           return;
                         }
@@ -789,7 +797,10 @@ class _AccountsScreenState extends State<AccountsScreen>
                           confirmColor: AppTheme.amber500,
                         );
                         if (ok) {
-                          final archived = await state.archiveUser(users[i].id);
+                          final archived = await busy(
+                            'archive',
+                            () => state.archiveUser(users[i].id),
+                          );
                           if (!context.mounted) return;
                           if (!archived) {
                             _showProblem(
@@ -806,8 +817,11 @@ class _AccountsScreenState extends State<AccountsScreen>
                               backgroundColor: AppTheme.amber500,
                               behavior: SnackBarBehavior.floating,
                               duration: const Duration(seconds: 2),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              margin: const EdgeInsets.all(16),
+                            ),
                           );
                         }
                       },
@@ -1552,7 +1566,7 @@ class _AccountsScreenState extends State<AccountsScreen>
               onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancel'),
             ),
-            ElevatedButton(
+            AsyncButton(
               onPressed: () async {
                 final name = PersonName(
                   first: firstNameCtrl.text,
@@ -1631,9 +1645,12 @@ class _AccountsScreenState extends State<AccountsScreen>
                     SnackBar(
                       content: Text(error),
                       backgroundColor: AppTheme.red500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                      behavior: SnackBarBehavior.floating,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      margin: const EdgeInsets.all(16),
+                    ),
                   );
                   return;
                 }
@@ -1643,7 +1660,8 @@ class _AccountsScreenState extends State<AccountsScreen>
                 backgroundColor: AppTheme.maroon,
                 foregroundColor: Colors.white,
               ),
-              child: Text(isEditing ? 'Save Changes' : 'Create Account'),
+              label: isEditing ? 'Save Changes' : 'Create Account',
+              busyLabel: isEditing ? 'Saving…' : 'Creating…',
             ),
           ],
         ),
@@ -1666,8 +1684,11 @@ class _AccountsScreenState extends State<AccountsScreen>
           ),
           backgroundColor: AppTheme.emerald500,
           behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     }
   }
@@ -1826,7 +1847,8 @@ class _AccountsScreenState extends State<AccountsScreen>
       initialValue: current,
       isExpanded: true,
       menuMaxHeight: 320,
-      onChanged: (next) => onChanged(next == null || next.isEmpty ? null : next),
+      onChanged: (next) =>
+          onChanged(next == null || next.isEmpty ? null : next),
       decoration: const InputDecoration(
         labelText: 'Course/Program (optional)',
         prefixIcon: Icon(
@@ -1839,7 +1861,9 @@ class _AccountsScreenState extends State<AccountsScreen>
         DropdownMenuItem(
           value: '',
           child: Text(
-            programs.isEmpty ? 'No programs listed for this department' : 'None',
+            programs.isEmpty
+                ? 'No programs listed for this department'
+                : 'None',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
@@ -2238,15 +2262,21 @@ class _NameGuessNote extends StatelessWidget {
 }
 
 // ΓöÇΓöÇ Account row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+/// Runs [work] with the row's [action] ('archive' or 'delete') shown as
+/// waiting: a spinner in that button, and both buttons off until it is done.
+typedef _RunBusy =
+    Future<T> Function<T>(String action, Future<T> Function() work);
+
 class _AccountRow extends StatefulWidget {
   final User user;
   final AppState state;
   final VoidCallback onEdit;
   final VoidCallback onView;
-  final VoidCallback onDelete;
-  final VoidCallback onArchiveToggle;
+  final Future<void> Function(_RunBusy busy) onDelete;
+  final Future<void> Function(_RunBusy busy) onArchiveToggle;
   final bool isMobile;
   const _AccountRow({
+    super.key,
     required this.user,
     required this.state,
     required this.onEdit,
@@ -2263,6 +2293,24 @@ class _AccountRow extends StatefulWidget {
 class _AccountRowState extends State<_AccountRow> {
   bool _hovered = false;
 
+  /// 'archive' or 'delete' while that is being saved.
+  String? _busyAction;
+
+  Future<T> _runBusy<T>(String action, Future<T> Function() work) async {
+    // The row can be gone (a live update) while a confirmation was open.
+    if (mounted) setState(() => _busyAction = action);
+    try {
+      return await work();
+    } finally {
+      if (mounted) setState(() => _busyAction = null);
+    }
+  }
+
+  VoidCallback? get _onArchive =>
+      _busyAction != null ? null : () => widget.onArchiveToggle(_runBusy);
+  VoidCallback? get _onDelete =>
+      _busyAction != null ? null : () => widget.onDelete(_runBusy);
+
   Future<void> _pickAvatar() async {
     final messenger = ScaffoldMessenger.maybeOf(context);
 
@@ -2276,11 +2324,15 @@ class _AccountRowState extends State<_AccountRow> {
       if (!mounted) return;
       if (picked == null) {
         messenger?.showSnackBar(
-          SnackBar(content: Text('No image selected.'),
-        backgroundColor: AppTheme.amber500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          SnackBar(
+            content: Text('No image selected.'),
+            backgroundColor: AppTheme.amber500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
         return;
       }
@@ -2294,20 +2346,28 @@ class _AccountRowState extends State<_AccountRow> {
 
       widget.state.updateUserAvatar(widget.user.id, dataUrl);
       messenger?.showSnackBar(
-        SnackBar(content: Text('Profile picture updated.'),
-        backgroundColor: AppTheme.emerald500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        SnackBar(
+          content: Text('Profile picture updated.'),
+          backgroundColor: AppTheme.emerald500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       messenger?.showSnackBar(
-        SnackBar(content: Text('Could not update profile picture: $e'),
-        backgroundColor: AppTheme.red500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        SnackBar(
+          content: Text('Could not update profile picture: $e'),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
       );
     }
   }
@@ -2597,9 +2657,10 @@ class _AccountRowState extends State<_AccountRow> {
                           ),
                         ),
                         IconButton(
-                          onPressed: widget.onArchiveToggle,
-                          icon: Icon(
-                            u.status == 'Archived'
+                          onPressed: _onArchive,
+                          icon: BusyIcon(
+                            busy: _busyAction == 'archive',
+                            icon: u.status == 'Archived'
                                 ? Icons.unarchive_outlined
                                 : Icons.archive_outlined,
                             size: 18,
@@ -2617,9 +2678,10 @@ class _AccountRowState extends State<_AccountRow> {
                           ),
                         ),
                         IconButton(
-                          onPressed: widget.onDelete,
-                          icon: const Icon(
-                            Icons.delete_outline_rounded,
+                          onPressed: _onDelete,
+                          icon: BusyIcon(
+                            busy: _busyAction == 'delete',
+                            icon: Icons.delete_outline_rounded,
                             size: 17,
                             color: AppTheme.red500,
                           ),
@@ -2826,9 +2888,10 @@ class _AccountRowState extends State<_AccountRow> {
                   ),
                 ),
                 IconButton(
-                  onPressed: widget.onArchiveToggle,
-                  icon: Icon(
-                    u.status == 'Archived'
+                  onPressed: _onArchive,
+                  icon: BusyIcon(
+                    busy: _busyAction == 'archive',
+                    icon: u.status == 'Archived'
                         ? Icons.unarchive_outlined
                         : Icons.archive_outlined,
                     size: 18,
@@ -2846,9 +2909,10 @@ class _AccountRowState extends State<_AccountRow> {
                   ),
                 ),
                 IconButton(
-                  onPressed: widget.onDelete,
-                  icon: const Icon(
-                    Icons.delete_outline_rounded,
+                  onPressed: _onDelete,
+                  icon: BusyIcon(
+                    busy: _busyAction == 'delete',
+                    icon: Icons.delete_outline_rounded,
                     size: 17,
                     color: AppTheme.red500,
                   ),
@@ -2950,10 +3014,21 @@ class _AccountRowState extends State<_AccountRow> {
 }
 
 // ΓöÇΓöÇ Role Dropdown ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-class _RoleDropdown extends StatelessWidget {
+class _RoleDropdown extends StatefulWidget {
   final User user;
   final AppState state;
   const _RoleDropdown({required this.user, required this.state});
+
+  @override
+  State<_RoleDropdown> createState() => _RoleDropdownState();
+}
+
+class _RoleDropdownState extends State<_RoleDropdown> {
+  User get user => widget.user;
+  AppState get state => widget.state;
+
+  /// True while a confirmed role change is being saved.
+  bool _changing = false;
 
   Color _colorForRole(String role) {
     switch (role) {
@@ -3003,7 +3078,12 @@ class _RoleDropdown extends StatelessWidget {
         child: DropdownButton<String>(
           value: user.role,
           isDense: true,
-          icon: Icon(Icons.unfold_more_rounded, size: 14, color: roleColor),
+          icon: BusyIcon(
+            busy: _changing,
+            icon: Icons.unfold_more_rounded,
+            size: 14,
+            color: roleColor,
+          ),
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w700,
@@ -3032,47 +3112,58 @@ class _RoleDropdown extends StatelessWidget {
               ),
             );
           }).toList(),
-          onChanged: (newRole) async {
-            if (newRole == null || newRole == user.role) return;
+          onChanged: _changing
+              ? null
+              : (newRole) async {
+                  if (newRole == null || newRole == user.role) return;
 
-            // Build appropriate confirmation message
-            String message =
-                'Change ${user.name}\'s role from "${user.role}" to "$newRole"?';
-            if ((user.role == 'Student' && newRole == 'Student Assistant') ||
-                (user.role == 'Student Assistant' && newRole == 'Student')) {
-              message +=
-                  '\n\nAll notifications, applications, and other data will be preserved.';
-            }
+                  // Build appropriate confirmation message
+                  String message =
+                      'Change ${user.name}\'s role from "${user.role}" to "$newRole"?';
+                  if ((user.role == 'Student' &&
+                          newRole == 'Student Assistant') ||
+                      (user.role == 'Student Assistant' &&
+                          newRole == 'Student')) {
+                    message +=
+                        '\n\nAll notifications, applications, and other data will be preserved.';
+                  }
 
-            final ok = await showConfirmDialog(
-              context,
-              title: 'Change Role',
-              message: message,
-              confirmLabel: 'Change',
-              confirmColor: AppTheme.maroon,
-            );
-            if (ok) {
-              final problem = await state.changeUserRole(user.id, newRole);
-              if (!context.mounted) return;
-              if (problem != null) {
-                _showProblem(context, problem);
-                return;
-              }
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    '${user.name}\'s role updated to $newRole. They will be notified of this change.',
-                  ),
-                  backgroundColor: AppTheme.emerald500,
-                  behavior: SnackBarBehavior.floating,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  margin: const EdgeInsets.all(16),
-                ),
-              );
-            }
-          },
+                  final ok = await showConfirmDialog(
+                    context,
+                    title: 'Change Role',
+                    message: message,
+                    confirmLabel: 'Change',
+                    confirmColor: AppTheme.maroon,
+                  );
+                  if (ok) {
+                    if (!mounted) return;
+                    setState(() => _changing = true);
+                    final String? problem;
+                    try {
+                      problem = await state.changeUserRole(user.id, newRole);
+                    } finally {
+                      if (mounted) setState(() => _changing = false);
+                    }
+                    if (!context.mounted) return;
+                    if (problem != null) {
+                      _showProblem(context, problem);
+                      return;
+                    }
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '${user.name}\'s role updated to $newRole. They will be notified of this change.',
+                        ),
+                        backgroundColor: AppTheme.emerald500,
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        margin: const EdgeInsets.all(16),
+                      ),
+                    );
+                  }
+                },
         ),
       ),
     );
@@ -3285,9 +3376,12 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         ),
                         backgroundColor: AppTheme.red500,
                         duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                        behavior: SnackBarBehavior.floating,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        margin: const EdgeInsets.all(16),
+                      ),
                     );
                   }
                 },
@@ -3854,35 +3948,28 @@ class _AdminApplicationCard extends StatelessWidget {
                                           Row(
                                             children: [
                                               OutlinedButton.icon(
-                                                onPressed:
-                                                    (doc.bytes != null &&
-                                                        doc.bytes!.isNotEmpty)
-                                                    ? () =>
-                                                          _downloadDocument(doc)
+                                                onPressed: _canOpen(doc)
+                                                    ? () => _openDocument(doc)
                                                     : null,
                                                 icon: const Icon(
-                                                  Icons.download_outlined,
+                                                  Icons.visibility_outlined,
                                                   size: 13,
                                                 ),
-                                                label: const Text(
-                                                  'Download',
-                                                  style: TextStyle(
+                                                label: Text(
+                                                  _canOpen(doc)
+                                                      ? 'Preview'
+                                                      : 'Unavailable',
+                                                  style: const TextStyle(
                                                     fontSize: 10,
                                                     fontWeight: FontWeight.w600,
                                                   ),
                                                 ),
                                                 style: OutlinedButton.styleFrom(
-                                                  foregroundColor:
-                                                      (doc.bytes != null &&
-                                                          doc.bytes!.isNotEmpty)
+                                                  foregroundColor: _canOpen(doc)
                                                       ? AppTheme.emerald500
                                                       : AppTheme.slate300,
                                                   side: BorderSide(
-                                                    color:
-                                                        (doc.bytes != null &&
-                                                            doc
-                                                                .bytes!
-                                                                .isNotEmpty)
+                                                    color: _canOpen(doc)
                                                         ? AppTheme.emerald500
                                                         : AppTheme.slate200,
                                                   ),
@@ -3981,72 +4068,19 @@ class _AdminApplicationCard extends StatelessWidget {
     );
   }
 
-  void _downloadDocument(ApplicationDocument doc) {
-    if (doc.bytes == null || doc.bytes!.isEmpty) {
-      if (!ctx.mounted) return;
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(
-          content: const Text(
-            'Document data not available - file may have been uploaded as preview only',
-          ),
-          backgroundColor: AppTheme.amber500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-          duration: const Duration(seconds: 3),
-        ),
-      );
-      return;
-    }
+  /// Whether there is a stored copy to open: its bytes, its storage path, or
+  /// (older records) a saved link.
+  bool _canOpen(ApplicationDocument doc) =>
+      (doc.bytes?.isNotEmpty ?? false) ||
+      (doc.storagePath?.isNotEmpty ?? false) ||
+      (doc.downloadUrl?.isNotEmpty ?? false);
 
-    if (kIsWeb) {
-      _triggerWebDownload(doc.fileName, doc.bytes!);
-    } else {
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Document "${doc.fileName}" (${(doc.fileSize ?? 0).toStringAsFixed(2)} MB) is available',
-          ),
-          backgroundColor: AppTheme.emerald500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-    }
-  }
-
-  void _triggerWebDownload(String fileName, Uint8List bytes) {
-    if (!kIsWeb) return;
-
-    try {
-      web_download.WebDownloadUtils.downloadBytes(fileName, bytes);
-
-      if (!ctx.mounted) return;
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(
-          content: Text('Downloading $fileName...'),
-          backgroundColor: AppTheme.emerald500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(
-          content: Text('Unable to download: $e'),
-          backgroundColor: AppTheme.amber500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
-      );
-    }
-  }
+  /// Shows the file over the page to read first; the viewer has Download.
+  Future<void> _openDocument(ApplicationDocument doc) => showDocumentPreview(
+    ctx,
+    fileName: doc.fileName,
+    storagePath: doc.storagePath,
+    storedUrl: doc.downloadUrl,
+    bytes: doc.bytes,
+  );
 }

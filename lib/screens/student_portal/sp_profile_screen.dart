@@ -8,6 +8,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../widgets/application_status.dart';
 import '../../widgets/avatar_editor.dart';
+import '../../widgets/shared_widgets.dart';
 import '../../widgets/profile_widgets.dart';
 
 class SpProfileScreen extends StatefulWidget {
@@ -94,7 +95,7 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
     }
   }
 
-  void _toggleEditing(AppState state) {
+  Future<void> _toggleEditing(AppState state) async {
     if (_isEditing) {
       final phone = _phoneCtrl.text.trim();
       if (phone.isNotEmpty && !isValidPhoneNumber(phone)) {
@@ -115,10 +116,32 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
       }
       // No name here: only an Admin may rename an account, since payroll
       // and several screens match records to people by name.
-      state.updateProfile(
-        phone: _phoneCtrl.text.trim(),
-        address: _addressCtrl.text.trim(),
-      );
+      try {
+        await runWithBusy(
+          context,
+          () => state.updateProfile(
+            phone: _phoneCtrl.text.trim(),
+            address: _addressCtrl.text.trim(),
+          ),
+          message: 'Saving…',
+        );
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Could not save your profile: $e'),
+              backgroundColor: AppTheme.red500,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              margin: const EdgeInsets.all(16),
+            ),
+          );
+        }
+        return;
+      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Profile updated.'),

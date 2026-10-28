@@ -5,12 +5,12 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/endorsement_document_service.dart';
-import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
 import '../../widgets/application_status.dart';
+import '../../widgets/document_preview.dart';
 import '../../widgets/shared_widgets.dart';
 
 /// The applicants on the Head's Applications & Screening page
@@ -684,13 +684,20 @@ class EndorsementSummaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OutlinedButton.icon(
+    return AsyncButton(
+      kind: AsyncButtonKind.outlined,
       onPressed: () {
         final state = context.read<AppState>();
-        _showEndorsementSummaryDialog(context, state, state.applications);
+        return _showEndorsementSummaryDialog(
+          context,
+          state,
+          state.applications,
+        );
       },
-      icon: const Icon(Icons.picture_as_pdf_outlined, size: 15),
-      label: const Text('Endorsement Summary'),
+      icon: Icons.picture_as_pdf_outlined,
+      iconSize: 15,
+      label: 'Endorsement Summary',
+      busyLabel: 'Preparing…',
       style: OutlinedButton.styleFrom(
         foregroundColor: AppTheme.maroon,
         side: const BorderSide(color: AppTheme.maroon),
@@ -748,22 +755,23 @@ class EndorsementSummaryButton extends StatelessWidget {
     AppState state,
     List<Application> allApps,
   ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    void say(String text, Color color) => messenger.showSnackBar(
+      SnackBar(
+        content: Text(text),
+        backgroundColor: color,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+
     final approved = allApps
         .where((a) => a.status == 'Approved' || a.status == 'Accepted')
         .toList();
 
     if (approved.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('No approved applicants to endorse yet.'),
-          backgroundColor: AppTheme.amber500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
+      say('No approved applicants to endorse yet.', AppTheme.amber500);
       return;
     }
 
@@ -772,9 +780,19 @@ class EndorsementSummaryButton extends StatelessWidget {
     // "SA 002", ...), never typed in by hand, and reused on every future
     // endorsement letter once assigned.
     final saIds = <String>[];
-    for (final app in approved) {
-      saIds.add(await state.ensureStudentAssistantId(app.applicantId) ?? '');
+    try {
+      for (final app in approved) {
+        saIds.add(await state.ensureStudentAssistantId(app.applicantId) ?? '');
+      }
+    } catch (e) {
+      say(
+        'Could not prepare the Endorsement Summary: $e. IDs already given '
+        'are kept; try again.',
+        AppTheme.red500,
+      );
+      return;
     }
+    // Left the page while the IDs were being given out: no dialog now.
     if (!context.mounted) return;
 
     final today = DateTime.now();
@@ -823,33 +841,49 @@ class EndorsementSummaryButton extends StatelessWidget {
       );
     }
 
-    Future<void> generate() async {
-      final messenger = ScaffoldMessenger.of(context);
-      final entries = <EndorsementEntry>[
-        for (var i = 0; i < approved.length; i++)
-          EndorsementEntry(
-            saNumber: saIds[i],
-            name: approved[i].applicantName,
-            office: officeCtrls[i].text.trim(),
-            supervisor: supervisorCtrls[i].text.trim(),
-          ),
-      ];
+    // Why the last try failed, shown in the dialog itself: a snackbar
+    // would sit behind it.
+    String? generateError;
 
-      final data = EndorsementData(
-        date: dateCtrl.text.trim(),
-        semester: semesterCtrl.text.trim(),
-        academicYear: academicYearCtrl.text.trim(),
-        effectivePeriod: effectivePeriodCtrl.text.trim(),
-        batchLabel: batchLabelCtrl.text.trim(),
-        vpName: vpNameCtrl.text.trim(),
-        campusDirectorName: campusDirectorCtrl.text.trim(),
-        headSwsName: headSwsCtrl.text.trim(),
-        preparedByName: preparedByNameCtrl.text.trim(),
-        preparedByTitle: preparedByTitleCtrl.text.trim(),
-        entries: entries,
-      );
+    Future<void> generate(
+      BuildContext dialogContext,
+      StateSetter setDialog,
+    ) async {
+      void fail(Object e) {
+        final text = 'Could not generate document: $e';
+        if (dialogContext.mounted) {
+          setDialog(() => generateError = text);
+        } else {
+          say(text, AppTheme.red500);
+        }
+      }
 
+      if (generateError != null) setDialog(() => generateError = null);
       try {
+        final entries = <EndorsementEntry>[
+          for (var i = 0; i < approved.length; i++)
+            EndorsementEntry(
+              saNumber: saIds[i],
+              name: approved[i].applicantName,
+              office: officeCtrls[i].text.trim(),
+              supervisor: supervisorCtrls[i].text.trim(),
+            ),
+        ];
+
+        final data = EndorsementData(
+          date: dateCtrl.text.trim(),
+          semester: semesterCtrl.text.trim(),
+          academicYear: academicYearCtrl.text.trim(),
+          effectivePeriod: effectivePeriodCtrl.text.trim(),
+          batchLabel: batchLabelCtrl.text.trim(),
+          vpName: vpNameCtrl.text.trim(),
+          campusDirectorName: campusDirectorCtrl.text.trim(),
+          headSwsName: headSwsCtrl.text.trim(),
+          preparedByName: preparedByNameCtrl.text.trim(),
+          preparedByTitle: preparedByTitleCtrl.text.trim(),
+          entries: entries,
+        );
+
         final doc = await const EndorsementDocumentService()
             .generateEndorsement(data: data);
         final bytes = doc.bytes;
@@ -867,276 +901,286 @@ class EndorsementSummaryButton extends StatelessWidget {
             parameters: {'filename': doc.fileName},
           );
           final opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
-          if (!opened)
+          if (!opened) {
             throw Exception('The browser could not open the document.');
+          }
         }
 
-        if (!context.mounted) return;
-        Navigator.pop(context);
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('Generated ${doc.fileName}'),
-            backgroundColor: AppTheme.emerald500,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
+        // Closes this dialog only: not whatever is on top if it was
+        // dismissed while the file was being made.
+        if (dialogContext.mounted &&
+            ModalRoute.of(dialogContext)?.isCurrent == true) {
+          Navigator.pop(dialogContext);
+        }
+        say('Generated ${doc.fileName}', AppTheme.emerald500);
       } catch (e) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('Could not generate document: $e'),
-            backgroundColor: AppTheme.red500,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
+        fail(e);
       }
     }
 
     showDialog(
       context: context,
-      builder: (dialogContext) => Dialog(
-        insetPadding: const EdgeInsets.all(16),
-        backgroundColor: Colors.transparent,
-        child: Container(
-          width: 640,
-          constraints: const BoxConstraints(maxHeight: 780),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(24),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withValues(alpha: 0.15),
-                blurRadius: 30,
-                offset: const Offset(0, 10),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(20),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [AppTheme.maroon, AppTheme.maroonDark],
-                  ),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (_, setDialog) => Dialog(
+          insetPadding: const EdgeInsets.all(16),
+          backgroundColor: Colors.transparent,
+          child: Container(
+            width: 640,
+            constraints: const BoxConstraints(maxHeight: 780),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.15),
+                  blurRadius: 30,
+                  offset: const Offset(0, 10),
                 ),
-                child: Row(
-                  children: [
-                    const Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Generate Endorsement Summary',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w800,
-                              color: Colors.white,
-                            ),
-                          ),
-                          SizedBox(height: 4),
-                          Text(
-                            'One letter listing every Approved Student Assistant, '
-                            'for the VP for Student Affairs and Services.',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              color: Colors.white70,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    GestureDetector(
-                      onTap: () => Navigator.pop(dialogContext),
-                      child: Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.2),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.close_rounded,
-                          color: Colors.white,
-                          size: 16,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Flexible(
-                child: SingleChildScrollView(
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
                   padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                  decoration: const BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [AppTheme.maroon, AppTheme.maroonDark],
+                    ),
+                    borderRadius: BorderRadius.vertical(
+                      top: Radius.circular(24),
+                    ),
+                  ),
+                  child: Row(
                     children: [
-                      Wrap(
-                        spacing: 12,
-                        runSpacing: 12,
-                        children: [
-                          _endorsementField('Date', dateCtrl, width: 190),
-                          _endorsementField(
-                            'Semester',
-                            semesterCtrl,
-                            width: 150,
-                          ),
-                          _endorsementField(
-                            'Academic Year',
-                            academicYearCtrl,
-                            width: 150,
-                          ),
-                          _endorsementField(
-                            'Batch Label',
-                            batchLabelCtrl,
-                            width: 120,
-                          ),
-                          _endorsementField(
-                            'Effective Period (e.g. "January 5, 2026, to April 30, 2026")',
-                            effectivePeriodCtrl,
-                            width: 600,
-                          ),
-                          _endorsementField('VP Name', vpNameCtrl, width: 290),
-                          _endorsementField(
-                            'Campus Director Name',
-                            campusDirectorCtrl,
-                            width: 290,
-                          ),
-                          _endorsementField(
-                            'Head, Student Welfare Services',
-                            headSwsCtrl,
-                            width: 290,
-                          ),
-                          _endorsementField(
-                            'Prepared By (Name)',
-                            preparedByNameCtrl,
-                            width: 290,
-                          ),
-                          _endorsementField(
-                            'Prepared By (Title)',
-                            preparedByTitleCtrl,
-                            width: 600,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 20),
-                      Text(
-                        'Approved Student Assistants (${approved.length})',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.slate500,
-                          letterSpacing: 0.5,
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Generate Endorsement Summary',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                              ),
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'One letter listing every Approved Student Assistant, '
+                              'for the VP for Student Affairs and Services.',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
-                      const SizedBox(height: 10),
-                      for (var i = 0; i < approved.length; i++)
-                        Container(
-                          margin: const EdgeInsets.only(bottom: 8),
-                          padding: const EdgeInsets.all(10),
+                      GestureDetector(
+                        onTap: () => Navigator.pop(dialogContext),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
-                            color: AppTheme.slate50,
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppTheme.slate200),
+                            color: Colors.white.withValues(alpha: 0.2),
+                            shape: BoxShape.circle,
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 8,
-                                      vertical: 3,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.maroon.withValues(
-                                        alpha: 0.08,
-                                      ),
-                                      borderRadius: BorderRadius.circular(6),
-                                    ),
-                                    child: Text(
-                                      saIds[i],
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                        color: AppTheme.maroon,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    approved[i].applicantName,
-                                    style: const TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w700,
-                                      color: AppTheme.slate800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 8),
-                              Wrap(
-                                spacing: 10,
-                                runSpacing: 8,
-                                children: [
-                                  _endorsementField(
-                                    'Office/Department',
-                                    officeCtrls[i],
-                                    width: 260,
-                                  ),
-                                  _endorsementField(
-                                    'Immediate Supervisor',
-                                    supervisorCtrls[i],
-                                    width: 260,
-                                  ),
-                                ],
-                              ),
-                            ],
+                          child: const Icon(
+                            Icons.close_rounded,
+                            color: Colors.white,
+                            size: 16,
                           ),
                         ),
+                      ),
                     ],
                   ),
                 ),
-              ),
-              Container(
-                padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
-                decoration: const BoxDecoration(
-                  border: Border(top: BorderSide(color: AppTheme.slate100)),
-                ),
-                child: SizedBox(
-                  width: double.infinity,
-                  height: 50,
-                  child: ElevatedButton.icon(
-                    onPressed: generate,
-                    icon: const Icon(Icons.download_rounded, size: 16),
-                    label: const Text(
-                      'Generate & Download',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: AppTheme.maroon,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      elevation: 0,
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(20),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            _endorsementField('Date', dateCtrl, width: 190),
+                            _endorsementField(
+                              'Semester',
+                              semesterCtrl,
+                              width: 150,
+                            ),
+                            _endorsementField(
+                              'Academic Year',
+                              academicYearCtrl,
+                              width: 150,
+                            ),
+                            _endorsementField(
+                              'Batch Label',
+                              batchLabelCtrl,
+                              width: 120,
+                            ),
+                            _endorsementField(
+                              'Effective Period (e.g. "January 5, 2026, to April 30, 2026")',
+                              effectivePeriodCtrl,
+                              width: 600,
+                            ),
+                            _endorsementField(
+                              'VP Name',
+                              vpNameCtrl,
+                              width: 290,
+                            ),
+                            _endorsementField(
+                              'Campus Director Name',
+                              campusDirectorCtrl,
+                              width: 290,
+                            ),
+                            _endorsementField(
+                              'Head, Student Welfare Services',
+                              headSwsCtrl,
+                              width: 290,
+                            ),
+                            _endorsementField(
+                              'Prepared By (Name)',
+                              preparedByNameCtrl,
+                              width: 290,
+                            ),
+                            _endorsementField(
+                              'Prepared By (Title)',
+                              preparedByTitleCtrl,
+                              width: 600,
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          'Approved Student Assistants (${approved.length})',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: AppTheme.slate500,
+                            letterSpacing: 0.5,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                        for (var i = 0; i < approved.length; i++)
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 8),
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: AppTheme.slate50,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: AppTheme.slate200),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 3,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.maroon.withValues(
+                                          alpha: 0.08,
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        saIds[i],
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: AppTheme.maroon,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      approved[i].applicantName,
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.slate800,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Wrap(
+                                  spacing: 10,
+                                  runSpacing: 8,
+                                  children: [
+                                    _endorsementField(
+                                      'Office/Department',
+                                      officeCtrls[i],
+                                      width: 260,
+                                    ),
+                                    _endorsementField(
+                                      'Immediate Supervisor',
+                                      supervisorCtrls[i],
+                                      width: 260,
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                 ),
-              ),
-            ],
+                Container(
+                  padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: AppTheme.slate100)),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (generateError != null) ...[
+                        Text(
+                          generateError!,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppTheme.red500,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        const SizedBox(height: 10),
+                      ],
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: AsyncButton(
+                          onPressed: () => generate(dialogContext, setDialog),
+                          icon: Icons.download_rounded,
+                          label: 'Generate & Download',
+                          busyLabel: 'Generating…',
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.maroon,
+                            foregroundColor: Colors.white,
+                            textStyle: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            elevation: 0,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1225,7 +1269,6 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
 
   bool generatingContract = false;
   bool generatingEndorsement = false;
-  String? downloadingDocumentId;
 
   /// 'approve', 'reject', 'screen' or 'unscreen' while that change is
   /// saving.
@@ -1579,35 +1622,15 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                                 ),
                               ),
                               ElevatedButton.icon(
-                                onPressed: downloadingDocumentId == doc.id
-                                    ? null
-                                    : ((doc.storagePath != null &&
-                                                  doc
-                                                      .storagePath!
-                                                      .isNotEmpty) ||
-                                              (doc.bytes != null &&
-                                                  doc.bytes!.isNotEmpty)
-                                          ? () => _downloadDocument(doc)
-                                          : null),
-                                icon: downloadingDocumentId == doc.id
-                                    ? const SizedBox(
-                                        width: 13,
-                                        height: 13,
-                                        child: CircularProgressIndicator(
-                                          strokeWidth: 2,
-                                          valueColor: AlwaysStoppedAnimation(
-                                            Colors.white,
-                                          ),
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.download_outlined,
-                                        size: 13,
-                                      ),
+                                onPressed: _canOpen(doc)
+                                    ? () => _openDocument(doc)
+                                    : null,
+                                icon: const Icon(
+                                  Icons.visibility_outlined,
+                                  size: 13,
+                                ),
                                 label: Text(
-                                  downloadingDocumentId == doc.id
-                                      ? 'Downloading...'
-                                      : 'Download',
+                                  _canOpen(doc) ? 'Preview' : 'Unavailable',
                                   style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.w600,
@@ -2088,63 +2111,21 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
     );
   }
 
-  Future<void> _downloadDocument(ApplicationDocument doc) async {
-    final messenger = ScaffoldMessenger.of(ctx);
-    setState(() => downloadingDocumentId = doc.id);
-    try {
-      if (doc.storagePath != null && doc.storagePath!.isNotEmpty) {
-        final url = await SupabaseStorageService.instance.getDocumentUrl(
-          doc.storagePath!,
-        );
-        final opened = await launchUrl(
-          Uri.parse(url),
-          mode: LaunchMode.externalApplication,
-        );
-        if (!opened)
-          throw Exception('The browser could not open the document.');
-      } else if (doc.bytes != null && doc.bytes!.isNotEmpty) {
-        final uri = Uri.dataFromBytes(
-          doc.bytes!,
-          mimeType:
-              'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-          parameters: {'filename': doc.fileName},
-        );
-        final opened = await launchUrl(uri, mode: LaunchMode.platformDefault);
-        if (!opened)
-          throw Exception('The browser could not open the document.');
-      } else {
-        throw Exception(
-          'This document has no file content or storage path. Please upload it again.',
-        );
-      }
+  /// Whether there is a stored copy to open: its bytes, its storage path, or
+  /// (older records) a saved link.
+  bool _canOpen(ApplicationDocument doc) =>
+      (doc.bytes?.isNotEmpty ?? false) ||
+      (doc.storagePath?.isNotEmpty ?? false) ||
+      (doc.downloadUrl?.isNotEmpty ?? false);
 
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Opening ${doc.fileName}...'),
-          backgroundColor: AppTheme.emerald500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Unable to download: $e'),
-          backgroundColor: AppTheme.amber500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => downloadingDocumentId = null);
-    }
-  }
+  /// Shows the file over the page to read first; the viewer has Download.
+  Future<void> _openDocument(ApplicationDocument doc) => showDocumentPreview(
+    ctx,
+    fileName: doc.fileName,
+    storagePath: doc.storagePath,
+    storedUrl: doc.downloadUrl,
+    bytes: doc.bytes,
+  );
 
   /// Generating a document again replaces the copy already on file, so ask
   /// first when there is one. Returns whether to go ahead.

@@ -776,7 +776,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ),
                           ),
                         const SizedBox(height: 6),
-                        OutlinedButton.icon(
+                        AsyncButton(
+                          kind: AsyncButtonKind.outlined,
                           onPressed: () async {
                             try {
                               final result = await FilePicker.platform
@@ -856,8 +857,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
                               }
                             }
                           },
-                          icon: const Icon(Icons.upload_file_rounded, size: 16),
-                          label: const Text('Upload Document'),
+                          icon: Icons.upload_file_rounded,
+                          label: 'Upload Document',
+                          busyLabel: 'Uploading…',
                           style: OutlinedButton.styleFrom(
                             foregroundColor: AppTheme.maroon,
                             side: const BorderSide(
@@ -887,56 +889,62 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ],
                       ),
                       child: ElevatedButton(
-                        onPressed: submitting ? null : () async {
-                          if (titleCtrl.text.trim().isEmpty) return;
-                          setState(() => submitting = true);
-                          final messenger = ScaffoldMessenger.of(context);
-                          final now = DateTime.now();
-                          final report = Report(
-                            id: 'r_${now.millisecondsSinceEpoch}',
-                            applicantId: state.currentUser?.id,
-                            title: titleCtrl.text.trim(),
-                            content: contentCtrl.text.trim(),
-                            studentName: state.currentUser?.name ?? '',
-                            status: 'Pending',
-                            submittedAt: '${now.month}/${now.day}/${now.year}',
-                            attachments: attachments,
-                            academicYear: state.academicYear,
-                            taskIds: [
-                              for (final task in completedTasks)
-                                if (includedTaskIds.contains(task.id)) task.id,
-                            ],
-                          );
-                          final ok = await state.submitReport(report);
-                          if (context.mounted) Navigator.pop(context);
-                          if (ok) {
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text('Report submitted successfully!'),
-                                backgroundColor: AppTheme.emerald500,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                margin: const EdgeInsets.all(16),
-                              ),
-                            );
-                          } else {
-                            messenger.showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Failed to submit report. Please try again.',
-                                ),
-                                backgroundColor: AppTheme.red500,
-                                behavior: SnackBarBehavior.floating,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                margin: const EdgeInsets.all(16),
-                              ),
-                            );
-                          }
-                        },
+                        onPressed: submitting
+                            ? null
+                            : () async {
+                                if (titleCtrl.text.trim().isEmpty) return;
+                                setState(() => submitting = true);
+                                final messenger = ScaffoldMessenger.of(context);
+                                final now = DateTime.now();
+                                final report = Report(
+                                  id: 'r_${now.millisecondsSinceEpoch}',
+                                  applicantId: state.currentUser?.id,
+                                  title: titleCtrl.text.trim(),
+                                  content: contentCtrl.text.trim(),
+                                  studentName: state.currentUser?.name ?? '',
+                                  status: 'Pending',
+                                  submittedAt:
+                                      '${now.month}/${now.day}/${now.year}',
+                                  attachments: attachments,
+                                  academicYear: state.academicYear,
+                                  taskIds: [
+                                    for (final task in completedTasks)
+                                      if (includedTaskIds.contains(task.id))
+                                        task.id,
+                                  ],
+                                );
+                                final ok = await state.submitReport(report);
+                                if (context.mounted) Navigator.pop(context);
+                                if (ok) {
+                                  messenger.showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Report submitted successfully!',
+                                      ),
+                                      backgroundColor: AppTheme.emerald500,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      margin: const EdgeInsets.all(16),
+                                    ),
+                                  );
+                                } else {
+                                  messenger.showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        'Failed to submit report. Please try again.',
+                                      ),
+                                      backgroundColor: AppTheme.red500,
+                                      behavior: SnackBarBehavior.floating,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10),
+                                      ),
+                                      margin: const EdgeInsets.all(16),
+                                    ),
+                                  );
+                                }
+                              },
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.maroon,
                           foregroundColor: Colors.white,
@@ -983,8 +991,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  /// Closes the bottom sheet [sheetContext] belongs to, only if it is still
+  /// the one on top: not another route, if it was dismissed while saving.
+  void _closeSheet(BuildContext sheetContext) {
+    if (sheetContext.mounted &&
+        ModalRoute.of(sheetContext)?.isCurrent == true) {
+      Navigator.pop(sheetContext);
+    }
+  }
+
   void _showReviewDialog(BuildContext context, AppState state, Report report) {
     final feedbackCtrl = TextEditingController(text: report.feedback ?? '');
+    // Set while an approval or rejection saves: the other does nothing, so
+    // the two can't race.
+    var deciding = false;
 
     showModalBottomSheet(
       context: context,
@@ -993,7 +1013,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => Container(
+      builder: (sheetContext) => Container(
         decoration: const BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
@@ -1140,26 +1160,36 @@ class _ReportsScreenState extends State<ReportsScreen> {
               Row(
                 children: [
                   Expanded(
-                    child: OutlinedButton.icon(
+                    child: AsyncButton(
+                      kind: AsyncButtonKind.outlined,
+                      confirm: () async =>
+                          !deciding &&
+                          await showConfirmDialog(
+                            context,
+                            title: 'Reject this report?',
+                            message:
+                                '"${report.title}" by ${report.studentName} '
+                                'will be marked as rejected'
+                                '${feedbackCtrl.text.trim().isEmpty ? '' : ', with your feedback'}.'
+                                ' It won\'t count toward their evaluation or '
+                                'payroll.',
+                            confirmLabel: 'Reject',
+                          ),
                       onPressed: () async {
-                        final confirmed = await showConfirmDialog(
-                          context,
-                          title: 'Reject this report?',
-                          message:
-                              '"${report.title}" by ${report.studentName} '
-                              'will be marked as rejected'
-                              '${feedbackCtrl.text.trim().isEmpty ? '' : ', with your feedback'}.'
-                              ' It won\'t count toward their evaluation or '
-                              'payroll.',
-                          confirmLabel: 'Reject',
-                        );
-                        if (!confirmed || !context.mounted) return;
-                        final ok = await state.updateReportStatus(
-                          report.id,
-                          'Rejected',
-                          feedback: feedbackCtrl.text.trim(),
-                        );
-                        Navigator.pop(context);
+                        if (!context.mounted || deciding) return;
+                        deciding = true;
+                        final bool ok;
+                        try {
+                          ok = await state.updateReportStatus(
+                            report.id,
+                            'Rejected',
+                            feedback: feedbackCtrl.text.trim(),
+                          );
+                        } finally {
+                          deciding = false;
+                        }
+                        _closeSheet(sheetContext);
+                        if (!context.mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
@@ -1179,8 +1209,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                         );
                       },
-                      icon: const Icon(Icons.close_rounded, size: 17),
-                      label: const Text('Reject'),
+                      icon: Icons.close_rounded,
+                      iconSize: 17,
+                      label: 'Reject',
+                      busyLabel: 'Rejecting…',
                       style: OutlinedButton.styleFrom(
                         foregroundColor: AppTheme.red500,
                         side: const BorderSide(
@@ -1211,25 +1243,34 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           ),
                         ],
                       ),
-                      child: ElevatedButton.icon(
+                      child: AsyncButton(
+                        confirm: () async =>
+                            !deciding &&
+                            await showConfirmDialog(
+                              context,
+                              title: 'Approve this report?',
+                              message:
+                                  '"${report.title}" by ${report.studentName} '
+                                  'will count as an approved accomplishment '
+                                  'report for their evaluation and payroll.',
+                              confirmLabel: 'Approve',
+                              confirmColor: AppTheme.emerald500,
+                            ),
                         onPressed: () async {
-                          final confirmed = await showConfirmDialog(
-                            context,
-                            title: 'Approve this report?',
-                            message:
-                                '"${report.title}" by ${report.studentName} '
-                                'will count as an approved accomplishment '
-                                'report for their evaluation and payroll.',
-                            confirmLabel: 'Approve',
-                            confirmColor: AppTheme.emerald500,
-                          );
-                          if (!confirmed || !context.mounted) return;
-                          final ok = await state.updateReportStatus(
-                            report.id,
-                            'Approved',
-                            feedback: feedbackCtrl.text.trim(),
-                          );
-                          Navigator.pop(context);
+                          if (!context.mounted || deciding) return;
+                          deciding = true;
+                          final bool ok;
+                          try {
+                            ok = await state.updateReportStatus(
+                              report.id,
+                              'Approved',
+                              feedback: feedbackCtrl.text.trim(),
+                            );
+                          } finally {
+                            deciding = false;
+                          }
+                          _closeSheet(sheetContext);
+                          if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                               content: Text(
@@ -1249,8 +1290,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                             ),
                           );
                         },
-                        icon: const Icon(Icons.check_rounded, size: 18),
-                        label: const Text('Approve'),
+                        icon: Icons.check_rounded,
+                        iconSize: 18,
+                        label: 'Approve',
+                        busyLabel: 'Approving…',
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.emerald500,
                           foregroundColor: Colors.white,
@@ -1379,7 +1422,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ),
                       ],
                     ),
-                    child: ElevatedButton.icon(
+                    child: AsyncButton(
                       onPressed: () async {
                         bool ok = false;
                         String? errorText;
@@ -1388,7 +1431,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         } catch (e) {
                           errorText = '$e';
                         }
-                        if (context.mounted) Navigator.pop(context);
+                        _closeSheet(context);
                         if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -1411,8 +1454,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
                           );
                         }
                       },
-                      icon: const Icon(Icons.send_rounded, size: 17),
-                      label: const Text('Send to Head'),
+                      icon: Icons.send_rounded,
+                      iconSize: 17,
+                      label: 'Send to Head',
+                      busyLabel: 'Sending…',
                       style: ElevatedButton.styleFrom(
                         backgroundColor: AppTheme.maroon,
                         foregroundColor: Colors.white,

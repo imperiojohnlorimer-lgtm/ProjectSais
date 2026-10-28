@@ -123,8 +123,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                   state.role == 'Supervisor')
                                 OutlinedButton.icon(
                                   onPressed: () async {
-                                    final result = await state
-                                        .recalculateAttendanceHours();
+                                    final result = await runWithBusy(
+                                      context,
+                                      state.recalculateAttendanceHours,
+                                      message: 'Recalculating hours…',
+                                    );
                                     if (!context.mounted) return;
                                     final (:fixed, :failed) = result;
                                     _snack(
@@ -296,11 +299,16 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                       );
                                       if (!ok || !context.mounted) return;
                                     }
-                                    final saved = await state
-                                        .setAttendanceArchived(
-                                          r.id,
-                                          !restoring,
-                                        );
+                                    final saved = await runWithBusy(
+                                      context,
+                                      () => state.setAttendanceArchived(
+                                        r.id,
+                                        !restoring,
+                                      ),
+                                      message: restoring
+                                          ? 'Restoring…'
+                                          : 'Archiving…',
+                                    );
                                     if (!context.mounted) return;
                                     _snack(
                                       context,
@@ -327,8 +335,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                     if (!ok || !context.mounted) {
                                       return;
                                     }
-                                    final deleted = await state
-                                        .deleteAttendance(r.id);
+                                    final deleted = await runWithBusy(
+                                      context,
+                                      () => state.deleteAttendance(r.id),
+                                      message: 'Deleting…',
+                                    );
                                     if (!context.mounted) return;
                                     _snack(
                                       context,
@@ -376,11 +387,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                           if (!confirmed || !context.mounted) {
                                             return;
                                           }
-                                          final saved = await state
-                                              .setManualTimeOut(
-                                                r.id,
-                                                '$hour:$minute $period',
-                                              );
+                                          final saved = await runWithBusy(
+                                            context,
+                                            () => state.setManualTimeOut(
+                                              r.id,
+                                              '$hour:$minute $period',
+                                            ),
+                                            message: 'Saving…',
+                                          );
                                           if (!context.mounted) return;
                                           _snack(
                                             context,

@@ -19,10 +19,7 @@ import '../../services/screening_document_service.dart';
 /// Anything not on file is left for the Head to pick rather than guessed —
 /// a department isn't a program, and the first office isn't theirs.
 ({String program, String yearLevel, String officeId, String officeName})
-    resolveApplicantScreeningDefaults({
-  User? user,
-  required List<Office> offices,
-}) {
+resolveApplicantScreeningDefaults({User? user, required List<Office> offices}) {
   final userId = user?.id ?? '';
   final userName = user?.name ?? '';
   final assignedOffice = offices
@@ -35,7 +32,9 @@ import '../../services/screening_document_service.dart';
       .toList();
 
   final yearLevelValue = (user?.yearLevel ?? '').trim();
-  final selectedOffice = assignedOffice.isNotEmpty ? assignedOffice.first : null;
+  final selectedOffice = assignedOffice.isNotEmpty
+      ? assignedOffice.first
+      : null;
 
   return (
     program: (user?.courseProgram ?? '').trim(),
@@ -357,7 +356,10 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
                     ),
                     Text(
                       '${record.studentNumber} · ${record.academicProgram}',
-                      style: const TextStyle(fontSize: 10.5, color: AppTheme.slate500),
+                      style: const TextStyle(
+                        fontSize: 10.5,
+                        color: AppTheme.slate500,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -396,12 +398,16 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           const SizedBox(height: 10),
           _recordMetaRow(
             Icons.apartment_outlined,
-            record.targetOfficeName.isEmpty ? 'Unassigned Office' : record.targetOfficeName,
+            record.targetOfficeName.isEmpty
+                ? 'Unassigned Office'
+                : record.targetOfficeName,
           ),
           const SizedBox(height: 6),
           _recordMetaRow(
             Icons.person_outline,
-            record.interviewerName.isEmpty ? 'No interviewer' : 'By ${record.interviewerName}',
+            record.interviewerName.isEmpty
+                ? 'No interviewer'
+                : 'By ${record.interviewerName}',
           ),
           const SizedBox(height: 6),
           _recordMetaRow(Icons.event_outlined, record.interviewerDate),
@@ -420,19 +426,22 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              Expanded(
-                child: _downloadAction(record),
-              ),
+              Expanded(child: _downloadAction(record)),
             ],
           ),
           if (isWaitlisted && linkedApplication != null) ...[
             const SizedBox(height: 8),
             SizedBox(
               width: double.infinity,
-              child: _outlineAction(
+              child: _asyncOutlineAction(
                 'Approve Anyway',
+                'Approving…',
                 Icons.how_to_reg_outlined,
                 () => _approveWaitlisted(linkedApplication!),
+                confirm: () => _confirmApproveWaitlisted(linkedApplication!),
+                // The list can be filtered meanwhile: the busy button must
+                // stay with this applicant.
+                key: ValueKey('approve-anyway-${linkedApplication.id}'),
               ),
             ),
           ],
@@ -673,7 +682,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   /// Lets an admin override a "Waitlisted" decision and approve the
   /// applicant directly from the queue, without re-running the whole
   /// screening form.
-  Future<void> _approveWaitlisted(Application app) async {
+  Future<bool> _confirmApproveWaitlisted(Application app) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -698,20 +707,31 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    return confirmed == true && mounted;
+  }
+
+  Future<void> _approveWaitlisted(Application app) async {
     final state = context.read<AppState>();
-    await state.updateApplicationStatus(
-      app.id,
-      'Approved',
-      remarks: 'Approved from waitlist by ${state.currentUser?.name ?? 'admin'}.',
-    );
+    try {
+      await state.updateApplicationStatus(
+        app.id,
+        'Approved',
+        remarks:
+            'Approved from waitlist by ${state.currentUser?.name ?? 'admin'}.',
+      );
+    } catch (e) {
+      if (mounted) _say('Could not approve ${app.applicantName}: $e');
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${app.applicantName} has been approved.'),
+      SnackBar(
+        content: Text('${app.applicantName} has been approved.'),
         backgroundColor: AppTheme.blue500,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+        margin: const EdgeInsets.all(16),
+      ),
     );
     setState(() {});
   }
@@ -750,20 +770,64 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
       backgroundColor: AppTheme.emerald500,
       foregroundColor: Colors.white,
       disabledBackgroundColor: AppTheme.slate200,
-      padding: const EdgeInsets.symmetric(
-        horizontal: 12,
-        vertical: 8,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       elevation: 0,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-      ),
-      textStyle: const TextStyle(
-        fontSize: 10,
-        fontWeight: FontWeight.w600,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      textStyle: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+    ),
+  );
+
+  /// [_action] for something that waits: a spinner and [busyLabel] show
+  /// until [action] is done.
+  Widget _asyncAction(
+    String label,
+    String busyLabel,
+    IconData icon,
+    Future<void> Function() action, {
+    Future<bool> Function()? confirm,
+  }) => AsyncButton(
+    kind: AsyncButtonKind.filled,
+    label: label,
+    busyLabel: busyLabel,
+    icon: icon,
+    iconSize: 13,
+    confirm: confirm,
+    onPressed: action,
+    style: ButtonStyle(
+      backgroundColor: const WidgetStatePropertyAll(AppTheme.maroon),
+      elevation: const WidgetStatePropertyAll(0),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     ),
   );
+
+  /// [_outlineAction] for something that waits.
+  Widget _asyncOutlineAction(
+    String label,
+    String busyLabel,
+    IconData icon,
+    Future<void> Function() action, {
+    Future<bool> Function()? confirm,
+    Key? key,
+  }) => AsyncButton(
+    key: key,
+    kind: AsyncButtonKind.outlined,
+    label: label,
+    busyLabel: busyLabel,
+    icon: icon,
+    iconSize: 13,
+    confirm: confirm,
+    onPressed: action,
+    style: ButtonStyle(
+      foregroundColor: const WidgetStatePropertyAll(AppTheme.maroon),
+      side: const WidgetStatePropertyAll(BorderSide(color: AppTheme.maroon200)),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      ),
+    ),
+  );
+
   Widget _outlineAction(String label, IconData icon, VoidCallback action) =>
       OutlinedButton.icon(
         onPressed: action,
@@ -779,164 +843,179 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           ),
         ),
       );
-Widget _form(AppState state) {
+  Widget _form(AppState state) {
     final isMobile = MediaQuery.of(context).size.width < 700;
     return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      _officialHeader(_applicantAvatarForPrint()),
-      const SizedBox(height: 18),
-      _progressSummaryBar(),
-      const SizedBox(height: 18),
-      _section(
-        1,
-        Icons.badge_outlined,
-        'Candidate Information',
-        _candidateFields(state),
-      ),
-      const SizedBox(height: 18),
-      _section(
-        2,
-        Icons.psychology_outlined,
-        'Skills & Competency Assessment',
-        _ratingSection(skillNames, skillsAvg),
-        trailing: _sectionAvgChip(skillsAvg),
-      ),
-      const SizedBox(height: 18),
-      _section(
-        3,
-        Icons.emoji_events_outlined,
-        'Overall Evaluation',
-        _ratingSection(overallNames, overallAvg),
-        trailing: _sectionAvgChip(overallAvg),
-      ),
-      const SizedBox(height: 18),
-      _recommendationSection(),
-      const SizedBox(height: 18),
-      Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.slate200),
-          boxShadow: [
-            BoxShadow(
-              color: AppTheme.slate900.withValues(alpha: 0.03),
-              blurRadius: 12,
-              offset: const Offset(0, 3),
-            ),
-          ],
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _officialHeader(_applicantAvatarForPrint()),
+        const SizedBox(height: 18),
+        _progressSummaryBar(),
+        const SizedBox(height: 18),
+        _section(
+          1,
+          Icons.badge_outlined,
+          'Candidate Information',
+          _candidateFields(state),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(width: 4, height: 16, color: AppTheme.maroon),
-                const SizedBox(width: 8),
-                const Text(
-                  '5. SIGN-OFF',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12.5,
-                    color: AppTheme.slate900,
-                    letterSpacing: 0.3,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            isMobile
-                ? Column(
-                    children: [
-                      _input('Interviewer Signature & Name', interviewer),
-                      const SizedBox(height: 12),
-                      TextField(
-                        readOnly: true,
-                        controller: TextEditingController(text: _today()),
-                        decoration: InputDecoration(
-                          labelText: 'Interview Date',
-                          isDense: true,
-                          filled: true,
-                          fillColor: AppTheme.slate50,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                        ),
-                      ),
-                    ],
-                  )
-                : Row(
-              children: [
-                Expanded(
-                  child: _input('Interviewer Signature & Name', interviewer),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    readOnly: true,
-                    controller: TextEditingController(text: _today()),
-                    decoration: InputDecoration(
-                      labelText: 'Interview Date',
-                      isDense: true,
-                      filled: true,
-                      fillColor: AppTheme.slate50,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        borderSide: BorderSide.none,
-                      ),
+        const SizedBox(height: 18),
+        _section(
+          2,
+          Icons.psychology_outlined,
+          'Skills & Competency Assessment',
+          _ratingSection(skillNames, skillsAvg),
+          trailing: _sectionAvgChip(skillsAvg),
+        ),
+        const SizedBox(height: 18),
+        _section(
+          3,
+          Icons.emoji_events_outlined,
+          'Overall Evaluation',
+          _ratingSection(overallNames, overallAvg),
+          trailing: _sectionAvgChip(overallAvg),
+        ),
+        const SizedBox(height: 18),
+        _recommendationSection(),
+        const SizedBox(height: 18),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: AppTheme.slate200),
+            boxShadow: [
+              BoxShadow(
+                color: AppTheme.slate900.withValues(alpha: 0.03),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(width: 4, height: 16, color: AppTheme.maroon),
+                  const SizedBox(width: 8),
+                  const Text(
+                    '5. SIGN-OFF',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
+                      color: AppTheme.slate900,
+                      letterSpacing: 0.3,
                     ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+              const SizedBox(height: 14),
+              isMobile
+                  ? Column(
+                      children: [
+                        _input('Interviewer Signature & Name', interviewer),
+                        const SizedBox(height: 12),
+                        TextField(
+                          readOnly: true,
+                          controller: TextEditingController(text: _today()),
+                          decoration: InputDecoration(
+                            labelText: 'Interview Date',
+                            isDense: true,
+                            filled: true,
+                            fillColor: AppTheme.slate50,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(
+                          child: _input(
+                            'Interviewer Signature & Name',
+                            interviewer,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: TextField(
+                            readOnly: true,
+                            controller: TextEditingController(text: _today()),
+                            decoration: InputDecoration(
+                              labelText: 'Interview Date',
+                              isDense: true,
+                              filled: true,
+                              fillColor: AppTheme.slate50,
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide.none,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 20),
-      isMobile
-          ? Column(
-              children: [
-                SizedBox(
-                  width: double.infinity,
-                  child: _action('Save Assessment Record', Icons.check, _save),
-                ),
-                const SizedBox(height: 10),
-                SizedBox(
-                  width: double.infinity,
-                  child: _outlineAction(
+        const SizedBox(height: 20),
+        isMobile
+            ? Column(
+                children: [
+                  SizedBox(
+                    width: double.infinity,
+                    child: _asyncAction(
+                      'Save Assessment Record',
+                      'Saving…',
+                      Icons.check,
+                      _save,
+                      confirm: _confirmSave,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: _outlineAction(
+                      'Preview Print Sheet',
+                      Icons.print_outlined,
+                      () => setState(() => view = 'print'),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  TextButton(
+                    onPressed: () => setState(() => view = 'queue'),
+                    child: const Text('Back to Applicants'),
+                  ),
+                ],
+              )
+            : Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => setState(() => view = 'queue'),
+                    child: const Text('Back to Applicants'),
+                  ),
+                  const SizedBox(width: 4),
+                  _outlineAction(
                     'Preview Print Sheet',
                     Icons.print_outlined,
                     () => setState(() => view = 'print'),
                   ),
-                ),
-                const SizedBox(height: 4),
-                TextButton(
-                  onPressed: () => setState(() => view = 'queue'),
-                  child: const Text('Back to Applicants'),
-                ),
-              ],
-            )
-          : Row(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          TextButton(
-            onPressed: () => setState(() => view = 'queue'),
-            child: const Text('Back to Applicants'),
-          ),
-          const SizedBox(width: 4),
-          _outlineAction(
-            'Preview Print Sheet',
-            Icons.print_outlined,
-            () => setState(() => view = 'print'),
-          ),
-          const SizedBox(width: 8),
-          _action('Save Assessment Record', Icons.check, _save),
-        ],
-      ),
-    ],
-  );
+                  const SizedBox(width: 8),
+                  _asyncAction(
+                    'Save Assessment Record',
+                    'Saving…',
+                    Icons.check,
+                    _save,
+                    confirm: _confirmSave,
+                  ),
+                ],
+              ),
+      ],
+    );
   }
 
   double get skillsAvg {
@@ -973,7 +1052,11 @@ Widget _form(AppState state) {
       ),
       child: Text(
         'Avg ${avg.toStringAsFixed(1)}',
-        style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w800, color: color),
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
       ),
     );
   }
@@ -1174,7 +1257,10 @@ Widget _form(AppState state) {
       children: [
         Icon(Icons.image_outlined, size: 18, color: AppTheme.slate300),
         const SizedBox(height: 4),
-        Text('2x2 PHOTO', style: TextStyle(fontSize: 9, color: AppTheme.slate500)),
+        Text(
+          '2x2 PHOTO',
+          style: TextStyle(fontSize: 9, color: AppTheme.slate500),
+        ),
       ],
     ),
   );
@@ -1281,9 +1367,7 @@ Widget _form(AppState state) {
               ],
             ),
             const SizedBox(height: 14),
-            Row(
-              children: [photoBox],
-            ),
+            Row(children: [photoBox]),
           ] else
             Row(
               children: [
@@ -1317,6 +1401,7 @@ Widget _form(AppState state) {
       ),
     );
   }
+
   Widget _section(
     int number,
     IconData icon,
@@ -1326,65 +1411,66 @@ Widget _form(AppState state) {
   }) {
     final isMobile = MediaQuery.of(context).size.width < 700;
     return Container(
-    padding: EdgeInsets.all(isMobile ? 14 : 20),
-    decoration: BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      border: Border.all(color: AppTheme.slate200),
-      boxShadow: [
-        BoxShadow(
-          color: AppTheme.slate900.withValues(alpha: 0.03),
-          blurRadius: 12,
-          offset: const Offset(0, 3),
-        ),
-      ],
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 26,
-              height: 26,
-              decoration: BoxDecoration(
-                color: AppTheme.maroon,
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Center(
-                child: Text(
-                  '$number',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.w800,
-                    fontSize: 12,
+      padding: EdgeInsets.all(isMobile ? 14 : 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppTheme.slate200),
+        boxShadow: [
+          BoxShadow(
+            color: AppTheme.slate900.withValues(alpha: 0.03),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                decoration: BoxDecoration(
+                  color: AppTheme.maroon,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Center(
+                  child: Text(
+                    '$number',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(width: 10),
-            Icon(icon, size: 16, color: AppTheme.maroon),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                title.toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                  letterSpacing: 0.3,
+              const SizedBox(width: 10),
+              Icon(icon, size: 16, color: AppTheme.maroon),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  title.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                    letterSpacing: 0.3,
+                  ),
                 ),
               ),
-            ),
-            if (trailing != null) trailing,
-          ],
-        ),
-        const SizedBox(height: 16),
-        child,
-      ],
-    ),
-  );
+              if (trailing != null) trailing,
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
   }
+
   Widget _candidateFields(AppState state) {
     final wide = MediaQuery.of(context).size.width > 700;
     final fields = <Widget>[
@@ -1416,10 +1502,7 @@ Widget _form(AppState state) {
         items: [
           const DropdownMenuItem(
             value: '',
-            child: Text(
-              'None yet',
-              style: TextStyle(color: AppTheme.slate500),
-            ),
+            child: Text('None yet', style: TextStyle(color: AppTheme.slate500)),
           ),
           for (final office in state.offices)
             DropdownMenuItem(value: office.id, child: Text(office.name)),
@@ -1437,15 +1520,20 @@ Widget _form(AppState state) {
     ];
     return LayoutBuilder(
       builder: (context, constraints) {
-        final width = wide ? (constraints.maxWidth - 12) / 2 : constraints.maxWidth;
+        final width = wide
+            ? (constraints.maxWidth - 12) / 2
+            : constraints.maxWidth;
         return Wrap(
           spacing: 12,
           runSpacing: 12,
-          children: fields.map((field) => SizedBox(width: width, child: field)).toList(),
+          children: fields
+              .map((field) => SizedBox(width: width, child: field))
+              .toList(),
         );
       },
     );
   }
+
   /// Academic Program as a choice from the program list. Whatever the form
   /// already holds that isn't on the list (an older typed entry, say) stays
   /// selectable rather than being dropped.
@@ -1636,9 +1724,17 @@ Widget _form(AppState state) {
 
   Widget _recommendationSection() {
     const options = [
-      ('Highly Recommended', Icons.thumb_up_alt_rounded, 'Outstanding fit for the role'),
+      (
+        'Highly Recommended',
+        Icons.thumb_up_alt_rounded,
+        'Outstanding fit for the role',
+      ),
       ('Recommended', Icons.check_circle_outline, 'Solid, qualified candidate'),
-      ('Recommended with Reservations', Icons.info_outline, 'Some concerns to note'),
+      (
+        'Recommended with Reservations',
+        Icons.info_outline,
+        'Some concerns to note',
+      ),
       ('Not Recommended', Icons.cancel_outlined, 'Does not meet requirements'),
     ];
     return _section(
@@ -1746,27 +1842,30 @@ Widget _form(AppState state) {
     );
   }
 
-
   Widget _print() => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
       _officialHeader(_applicantAvatarForPrint()),
       const SizedBox(height: 16),
-      _printSection(
-        Icons.badge_outlined,
-        'Candidate Information',
-        [
-          ('Full Name', name.text),
-          ('Student ID / Applicant #', studentNumber.text),
-          ('Academic Program', program.text),
-          ('Year Level', yearLevel.text.isEmpty ? '1st Year' : yearLevel.text),
-          ('Contact Information', contact.text),
-        ],
+      _printSection(Icons.badge_outlined, 'Candidate Information', [
+        ('Full Name', name.text),
+        ('Student ID / Applicant #', studentNumber.text),
+        ('Academic Program', program.text),
+        ('Year Level', yearLevel.text.isEmpty ? '1st Year' : yearLevel.text),
+        ('Contact Information', contact.text),
+      ]),
+      const SizedBox(height: 16),
+      _printRatingSection(
+        'Skills & Competency Assessment',
+        Icons.psychology_outlined,
+        skillNames,
       ),
       const SizedBox(height: 16),
-      _printRatingSection('Skills & Competency Assessment', Icons.psychology_outlined, skillNames),
-      const SizedBox(height: 16),
-      _printRatingSection('Overall Evaluation', Icons.emoji_events_outlined, overallNames),
+      _printRatingSection(
+        'Overall Evaluation',
+        Icons.emoji_events_outlined,
+        overallNames,
+      ),
       const SizedBox(height: 16),
       _printRecommendationCard(),
       const SizedBox(height: 20),
@@ -1787,18 +1886,22 @@ Widget _form(AppState state) {
                 content: Text(
                   'Use the device print command to print this sheet.',
                 ),
-        backgroundColor: AppTheme.blue500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+                backgroundColor: AppTheme.blue500,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                margin: const EdgeInsets.all(16),
+              ),
             ),
           ),
           if (activeRecord != null) ...[
             const SizedBox(width: 8),
-            _action(
-              generatingResult ? 'Generating...' : 'Generate & Download Result',
+            _asyncAction(
+              'Generate & Download Result',
+              'Generating…',
               Icons.download_outlined,
-              generatingResult ? () {} : () => _downloadResult(activeRecord!),
+              () => _downloadResult(activeRecord!),
             ),
           ],
         ],
@@ -1806,7 +1909,11 @@ Widget _form(AppState state) {
     ],
   );
 
-  Widget _printCardShell({required IconData icon, required String title, required Widget child}) {
+  Widget _printCardShell({
+    required IconData icon,
+    required String title,
+    required Widget child,
+  }) {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -1853,7 +1960,11 @@ Widget _form(AppState state) {
     );
   }
 
-  Widget _printSection(IconData icon, String title, List<(String, String)> fields) {
+  Widget _printSection(
+    IconData icon,
+    String title,
+    List<(String, String)> fields,
+  ) {
     return _printCardShell(
       icon: icon,
       title: title,
@@ -1948,7 +2059,10 @@ Widget _form(AppState state) {
                   ),
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: AppTheme.maroon,
                     borderRadius: BorderRadius.circular(8),
@@ -2032,7 +2146,7 @@ Widget _form(AppState state) {
     address.clear();
     contact.clear();
     final state = context.read<AppState>();
-    
+
     // Find the current user's assigned office
     final normalizedName = (state.currentUser?.name ?? '').trim().toLowerCase();
     final assignedOffices = state.offices.where((office) {
@@ -2046,11 +2160,14 @@ Widget _form(AppState state) {
             (name) => name.trim().toLowerCase() == normalizedName,
           );
     }).toList();
-    
-    final selectedOffice =
-        assignedOffices.isNotEmpty ? assignedOffices.first : null;
-    
-    yearLevel.text = (state.currentUser?.yearLevel ?? '').trim().isEmpty ? '1st Year' : state.currentUser!.yearLevel!;
+
+    final selectedOffice = assignedOffices.isNotEmpty
+        ? assignedOffices.first
+        : null;
+
+    yearLevel.text = (state.currentUser?.yearLevel ?? '').trim().isEmpty
+        ? '1st Year'
+        : state.currentUser!.yearLevel!;
     interviewer.text = state.currentUser?.name ?? '';
     targetOfficeId = selectedOffice?.id ?? '';
     targetOfficeName = selectedOffice?.name ?? '';
@@ -2166,8 +2283,9 @@ Widget _form(AppState state) {
         if (payload.isEmpty) return null;
         final bytes = base64Decode(payload);
         if (bytes.isEmpty) return null;
-        final mimeMatch = RegExp(r'data:image/([a-zA-Z0-9+.-]+)')
-            .firstMatch(header);
+        final mimeMatch = RegExp(
+          r'data:image/([a-zA-Z0-9+.-]+)',
+        ).firstMatch(header);
         final extension = mimeMatch?.group(1) ?? 'jpeg';
         return (bytes: Uint8List.fromList(bytes), extension: extension);
       } catch (_) {
@@ -2213,21 +2331,29 @@ Widget _form(AppState state) {
       _triggerWebDownload(document.fileName, bytes);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Downloading ${document.fileName}...'),
-        backgroundColor: AppTheme.blue500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          SnackBar(
+            content: Text('Downloading ${document.fileName}...'),
+            backgroundColor: AppTheme.blue500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
       }
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Unable to generate result: $error'),
-        backgroundColor: AppTheme.red500,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        margin: const EdgeInsets.all(16),),
+          SnackBar(
+            content: Text('Unable to generate result: $error'),
+            backgroundColor: AppTheme.red500,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            margin: const EdgeInsets.all(16),
+          ),
         );
       }
     } finally {
@@ -2238,14 +2364,15 @@ Widget _form(AppState state) {
   void _triggerWebDownload(String fileName, Uint8List bytes) =>
       web_download.WebDownloadUtils.downloadBytes(fileName, bytes);
 
-  Future<void> _save() async {
-    final state = context.read<AppState>();
-    // Saving also decides the application from the recommendation, and an
-    // approval promotes the applicant. One already approved keeps that
-    // decision: they're a Student Assistant now.
-    final deciding =
-        activeApplication != null && !activeApplication!.isApproved;
-    if (deciding) {
+  /// Saving also decides the application from the recommendation, and an
+  /// approval promotes the applicant. One already approved keeps that
+  /// decision: they're a Student Assistant now.
+  bool get _savingDecides =>
+      activeApplication != null && !activeApplication!.isApproved;
+
+  /// Asks before a save that decides the application; true when none does.
+  Future<bool> _confirmSave() async {
+    if (_savingDecides) {
       final applicant = activeApplication!.applicantName;
       final (title, message, label, color) = switch (recommendation) {
         'Not Recommended' || 'Recommended with Reservations' => (
@@ -2273,13 +2400,21 @@ Widget _form(AppState state) {
         confirmLabel: label,
         confirmColor: color,
       );
-      if (!confirmed || !mounted) return;
+      return confirmed && mounted;
     }
-    final recordYear = activeApplication?.academicYear ??
+    return true;
+  }
+
+  Future<void> _save() async {
+    final state = context.read<AppState>();
+    final deciding = _savingDecides;
+    final recordYear =
+        activeApplication?.academicYear ??
         activeRecord?.academicYear ??
         state.academicYear;
     final stableId = ScreeningRecord.stableIdForApplicant(
-      applicantId: activeApplication?.applicantId ?? activeRecord?.applicantId ?? '',
+      applicantId:
+          activeApplication?.applicantId ?? activeRecord?.applicantId ?? '',
       applicationId: activeApplication?.id ?? '',
       fallback: activeRecord?.id,
       academicYear: recordYear,
@@ -2290,8 +2425,7 @@ Widget _form(AppState state) {
       createdAt: DateTime.now().toIso8601String(),
       // A record reopened from Screening Results stays linked to its
       // application, so the queue still shows it as screened.
-      applicationId:
-          activeApplication?.id ?? activeRecord?.applicationId ?? '',
+      applicationId: activeApplication?.id ?? activeRecord?.applicationId ?? '',
       applicantId:
           activeApplication?.applicantId ?? activeRecord?.applicantId ?? '',
       fullName: name.text,
@@ -2314,6 +2448,33 @@ Widget _form(AppState state) {
       notedByTitle: 'Head of Student Assistantship',
       generalNotes: remarks.text,
     );
+    try {
+      await _saveRecordAndDecide(state, record, deciding);
+    } catch (e) {
+      if (mounted) _say('Could not save the assessment: $e');
+      return;
+    }
+    if (!mounted) return;
+    activeRecord = record;
+    setState(() => view = 'records');
+  }
+
+  /// A red message under the page, for a save that failed.
+  void _say(String text) => ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(text),
+      backgroundColor: AppTheme.red500,
+      behavior: SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+      margin: const EdgeInsets.all(16),
+    ),
+  );
+
+  Future<void> _saveRecordAndDecide(
+    AppState state,
+    ScreeningRecord record,
+    bool deciding,
+  ) async {
     await state.saveScreeningRecord(record);
     if (activeApplication != null) {
       // Already approved stays approved; saving it again only finishes
@@ -2329,9 +2490,6 @@ Widget _form(AppState state) {
       // applicant, in their portal and in the decision notification.
       await state.updateApplicationStatus(activeApplication!.id, status);
     }
-    if (!mounted) return;
-    activeRecord = record;
-    setState(() => view = 'records');
   }
 
   String _today() {

@@ -852,9 +852,13 @@ class _RehiringScreenState extends State<RehiringScreen> {
     try {
       // The stored URL is a signed one that expires, so ask for a fresh one
       // from its storage path, or the path inside the saved link.
-      final url = await SupabaseStorageService.instance.openableUrl(
-        path: record.contractStoragePath,
-        storedUrl: record.contractDownloadUrl,
+      final url = await runWithBusy(
+        context,
+        () => SupabaseStorageService.instance.openableUrl(
+          path: record.contractStoragePath,
+          storedUrl: record.contractDownloadUrl,
+        ),
+        message: 'Opening the contract…',
       );
       if (url == null) {
         throw Exception('This contract has no file attached.');

@@ -254,7 +254,11 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
       confirmLabel: 'Delete',
     );
     if (!confirmed || !context.mounted) return;
-    final removed = await state.removeProgram(program);
+    final removed = await runWithBusy(
+      context,
+      () => state.removeProgram(program),
+      message: 'Deleting…',
+    );
     if (!context.mounted) return;
     _snack(
       context,

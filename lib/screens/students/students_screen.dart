@@ -518,9 +518,13 @@ class _StudentRowState extends State<_StudentRow> {
   Future<void> _setArchived(Student s, {required bool archive}) async {
     if (!mounted) return;
     final messenger = ScaffoldMessenger.of(context);
-    final error = archive
-        ? await widget.state.archiveStudent(s.id)
-        : await widget.state.restoreStudent(s.id);
+    final error = await runWithBusy(
+      context,
+      () => archive
+          ? widget.state.archiveStudent(s.id)
+          : widget.state.restoreStudent(s.id),
+      message: archive ? 'Archiving…' : 'Restoring…',
+    );
     AppSnackBar.showWithMessenger(
       messenger,
       error ??
@@ -1709,9 +1713,10 @@ class _StudentRowState extends State<_StudentRow> {
                         onPressed: () async {
                           final messenger = ScaffoldMessenger.of(context);
                           Navigator.pop(dialogContext);
-                          final error = await state.updateStudentDepartment(
-                            s.id,
-                            selected,
+                          final error = await runWithBusy(
+                            context,
+                            () => state.updateStudentDepartment(s.id, selected),
+                            message: 'Saving…',
                           );
                           AppSnackBar.showWithMessenger(
                             messenger,

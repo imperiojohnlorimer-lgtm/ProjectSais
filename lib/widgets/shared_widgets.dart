@@ -487,6 +487,230 @@ class PrimaryButton extends StatelessWidget {
   }
 }
 
+// ─── Busy Icon / Async Button ───────────────────────
+/// A button's icon, or a small spinner while the action behind the button
+/// is waiting. For screens that keep their own busy flag; [AsyncButton]
+/// is for everything else.
+class BusyIcon extends StatelessWidget {
+  final bool busy;
+  final IconData? icon;
+  final double size;
+
+  /// The spinner's (and icon's) colour; the button's own foreground when
+  /// null.
+  final Color? color;
+
+  const BusyIcon({
+    super.key,
+    required this.busy,
+    this.icon,
+    this.size = 16,
+    this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    if (!busy) return Icon(icon, size: size, color: color);
+    return SizedBox(
+      width: size - 2,
+      height: size - 2,
+      child: CircularProgressIndicator(
+        strokeWidth: 2,
+        color: color ?? IconTheme.of(context).color,
+      ),
+    );
+  }
+}
+
+/// [elevated] is an ElevatedButton, [filled] a FilledButton.
+enum AsyncButtonKind { elevated, filled, outlined, text }
+
+/// A button whose action waits on something (a save, an upload, a document
+/// being built). While [onPressed]'s future is pending it shows a spinner
+/// in place of the icon, switches its label to [busyLabel], and ignores
+/// further taps. When the action first asks "are you sure?", pass that as
+/// [confirm]: the spinner starts only once it answers true, not while the
+/// question is on screen. An error thrown by [onPressed] still reaches whoever
+/// handles errors; the button just comes back.
+class AsyncButton extends StatefulWidget {
+  final String label;
+
+  /// Shown instead of [label] while waiting ("Saving…"); [label] if null.
+  final String? busyLabel;
+  final IconData? icon;
+  final Future<void> Function()? onPressed;
+
+  /// Asked before [onPressed]; false (or the button being gone) stops there.
+  final Future<bool> Function()? confirm;
+  final AsyncButtonKind kind;
+  final ButtonStyle? style;
+  final double iconSize;
+
+  const AsyncButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.busyLabel,
+    this.confirm,
+    this.icon,
+    this.kind = AsyncButtonKind.elevated,
+    this.style,
+    this.iconSize = 16,
+  });
+
+  @override
+  State<AsyncButton> createState() => _AsyncButtonState();
+}
+
+class _AsyncButtonState extends State<AsyncButton> {
+  bool _busy = false;
+
+  /// True from the tap until the action is done, the question included, so
+  /// a second tap in between starts nothing.
+  bool _running = false;
+
+  Future<void> _run() async {
+    final action = widget.onPressed;
+    if (_running || action == null) return;
+    _running = true;
+    try {
+      if (widget.confirm != null) {
+        if (!await widget.confirm!() || !mounted) return;
+      }
+      setState(() => _busy = true);
+      await action();
+    } finally {
+      _running = false;
+      if (mounted && _busy) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final onPressed = widget.onPressed == null || _busy ? null : _run;
+    final label = Text(_busy ? widget.busyLabel ?? widget.label : widget.label);
+    final icon = widget.icon == null && !_busy
+        ? null
+        : BusyIcon(busy: _busy, icon: widget.icon, size: widget.iconSize);
+    switch (widget.kind) {
+      case AsyncButtonKind.filled:
+        return icon == null
+            ? FilledButton(
+                onPressed: onPressed,
+                style: widget.style,
+                child: label,
+              )
+            : FilledButton.icon(
+                onPressed: onPressed,
+                style: widget.style,
+                icon: icon,
+                label: label,
+              );
+      case AsyncButtonKind.elevated:
+        return icon == null
+            ? ElevatedButton(
+                onPressed: onPressed,
+                style: widget.style,
+                child: label,
+              )
+            : ElevatedButton.icon(
+                onPressed: onPressed,
+                style: widget.style,
+                icon: icon,
+                label: label,
+              );
+      case AsyncButtonKind.outlined:
+        return icon == null
+            ? OutlinedButton(
+                onPressed: onPressed,
+                style: widget.style,
+                child: label,
+              )
+            : OutlinedButton.icon(
+                onPressed: onPressed,
+                style: widget.style,
+                icon: icon,
+                label: label,
+              );
+      case AsyncButtonKind.text:
+        return icon == null
+            ? TextButton(
+                onPressed: onPressed,
+                style: widget.style,
+                child: label,
+              )
+            : TextButton.icon(
+                onPressed: onPressed,
+                style: widget.style,
+                icon: icon,
+                label: label,
+              );
+    }
+  }
+}
+
+/// Shows a small "working" card over the page while [work] runs, and takes
+/// it away when [work] is done, whether it returned or threw. For what has
+/// no button of its own to spin on (a menu item, a checkbox, a confirmed
+/// delete): it also keeps a second tap from landing meanwhile.
+///
+/// The card is its own route on the root navigator, taken off by identity,
+/// so it never closes some other dialog, and it isn't left behind when the
+/// page that asked is gone.
+Future<T> runWithBusy<T>(
+  BuildContext context,
+  Future<T> Function() work, {
+  String message = 'Working…',
+}) async {
+  final navigator = Navigator.of(context, rootNavigator: true);
+  final route = DialogRoute<void>(
+    context: navigator.context,
+    barrierDismissible: false,
+    builder: (_) => PopScope(
+      canPop: false,
+      child: Center(
+        child: Material(
+          color: Colors.white,
+          elevation: 6,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color: AppTheme.maroon,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate700,
+                    decoration: TextDecoration.none,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+  navigator.push(route);
+  try {
+    return await work();
+  } finally {
+    if (route.isActive) navigator.removeRoute(route);
+  }
+}
+
 // ─── Confirm Dialog ─────────────────────────────────
 Future<bool> showConfirmDialog(
   BuildContext context, {

@@ -50,6 +50,8 @@ dependencies:
   url_launcher: ^6.3.1
   archive: ^4.2.0
   http: ^1.6.0
+  # The browser's own objects (blobs, iframes) for the document preview.
+  web: ^1.1.0
   firebase_messaging: ^16.7.0
 
 dev_dependencies:

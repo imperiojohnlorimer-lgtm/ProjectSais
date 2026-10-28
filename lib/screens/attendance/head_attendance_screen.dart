@@ -742,10 +742,31 @@ class _Badge extends StatelessWidget {
 
 /// One attendance record under an opened Student Assistant, with what the
 /// Head can do about it.
-class _RecordLine extends StatelessWidget {
+class _RecordLine extends StatefulWidget {
   final AttendanceRecord record;
   final bool compact;
   const _RecordLine({required this.record, required this.compact});
+
+  @override
+  State<_RecordLine> createState() => _RecordLineState();
+}
+
+class _RecordLineState extends State<_RecordLine> {
+  AttendanceRecord get record => widget.record;
+  bool get compact => widget.compact;
+
+  /// True while a time-out, archive, restore or delete is saving: the menu
+  /// gives way to a spinner.
+  bool _working = false;
+
+  Future<T> _busy<T>(Future<T> Function() work) async {
+    if (mounted) setState(() => _working = true);
+    try {
+      return await work();
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -821,27 +842,43 @@ class _RecordLine extends StatelessWidget {
               ),
             ),
           ),
-          PopupMenuButton<String>(
-            tooltip: 'Record options',
-            icon: const Icon(
-              Icons.more_vert_rounded,
-              size: 18,
-              color: AppTheme.slate400,
-            ),
-            onSelected: (action) => _act(context, action),
-            itemBuilder: (_) => [
-              if (record.isActive && !record.isArchived)
-                const PopupMenuItem(
-                  value: 'timeout',
-                  child: Text('Record time-out'),
+          if (_working)
+            const SizedBox(
+              width: 40,
+              height: 40,
+              child: Center(
+                child: SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.slate400,
+                  ),
                 ),
-              if (record.isArchived)
-                const PopupMenuItem(value: 'restore', child: Text('Restore'))
-              else
-                const PopupMenuItem(value: 'archive', child: Text('Archive')),
-              const PopupMenuItem(value: 'delete', child: Text('Delete')),
-            ],
-          ),
+              ),
+            )
+          else
+            PopupMenuButton<String>(
+              tooltip: 'Record options',
+              icon: const Icon(
+                Icons.more_vert_rounded,
+                size: 18,
+                color: AppTheme.slate400,
+              ),
+              onSelected: (action) => _act(context, action),
+              itemBuilder: (_) => [
+                if (record.isActive && !record.isArchived)
+                  const PopupMenuItem(
+                    value: 'timeout',
+                    child: Text('Record time-out'),
+                  ),
+                if (record.isArchived)
+                  const PopupMenuItem(value: 'restore', child: Text('Restore'))
+                else
+                  const PopupMenuItem(value: 'archive', child: Text('Archive')),
+                const PopupMenuItem(value: 'delete', child: Text('Delete')),
+              ],
+            ),
         ],
       ),
     );
@@ -881,7 +918,9 @@ class _RecordLine extends StatelessWidget {
           confirmColor: AppTheme.maroon,
         );
         if (!confirmed) return;
-        final saved = await state.setManualTimeOut(record.id, time);
+        final saved = await _busy(
+          () => state.setManualTimeOut(record.id, time),
+        );
         say(
           saved
               ? 'Time-out recorded and verified'
@@ -901,7 +940,9 @@ class _RecordLine extends StatelessWidget {
           confirmColor: AppTheme.amber500,
         );
         if (!confirmed) return;
-        final saved = await state.setAttendanceArchived(record.id, true);
+        final saved = await _busy(
+          () => state.setAttendanceArchived(record.id, true),
+        );
         say(
           saved
               ? 'Record archived'
@@ -909,7 +950,9 @@ class _RecordLine extends StatelessWidget {
           saved ? AppTheme.emerald500 : AppTheme.red500,
         );
       case 'restore':
-        final saved = await state.setAttendanceArchived(record.id, false);
+        final saved = await _busy(
+          () => state.setAttendanceArchived(record.id, false),
+        );
         say(
           saved
               ? 'Record restored; it counts again'
@@ -927,7 +970,7 @@ class _RecordLine extends StatelessWidget {
           confirmColor: AppTheme.red500,
         );
         if (!confirmed) return;
-        final deleted = await state.deleteAttendance(record.id);
+        final deleted = await _busy(() => state.deleteAttendance(record.id));
         say(
           deleted
               ? 'Attendance record deleted'

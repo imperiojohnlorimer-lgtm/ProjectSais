@@ -1,13 +1,16 @@
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/file_names.dart';
+import '../../widgets/document_preview.dart';
+import '../../widgets/shared_widgets.dart';
 
 /// Head-only screen that consolidates every document tied to a student
 /// assistant in one place: files submitted with their application
@@ -32,9 +35,14 @@ class _DocEntry {
   final String office;
   final _DocKind kind;
   final String title;
+
+  /// The file's own name, with its extension: what the viewer goes by (a
+  /// forwarded item's title is a sentence, not a file name).
+  final String fileName;
   final String subtitle;
   final String? downloadUrl;
   final String? storagePath;
+  final Uint8List? bytes;
   final bool? reviewed;
   final DateTime sortDate;
   final String? documentId;
@@ -47,13 +55,15 @@ class _DocEntry {
     required this.office,
     required this.kind,
     required this.title,
+    String? fileName,
     required this.subtitle,
     required this.sortDate,
     this.downloadUrl,
     this.storagePath,
+    this.bytes,
     this.reviewed,
     this.documentId,
-  });
+  }) : fileName = fileName ?? title;
 }
 
 const String _unassignedLabel = 'Unassigned';
@@ -130,7 +140,6 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
   String _departmentFilter = 'All Departments';
   String _officeFilter = 'All Offices';
   final _searchCtrl = TextEditingController();
-  String? _downloadingId;
 
   @override
   void dispose() {
@@ -167,6 +176,7 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
             sortDate: DateTime.tryParse(doc.uploadedAt) ?? DateTime(2000),
             downloadUrl: doc.downloadUrl,
             storagePath: doc.storagePath,
+            bytes: doc.bytes,
           ),
         );
       }
@@ -189,9 +199,11 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
           office: meta.office,
           kind: kind,
           title: fwd.title,
+          fileName: fwd.fileName,
           subtitle: 'From ${fwd.sentByName} · ${fwd.sentAt}',
           sortDate: DateTime.tryParse(fwd.sentAt) ?? DateTime(2000),
           downloadUrl: fwd.downloadUrl,
+          storagePath: fwd.storagePath,
           reviewed: fwd.reviewed,
         ),
       );
@@ -237,32 +249,34 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
         allowMultiple: false,
         withData: true,
       );
-      if (result == null || result.files.isEmpty) return;
+      if (result == null || result.files.isEmpty || !mounted) return;
       final file = result.files.single;
       final bytes = file.bytes;
       if (bytes == null) {
         throw Exception('This file type is not available for upload in the current browser session.');
       }
 
-      final timestamp = DateTime.now().millisecondsSinceEpoch;
-      final uid = fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user';
-      final storagePath =
-          'reports/$uid/$timestamp/${randomObjectName(file.name)}';
-      final extension = file.extension?.toLowerCase();
-      final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
-        bytes: bytes,
-        path: storagePath,
-        contentType: extension == null ? null : SupabaseStorageService.contentTypeForExtension(extension),
-      );
+      await runWithBusy(context, () async {
+        final timestamp = DateTime.now().millisecondsSinceEpoch;
+        final uid = fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user';
+        final storagePath =
+            'reports/$uid/$timestamp/${randomObjectName(file.name)}';
+        final extension = file.extension?.toLowerCase();
+        final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
+          bytes: bytes,
+          path: storagePath,
+          contentType: extension == null ? null : SupabaseStorageService.contentTypeForExtension(extension),
+        );
 
-      await state.uploadManualDocument(
-        studentId: studentKey,
-        studentName: studentName,
-        fileName: file.name,
-        storagePath: storagePath,
-        downloadUrl: downloadUrl,
-        fileSize: file.size / (1024 * 1024),
-      );
+        await state.uploadManualDocument(
+          studentId: studentKey,
+          studentName: studentName,
+          fileName: file.name,
+          storagePath: storagePath,
+          downloadUrl: downloadUrl,
+          fileSize: file.size / (1024 * 1024),
+        );
+      }, message: 'Uploading…');
 
       if (mounted) {
         messenger.showSnackBar(
@@ -305,39 +319,23 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
         ],
       ),
     );
-    if (confirmed == true) {
-      await state.deleteManualDocument(entry.documentId!);
+    if (confirmed == true && mounted) {
+      await runWithBusy(
+        context,
+        () => state.deleteManualDocument(entry.documentId!),
+        message: 'Deleting…',
+      );
     }
   }
 
-  Future<void> _download(_DocEntry entry) async {
-    final messenger = ScaffoldMessenger.of(context);
-    setState(() => _downloadingId = '${entry.studentKey}-${entry.title}-${entry.sortDate}');
-    try {
-      // The saved link expires after an hour; sign a fresh one.
-      final url = await SupabaseStorageService.instance.openableUrl(
-        path: entry.storagePath,
-        storedUrl: entry.downloadUrl,
-      );
-      if (url == null) {
-        throw Exception('This document has no file content or storage path.');
-      }
-      final opened = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-      if (!opened) throw Exception('The browser could not open the document.');
-    } catch (e) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Unable to download: $e'),
-          backgroundColor: AppTheme.amber500,
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-          margin: const EdgeInsets.all(16),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _downloadingId = null);
-    }
-  }
+  /// Shows the file over the page to read first; the viewer has Download.
+  Future<void> _open(_DocEntry entry) => showDocumentPreview(
+    context,
+    fileName: entry.fileName,
+    storagePath: entry.storagePath,
+    storedUrl: entry.downloadUrl,
+    bytes: entry.bytes,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -577,8 +575,7 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
                       studentKey: key,
                       studentName: studentDisplayName[key]!,
                       items: byStudent[key]!,
-                      downloadingId: _downloadingId,
-                      onDownload: _download,
+                      onOpen: _open,
                       onUpload: () => _uploadForStudent(state, key, studentDisplayName[key]!),
                       onDelete: (entry) => _deleteUpload(state, entry),
                     ),
@@ -640,8 +637,7 @@ class _StudentDocGroup extends StatefulWidget {
   final String studentKey;
   final String studentName;
   final List<_DocEntry> items;
-  final String? downloadingId;
-  final void Function(_DocEntry) onDownload;
+  final void Function(_DocEntry) onOpen;
   final VoidCallback onUpload;
   final void Function(_DocEntry) onDelete;
 
@@ -649,8 +645,7 @@ class _StudentDocGroup extends StatefulWidget {
     required this.studentKey,
     required this.studentName,
     required this.items,
-    required this.downloadingId,
-    required this.onDownload,
+    required this.onOpen,
     required this.onUpload,
     required this.onDelete,
   });
@@ -733,8 +728,7 @@ class _StudentDocGroupState extends State<_StudentDocGroup> {
                 children: widget.items
                     .map((e) => _DocTile(
                           entry: e,
-                          downloading: widget.downloadingId == '${e.studentKey}-${e.title}-${e.sortDate}',
-                          onDownload: () => widget.onDownload(e),
+                          onOpen: () => widget.onOpen(e),
                           onDelete: e.documentId != null ? () => widget.onDelete(e) : null,
                         ))
                     .toList(),
@@ -748,17 +742,17 @@ class _StudentDocGroupState extends State<_StudentDocGroup> {
 
 class _DocTile extends StatelessWidget {
   final _DocEntry entry;
-  final bool downloading;
-  final VoidCallback onDownload;
+  final VoidCallback onOpen;
   final VoidCallback? onDelete;
 
-  const _DocTile({required this.entry, required this.downloading, required this.onDownload, this.onDelete});
+  const _DocTile({required this.entry, required this.onOpen, this.onDelete});
 
   @override
   Widget build(BuildContext context) {
     final accent = _kindColors[entry.kind]!;
     final hasFile = (entry.downloadUrl != null && entry.downloadUrl!.isNotEmpty) ||
-        (entry.storagePath != null && entry.storagePath!.isNotEmpty);
+        (entry.storagePath != null && entry.storagePath!.isNotEmpty) ||
+        (entry.bytes != null && entry.bytes!.isNotEmpty);
 
     // A BoxDecoration can't combine borderRadius with a Border whose sides
     // have different colors/widths (Flutter throws "A borderRadius can only
@@ -831,15 +825,9 @@ class _DocTile extends StatelessWidget {
                         children: [
                           if (hasFile)
                             ElevatedButton.icon(
-                              onPressed: downloading ? null : onDownload,
-                              icon: downloading
-                                  ? const SizedBox(
-                                      width: 12,
-                                      height: 12,
-                                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                    )
-                                  : const Icon(Icons.download_rounded, size: 13),
-                              label: Text(downloading ? 'Opening...' : 'Download'),
+                              onPressed: onOpen,
+                              icon: const Icon(Icons.visibility_outlined, size: 13),
+                              label: const Text('Preview'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: AppTheme.emerald500,
                                 foregroundColor: Colors.white,

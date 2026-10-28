@@ -7,6 +7,7 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../widgets/avatar_editor.dart';
+import '../../widgets/shared_widgets.dart';
 import '../../widgets/profile_widgets.dart';
 
 class ProfileScreen extends StatefulWidget {
@@ -140,7 +141,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _toggleEditing() {
+  Future<void> _toggleEditing() async {
     if (_isEditing) {
       final state = context.read<AppState>();
       final name = PersonName(
@@ -158,12 +159,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _showProblem('Enter a valid phone number, e.g. 09XX XXX XXXX.');
         return;
       }
-      state.updateProfile(
-        nameParts: _canEditName(state) ? name : null,
-        phone: _phoneCtrl.text.trim(),
-        address: _addressCtrl.text.trim(),
-        yearLevel: state.currentUser?.yearLevel,
-      );
+      try {
+        await runWithBusy(
+          context,
+          () => state.updateProfile(
+            nameParts: _canEditName(state) ? name : null,
+            phone: _phoneCtrl.text.trim(),
+            address: _addressCtrl.text.trim(),
+            yearLevel: state.currentUser?.yearLevel,
+          ),
+          message: 'Saving…',
+        );
+      } catch (e) {
+        if (mounted) _showProblem('Could not save your profile: $e');
+        return;
+      }
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Profile updated.'),

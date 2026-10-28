@@ -84,7 +84,11 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
               onPressed: () async {
                 Navigator.of(dialogContext).pop();
                 final messenger = ScaffoldMessenger.of(context);
-                await context.read<AppState>().signOut();
+                await runWithBusy(
+                  context,
+                  context.read<AppState>().signOut,
+                  message: 'Signing out…',
+                );
                 messenger.showSnackBar(
                   SnackBar(
                     content: const Text('You have been logged out successfully.'),

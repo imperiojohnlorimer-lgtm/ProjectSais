@@ -2153,12 +2153,16 @@ class _OfficeCardState extends State<_OfficeCard> {
                                                         ),
                                                       )
                                                       .toList();
-                                              final assigned = await context
-                                                  .read<AppState>()
-                                                  .assignStudentAssistantsToOffice(
-                                                    office.id,
-                                                    assistants,
-                                                  );
+                                              final assigned = await runWithBusy(
+                                                context,
+                                                () => context
+                                                    .read<AppState>()
+                                                    .assignStudentAssistantsToOffice(
+                                                      office.id,
+                                                      assistants,
+                                                    ),
+                                                message: 'Saving…',
+                                              );
                                               if (!assigned &&
                                                   context.mounted) {
                                                 ScaffoldMessenger.of(
@@ -2326,9 +2330,11 @@ class _OfficeCardState extends State<_OfficeCard> {
     final assistants = acceptedAssistants
         .where((item) => ids.contains(item.id))
         .toList();
-    await context.read<AppState>().assignStudentAssistantsToOffice(
-      office.id,
-      assistants,
+    final state = context.read<AppState>();
+    await runWithBusy(
+      context,
+      () => state.assignStudentAssistantsToOffice(office.id, assistants),
+      message: checked ? 'Assigning…' : 'Removing…',
     );
   }
 
@@ -2341,7 +2347,12 @@ class _OfficeCardState extends State<_OfficeCard> {
       confirmColor: AppTheme.red500,
     );
     if (!confirmed || !context.mounted) return;
-    await context.read<AppState>().removeOffice(office.id);
+    final state = context.read<AppState>();
+    await runWithBusy(
+      context,
+      () => state.removeOffice(office.id),
+      message: 'Deleting office…',
+    );
   }
 }
 

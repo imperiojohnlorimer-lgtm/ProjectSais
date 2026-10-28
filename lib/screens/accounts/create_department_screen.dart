@@ -331,8 +331,11 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                                       if (!confirmed || !context.mounted) {
                                         return;
                                       }
-                                      final removed = await state
-                                          .removeDepartment(dept);
+                                      final removed = await runWithBusy(
+                                        context,
+                                        () => state.removeDepartment(dept),
+                                        message: 'Deleting…',
+                                      );
                                       if (!context.mounted) return;
                                       ScaffoldMessenger.of(
                                         context,
@@ -592,13 +595,17 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                           confirmLabel: department == null ? 'Create' : 'Save',
                         );
                         if (!confirmed || !context.mounted) return;
-                        final created = department == null
-                            ? await state.addDepartment(name, code: code)
-                            : await state.updateDepartment(
-                                department,
-                                name,
-                                code: code,
-                              );
+                        final created = await runWithBusy(
+                          context,
+                          () => department == null
+                              ? state.addDepartment(name, code: code)
+                              : state.updateDepartment(
+                                  department,
+                                  name,
+                                  code: code,
+                                ),
+                          message: 'Saving…',
+                        );
                         if (!context.mounted) return;
                         Navigator.pop(context);
                         ScaffoldMessenger.of(context).showSnackBar(

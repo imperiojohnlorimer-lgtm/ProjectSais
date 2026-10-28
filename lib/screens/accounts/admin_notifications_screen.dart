@@ -14,8 +14,12 @@ Future<void> _confirmClearAll(BuildContext context, AppState state) async {
     confirmLabel: 'Clear All',
     confirmColor: AppTheme.red500,
   );
-  if (ok) {
-    await state.clearAllNotifications();
+  if (ok && context.mounted) {
+    await runWithBusy(
+      context,
+      state.clearAllNotifications,
+      message: 'Clearing…',
+    );
   }
 }
 

@@ -5,6 +5,17 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+/// A file that could not be fetched for a reason that may pass (the network,
+/// an expired link, the service being busy): trying again can work. Reasons
+/// it never will are [FormatException]s.
+class DocumentLoadException implements Exception {
+  final String message;
+  const DocumentLoadException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class SupabaseStorageService {
   SupabaseStorageService._();
 
@@ -94,6 +105,75 @@ class SupabaseStorageService {
         : pathFromSignedUrl(storedUrl);
     if (filePath != null) return getDocumentUrl(filePath);
     return storedUrl == null || storedUrl.isEmpty ? null : storedUrl;
+  }
+
+  /// Whether [uri] is a signed link to a file in our own Documents bucket:
+  /// the only kind of link the app downloads itself. Anything else (a link a
+  /// student typed, another site) is never fetched.
+  static bool isStorageSignedUrl(Uri uri) =>
+      uri.scheme == 'https' &&
+      uri.host == _storageHost &&
+      uri.path.startsWith('/storage/v1/object/sign/Documents/');
+
+  static const _storageHost = 'hksswjhioztqsypbrkjy.supabase.co';
+
+  /// Reads [response]'s body, giving up once it passes [maxBytes] so a huge
+  /// file can't fill the browser's memory.
+  static Future<Uint8List> readCapped(
+    http.StreamedResponse response, {
+    int maxBytes = 12 * 1024 * 1024,
+  }) async {
+    final declared = response.contentLength;
+    if (declared != null && declared > maxBytes) {
+      throw const FormatException(
+        'The file is too large to preview. Download it instead.',
+      );
+    }
+    final builder = BytesBuilder(copy: false);
+    await for (final chunk in response.stream) {
+      builder.add(chunk);
+      if (builder.length > maxBytes) {
+        throw const FormatException(
+          'The file is too large to preview. Download it instead.',
+        );
+      }
+    }
+    return builder.takeBytes();
+  }
+
+  /// The bytes of a stored file, to show it in the app. Signs a fresh link
+  /// ([openableUrl]), then fetches it with no credentials attached: the
+  /// signature in the link is the permission. Errors never carry the link.
+  Future<Uint8List> fetchDocumentBytes({
+    String? path,
+    String? storedUrl,
+    int maxBytes = 12 * 1024 * 1024,
+  }) async {
+    final url = await openableUrl(path: path, storedUrl: storedUrl);
+    final uri = url == null ? null : Uri.tryParse(url);
+    if (uri == null) {
+      throw const FormatException('This file has no stored copy to open.');
+    }
+    if (!isStorageSignedUrl(uri)) {
+      throw const FormatException(
+        "This file is kept somewhere SAIS can't open it from.",
+      );
+    }
+    final client = http.Client();
+    try {
+      final response = await client
+          .send(http.Request('GET', uri))
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw DocumentLoadException(
+          'The file could not be loaded (error ${response.statusCode}). '
+          'Try again in a moment.',
+        );
+      }
+      return await readCapped(response, maxBytes: maxBytes);
+    } finally {
+      client.close();
+    }
   }
 
   /// The path in the Documents bucket that a Supabase storage link points

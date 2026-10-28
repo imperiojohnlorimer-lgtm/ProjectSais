@@ -903,7 +903,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
     );
     if (!ok || !ctx.mounted) return;
     final messenger = ScaffoldMessenger.of(ctx);
-    final deleted = await ctx.read<AppState>().deleteAnnouncement(ann.id);
+    final deleted = await runWithBusy(
+      ctx,
+      () => ctx.read<AppState>().deleteAnnouncement(ann.id),
+      message: 'Deleting…',
+    );
     if (!deleted) {
       AppSnackBar.showWithMessenger(
         messenger,
@@ -929,7 +933,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
     );
     if (!ok || !ctx.mounted) return;
     final messenger = ScaffoldMessenger.of(ctx);
-    final closed = await ctx.read<AppState>().closeAnnouncement(ann.id);
+    final closed = await runWithBusy(
+      ctx,
+      () => ctx.read<AppState>().closeAnnouncement(ann.id),
+      message: 'Closing…',
+    );
     if (!closed) {
       AppSnackBar.showWithMessenger(
         messenger,
@@ -954,7 +962,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
     );
     if (!ok || !ctx.mounted) return;
     final messenger = ScaffoldMessenger.of(ctx);
-    final reopened = await ctx.read<AppState>().approveAnnouncement(ann.id);
+    final reopened = await runWithBusy(
+      ctx,
+      () => ctx.read<AppState>().approveAnnouncement(ann.id),
+      message: 'Re-opening…',
+    );
     if (!reopened) {
       AppSnackBar.showWithMessenger(
         messenger,
@@ -1022,9 +1034,13 @@ class _AdminAnnouncementCard extends StatelessWidget {
               final state = dialogContext.read<AppState>();
               final reason = reasonCtrl.text.trim();
               Navigator.of(dialogContext).pop();
-              final rejected = await state.rejectAnnouncement(
-                announcementId,
-                reason: reason.isEmpty ? null : reason,
+              final rejected = await runWithBusy(
+                context,
+                () => state.rejectAnnouncement(
+                  announcementId,
+                  reason: reason.isEmpty ? null : reason,
+                ),
+                message: 'Rejecting…',
               );
               if (!rejected) {
                 AppSnackBar.showWithMessenger(

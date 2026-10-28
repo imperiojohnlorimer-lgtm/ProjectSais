@@ -196,6 +196,25 @@ differ only in case.
   a header toolbar needs a bounded width (`maxWidth`). When a `ButtonStyle` sets `textStyle`, include
   `fontFamily: 'Inter'` (it replaces the theme's). Don't change a chart type
   the user chose without asking.
+- **Waiting buttons:** a button whose action waits (a save, an upload, a
+  document being built) shows it: use `AsyncButton` (spinner in the icon
+  slot, a `busyLabel`, taps ignored meanwhile; `confirm:` for "are you
+  sure?" so the spinner starts after the answer) or `BusyIcon` where a
+  screen keeps its own flag. Show a failure to the user (red message, or
+  inline inside a dialog), never silently. After an `await`, close only
+  your own route (`ModalRoute.of(ctx)?.isCurrent`) and check `mounted`.
+  Give list items that hold busy state a `ValueKey`.
+- **Landing page** (`lib/screens/landing/`): an advertisement for the Student
+  Assistant hiring. Every "Apply" button calls `onGetStarted` (registration); it
+  never says hiring is open (it can't know), invents no pay, hours or eligibility,
+  and links the Privacy Notice. Link-preview tags live in `web/index.html`
+  (`web/og-image.png` is 1200x630).
+- **Opening stored files:** show a student's document with `showDocumentPreview`
+  (`lib/widgets/document_preview.dart`), not by signing a link and leaving the app:
+  pictures, PDFs and `.docx` are shown in place, with Download inside the viewer.
+  Word files are drawn in the browser by the vendored `web/docx-preview/` (never send
+  them to an outside viewer); change anything there only with the check in
+  `tool/docx_viewer_check/` (see its README note in `web/docx-preview/README.md`).
 - **Data safety:** save first, then update local state and notify people;
   a failed save must leave nothing half-done or announced.
 - **Commits:** a short title, grouped bullet points, a `Deploy with:` line

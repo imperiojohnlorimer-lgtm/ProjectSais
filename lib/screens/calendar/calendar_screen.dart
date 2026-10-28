@@ -94,10 +94,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   role: u.role,
                   department: u.department,
                   campus: u.campus,
-                  offices: state
-                      .officesForUser(u)
-                      .map((o) => o.name)
-                      .toList(),
+                  offices: state.officesForUser(u).map((o) => o.name).toList(),
                   avatar: u.avatar,
                 ),
               )
@@ -713,8 +710,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
         icon: Icons.event_repeat_rounded,
         label: 'Add Schedule',
         dense: isMobile,
-        onTap: () =>
-            _showAddScheduleDialog(context, scheduleService, owner),
+        onTap: () => _showAddScheduleDialog(context, scheduleService, owner),
       ),
       SizedBox(width: isMobile ? 8 : 10),
       _actionChip(
@@ -1084,22 +1080,28 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           academicYear: academicYear,
                           mode: mode,
                         );
-                        Navigator.of(dialogContext).pop();
                         final rules = isEditing
                             ? existingRules
                                   .map((r) => r.id == rule.id ? rule : r)
                                   .toList()
                             : [...existingRules, rule];
-                        final ok = await _saveRulesOrShowError(
-                          owner,
-                          rules,
-                        );
-                        if (!ok) return;
-                        await _regenerateOccurrences(
-                          scheduleService,
-                          owner,
-                          rule,
-                        );
+                        // The dialog stays up, with its button busy, while
+                        // the rule and its days on the calendar are saved.
+                        try {
+                          final ok = await _saveRulesOrShowError(owner, rules);
+                          if (!ok) return;
+                          await _regenerateOccurrences(
+                            scheduleService,
+                            owner,
+                            rule,
+                          );
+                        } finally {
+                          // Not another route, if this one was dismissed.
+                          if (dialogContext.mounted &&
+                              ModalRoute.of(dialogContext)?.isCurrent == true) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                        }
                         if (mounted) setState(() {});
                       },
                     ),
@@ -1370,7 +1372,6 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           units: units,
                           isSubject: true,
                         );
-                        Navigator.of(dialogContext).pop();
                         // Stamp `units` onto every other rule sharing this
                         // subject's label too, so the DTR sync (which groups by
                         // label) reflects the same unit count regardless of
@@ -1387,16 +1388,23 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   : r,
                             )
                             .toList();
-                        final ok = await _saveRulesOrShowError(
-                          owner,
-                          rules,
-                        );
-                        if (!ok) return;
-                        await _regenerateOccurrences(
-                          scheduleService,
-                          owner,
-                          rule,
-                        );
+                        // The dialog stays up, with its button busy, while
+                        // the subject and its days are saved.
+                        try {
+                          final ok = await _saveRulesOrShowError(owner, rules);
+                          if (!ok) return;
+                          await _regenerateOccurrences(
+                            scheduleService,
+                            owner,
+                            rule,
+                          );
+                        } finally {
+                          // Not another route, if this one was dismissed.
+                          if (dialogContext.mounted &&
+                              ModalRoute.of(dialogContext)?.isCurrent == true) {
+                            Navigator.of(dialogContext).pop();
+                          }
+                        }
                         if (mounted) setState(() {});
                       },
                     ),
@@ -1421,6 +1429,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   ) async {
     var rules = await _loadRules(owner);
     if (!mounted) return;
+    // The rule being deleted: its days come off the calendar one by one.
+    String? deletingId;
     showDialog(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -1507,35 +1517,50 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   },
                                 ),
                                 IconButton(
-                                  icon: const Icon(
-                                    Icons.delete_outline,
+                                  icon: BusyIcon(
+                                    busy: deletingId == rule.id,
+                                    icon: Icons.delete_outline,
                                     size: 18,
                                     color: AppTheme.red500,
                                   ),
-                                  tooltip: 'Delete',
-                                  onPressed: () async {
-                                    final confirmed = await showConfirmDialog(
-                                      dialogContext,
-                                      title: 'Delete this schedule?',
-                                      message:
-                                          'This removes "${rule.label}" '
-                                          '(every ${rule.weekdayName}) and all '
-                                          'of its days on the calendar for the '
-                                          'whole academic year. It also drops '
-                                          'out of the DTR report\'s class '
-                                          'schedule.',
-                                      confirmLabel: 'Delete',
-                                    );
-                                    if (!confirmed) return;
-                                    await _deleteRule(
-                                      scheduleService,
-                                      owner,
-                                      rule,
-                                    );
-                                    rules = await _loadRules(owner);
-                                    setDialogState(() {});
-                                    if (mounted) setState(() {});
-                                  },
+                                  tooltip: deletingId == rule.id
+                                      ? 'Deleting…'
+                                      : 'Delete',
+                                  onPressed: deletingId != null
+                                      ? null
+                                      : () async {
+                                          final confirmed = await showConfirmDialog(
+                                            dialogContext,
+                                            title: 'Delete this schedule?',
+                                            message:
+                                                'This removes "${rule.label}" '
+                                                '(every ${rule.weekdayName}) and all '
+                                                'of its days on the calendar for the '
+                                                'whole academic year. It also drops '
+                                                'out of the DTR report\'s class '
+                                                'schedule.',
+                                            confirmLabel: 'Delete',
+                                          );
+                                          if (!confirmed) return;
+                                          setDialogState(
+                                            () => deletingId = rule.id,
+                                          );
+                                          try {
+                                            await _deleteRule(
+                                              scheduleService,
+                                              owner,
+                                              rule,
+                                            );
+                                            rules = await _loadRules(owner);
+                                          } finally {
+                                            if (dialogContext.mounted) {
+                                              setDialogState(
+                                                () => deletingId = null,
+                                              );
+                                            }
+                                          }
+                                          if (mounted) setState(() {});
+                                        },
                                 ),
                               ],
                             ),
@@ -1545,7 +1570,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   ),
           ),
           actions: [
-            TextButton(
+            AsyncButton(
+              kind: AsyncButtonKind.text,
               onPressed: () async {
                 final removed = await _cleanupOrphanedEvents(
                   dialogContext,
@@ -1555,10 +1581,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 );
                 if (removed > 0 && mounted) setState(() {});
               },
-              child: const Text(
-                'Clean up stray events',
-                style: TextStyle(color: AppTheme.slate500),
-              ),
+              label: 'Clean up stray events',
+              busyLabel: 'Cleaning up…',
+              style: TextButton.styleFrom(foregroundColor: AppTheme.slate500),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
@@ -3151,9 +3176,9 @@ class _IconTile extends StatelessWidget {
 
 /// Footer action row shared by the dialogs: a plain "Cancel" text button
 /// and a full-weight gradient primary button.
-class _DialogFooter extends StatelessWidget {
+class _DialogFooter extends StatefulWidget {
   final VoidCallback onCancel;
-  final VoidCallback onConfirm;
+  final Future<void> Function() onConfirm;
   final String confirmLabel;
   final Color accent;
 
@@ -3165,14 +3190,34 @@ class _DialogFooter extends StatelessWidget {
   });
 
   @override
+  State<_DialogFooter> createState() => _DialogFooterState();
+}
+
+class _DialogFooterState extends State<_DialogFooter> {
+  /// True while [_DialogFooter.onConfirm] is waiting: the button shows a
+  /// spinner and neither button takes a tap.
+  bool _busy = false;
+
+  Future<void> _confirm() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onConfirm();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final accent = widget.accent;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
       child: Row(
         children: [
           Expanded(
             child: TextButton(
-              onPressed: onCancel,
+              onPressed: _busy ? null : widget.onCancel,
               style: TextButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 foregroundColor: AppTheme.slate500,
@@ -3207,17 +3252,35 @@ class _DialogFooter extends StatelessWidget {
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(14),
-                  onTap: onConfirm,
+                  onTap: _busy ? null : _confirm,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 14),
-                    child: Text(
-                      confirmLabel,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 14.5,
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        if (_busy) ...[
+                          const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                        ],
+                        Flexible(
+                          child: Text(
+                            _busy ? 'Saving…' : widget.confirmLabel,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14.5,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),
