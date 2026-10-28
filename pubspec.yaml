@@ -79,6 +79,9 @@ flutter:
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/images/logo.jpg
+    - assets/images/seal.png
+    - assets/images/marsu_hero.jpg
+    - assets/images/marsu_campus.jpg
     - assets/images/google_logo.png
     - assets/templates/contract_of_appointment_template.docx
     - assets/templates/endorsement_letter_template.docx
@@ -100,6 +103,12 @@ flutter:
   # "family" key with the font family name, and a "fonts" key with a
   # list giving the asset and other descriptors for the font. For
   # example:
+  # The landing page's headings (SIL Open Font License, assets/fonts/OFL-SourceSerif4.txt).
+  fonts:
+    - family: SourceSerifDisplay
+      fonts:
+        - asset: assets/fonts/SourceSerif4Display-Semibold.ttf
+          weight: 600
   # fonts:
   #   - family: Schyler
   #     fonts:

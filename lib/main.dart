@@ -123,9 +123,11 @@ class _AuthGate extends StatelessWidget {
     }
 
     if (waitingForSession) {
+      // Maroon like the start-up loader, so the screen doesn't flash light
+      // between the two.
       return const Scaffold(
-        backgroundColor: AppTheme.slate50,
-        body: Center(child: CircularProgressIndicator(color: AppTheme.maroon)),
+        backgroundColor: Color(0xFF5A1027),
+        body: Center(child: CircularProgressIndicator(color: Colors.white)),
       );
     }
 

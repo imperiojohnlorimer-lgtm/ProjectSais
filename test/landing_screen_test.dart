@@ -82,7 +82,7 @@ void main() {
 
   // The test font draws every glyph as a wide square, so 1.3x here is far
   // harsher than 1.3x in the app.
-  for (final width in const [390.0, 1100.0, 1440.0]) {
+  for (final width in const [320.0, 390.0, 400.0, 900.0, 1024.0, 1100.0, 1440.0]) {
     testWidgets('survives larger text at ${width.toInt()}px', (tester) async {
       await pumpAt(tester, Size(width, 900), textScale: 1.3);
       expect(tester.takeException(), isNull);

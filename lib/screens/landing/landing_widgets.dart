@@ -2,55 +2,70 @@ import 'package:flutter/material.dart';
 
 import '../../theme/app_theme.dart';
 
-/// The small pieces the landing page is built from.
+/// The landing page's palette, taken from the campus itself: MarSU maroon, the
+/// building's warm cream, warm ink. There is no bright yellow: a muted brass
+/// appears only as thin rules on dark backgrounds, never as text or as a fill
+/// behind text.
+class LandingColors {
+  const LandingColors._();
+
+  static const Color maroon = AppTheme.maroon;
+  static const Color maroonDeep = Color(0xFF5A1027);
+  static const Color maroonTint = Color(0xFFF6ECEE);
+  static const Color paper = Color(0xFFFBF8F3);
+  static const Color sand = Color(0xFFF2EADC);
+  static const Color brass = Color(0xFFC9AC72);
+  static const Color ink = Color(0xFF231419);
+
+  /// Body text on paper, sand and white.
+  static const Color body = Color(0xFF4D3F45);
+
+  /// Small print on paper, sand and white (above 5:1).
+  static const Color muted = Color(0xFF6E5F66);
+
+  /// A hairline on light backgrounds.
+  static Color get rule => ink.withValues(alpha: 0.14);
+}
+
+/// The display serif used for headings on this page only.
+const landingSerif = 'SourceSerifDisplay';
 
 // ─── Section heading ────────────────────────────────────────────────────
-class LandingSectionHeading extends StatelessWidget {
-  final String eyebrow;
+class LandingHeading extends StatelessWidget {
+  final String label;
   final String title;
   final String? subtitle;
   final bool centered;
+  final bool onDark;
 
-  const LandingSectionHeading({
+  const LandingHeading({
     super.key,
-    required this.eyebrow,
+    required this.label,
     required this.title,
     this.subtitle,
     this.centered = false,
+    this.onDark = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final align = centered
-        ? CrossAxisAlignment.center
-        : CrossAxisAlignment.start;
+    final accent = onDark ? LandingColors.brass : LandingColors.maroon;
+    final phone = MediaQuery.sizeOf(context).width < 600;
     return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 680),
+      constraints: const BoxConstraints(maxWidth: 640),
       child: Column(
-        crossAxisAlignment: align,
+        crossAxisAlignment: centered
+            ? CrossAxisAlignment.center
+            : CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 22,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppTheme.gold400,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                eyebrow.toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.maroon,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ],
+          Text(
+            label.toUpperCase(),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: onDark ? Colors.white.withValues(alpha: 0.85) : accent,
+              letterSpacing: 1.8,
+            ),
           ),
           const SizedBox(height: 14),
           Semantics(
@@ -58,24 +73,27 @@ class LandingSectionHeading extends StatelessWidget {
             child: Text(
               title,
               textAlign: centered ? TextAlign.center : TextAlign.start,
-              style: const TextStyle(
-                fontSize: 32,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.slate900,
-                height: 1.18,
-                letterSpacing: -0.9,
+              style: TextStyle(
+                fontFamily: landingSerif,
+                fontSize: phone ? 32 : 40,
+                fontWeight: FontWeight.w600,
+                color: onDark ? Colors.white : LandingColors.ink,
+                height: 1.12,
+                letterSpacing: -0.6,
               ),
             ),
           ),
           if (subtitle != null) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             Text(
               subtitle!,
               textAlign: centered ? TextAlign.center : TextAlign.start,
-              style: const TextStyle(
-                fontSize: 15.5,
-                height: 1.6,
-                color: AppTheme.slate600,
+              style: TextStyle(
+                fontSize: 16.5,
+                height: 1.65,
+                color: onDark
+                    ? Colors.white.withValues(alpha: 0.86)
+                    : LandingColors.body,
               ),
             ),
           ],
@@ -85,99 +103,14 @@ class LandingSectionHeading extends StatelessWidget {
   }
 }
 
-// ─── Benefit card ───────────────────────────────────────────────────────
-class BenefitCard extends StatefulWidget {
-  final IconData icon;
-  final String title;
-  final String body;
-
-  const BenefitCard({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  State<BenefitCard> createState() => _BenefitCardState();
-}
-
-class _BenefitCardState extends State<BenefitCard> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    // Lift on hover only for those who haven't asked for less motion.
-    final lift = _hover && !MediaQuery.disableAnimationsOf(context);
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        transform: Matrix4.translationValues(0, lift ? -4 : 0, 0),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: _hover ? AppTheme.maroon200 : AppTheme.slate200,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: _hover ? 0.07 : 0.03),
-              blurRadius: _hover ? 22 : 10,
-              offset: Offset(0, _hover ? 10 : 3),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ExcludeSemantics(
-              child: Container(
-                width: 48,
-                height: 48,
-                decoration: BoxDecoration(
-                  color: AppTheme.maroon50,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Icon(widget.icon, color: AppTheme.maroon, size: 24),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              widget.title,
-              style: const TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.slate900,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.body,
-              style: const TextStyle(
-                fontSize: 14,
-                height: 1.6,
-                color: AppTheme.slate600,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Step card ──────────────────────────────────────────────────────────
-class StepCard extends StatelessWidget {
+// ─── Ledger item ────────────────────────────────────────────────────────
+/// One reason to join: a serif numeral on a hairline, then title and text.
+class LedgerItem extends StatelessWidget {
   final String number;
   final String title;
   final String body;
 
-  const StepCard({
+  const LedgerItem({
     super.key,
     required this.number,
     required this.title,
@@ -187,51 +120,138 @@ class StepCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.only(top: 18),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: AppTheme.maroon100),
+        border: Border(top: BorderSide(color: LandingColors.rule)),
       ),
-      child: Column(
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            number,
-            style: const TextStyle(
-              fontSize: 34,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.maroon,
-              height: 1,
-              letterSpacing: -1,
+          SizedBox(
+            width: 44,
+            child: Text(
+              number,
+              style: const TextStyle(
+                fontFamily: landingSerif,
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                color: LandingColors.maroon,
+                height: 1.2,
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          Container(
-            width: 28,
-            height: 3,
-            decoration: BoxDecoration(
-              color: AppTheme.gold400,
-              borderRadius: BorderRadius.circular(2),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w700,
+                    color: LandingColors.ink,
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    fontSize: 14.5,
+                    height: 1.6,
+                    color: LandingColors.body,
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 17,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.slate900,
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Step ───────────────────────────────────────────────────────────────
+/// A step on the way in, in a vertical list joined by a thin line.
+class StepItem extends StatelessWidget {
+  final String number;
+  final String title;
+  final String body;
+  final bool last;
+
+  const StepItem({
+    super.key,
+    required this.number,
+    required this.title,
+    required this.body,
+    this.last = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(
+            width: 40,
+            child: Column(
+              children: [
+                Container(
+                  width: 40,
+                  height: 40,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: LandingColors.maroon,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    number,
+                    style: const TextStyle(
+                      fontFamily: landingSerif,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                if (!last)
+                  Expanded(
+                    child: Container(
+                      width: 2,
+                      margin: const EdgeInsets.symmetric(vertical: 6),
+                      color: LandingColors.maroon.withValues(alpha: 0.18),
+                    ),
+                  ),
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            body,
-            style: const TextStyle(
-              fontSize: 14,
-              height: 1.6,
-              color: AppTheme.slate600,
+          const SizedBox(width: 20),
+          Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(top: 8, bottom: last ? 0 : 28),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 17.5,
+                      fontWeight: FontWeight.w700,
+                      color: LandingColors.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    body,
+                    style: const TextStyle(
+                      fontSize: 14.5,
+                      height: 1.6,
+                      color: LandingColors.body,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
@@ -255,56 +275,49 @@ class PrepareItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ExcludeSemantics(
-          child: Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppTheme.gold100,
-              borderRadius: BorderRadius.circular(12),
+    return Container(
+      padding: const EdgeInsets.all(22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: LandingColors.rule),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ExcludeSemantics(
+            child: Icon(icon, size: 24, color: LandingColors.maroon),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16.5,
+              fontWeight: FontWeight.w700,
+              color: LandingColors.ink,
             ),
-            child: Icon(icon, color: AppTheme.maroon, size: 20),
           ),
-        ),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 15.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.slate900,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                body,
-                style: const TextStyle(
-                  fontSize: 14,
-                  height: 1.55,
-                  color: AppTheme.slate600,
-                ),
-              ),
-            ],
+          const SizedBox(height: 6),
+          Text(
+            body,
+            style: const TextStyle(
+              fontSize: 14,
+              height: 1.6,
+              color: LandingColors.body,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
 // ─── FAQ ────────────────────────────────────────────────────────────────
-class FaqItem extends StatelessWidget {
+/// A row that opens to its answer, with a plus or a minus.
+class FaqItem extends StatefulWidget {
   final String question;
   final String answer;
-
-  /// A link under the answer (the Privacy Notice, say).
   final String? linkLabel;
   final VoidCallback? onLink;
 
@@ -317,54 +330,67 @@ class FaqItem extends StatelessWidget {
   });
 
   @override
+  State<FaqItem> createState() => _FaqItemState();
+}
+
+class _FaqItemState extends State<FaqItem> {
+  bool _open = false;
+
+  @override
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.slate200),
+        border: Border(bottom: BorderSide(color: LandingColors.rule)),
       ),
-      clipBehavior: Clip.antiAlias,
       // ExpansionTile brings keyboard focus, Enter/Space and screen-reader
       // expanded/collapsed state with it.
       child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        data: Theme.of(context).copyWith(
+          dividerColor: Colors.transparent,
+          splashColor: LandingColors.maroon.withValues(alpha: 0.05),
+        ),
         child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-          childrenPadding: const EdgeInsets.fromLTRB(20, 0, 20, 18),
+          tilePadding: const EdgeInsets.symmetric(vertical: 8),
+          childrenPadding: const EdgeInsets.only(bottom: 22, right: 48),
           expandedCrossAxisAlignment: CrossAxisAlignment.start,
           expandedAlignment: Alignment.centerLeft,
-          iconColor: AppTheme.maroon,
-          collapsedIconColor: AppTheme.slate500,
+          shape: const Border(),
+          collapsedShape: const Border(),
+          onExpansionChanged: (open) => setState(() => _open = open),
+          trailing: Icon(
+            _open ? Icons.remove_rounded : Icons.add_rounded,
+            color: LandingColors.maroon,
+            size: 24,
+          ),
           title: Text(
-            question,
+            widget.question,
             style: const TextStyle(
-              fontSize: 15.5,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.slate900,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              color: LandingColors.ink,
             ),
           ),
           children: [
             Text(
-              answer,
+              widget.answer,
               style: const TextStyle(
-                fontSize: 14.5,
+                fontSize: 15.5,
                 height: 1.65,
-                color: AppTheme.slate600,
+                color: LandingColors.body,
               ),
             ),
-            if (linkLabel != null && onLink != null) ...[
+            if (widget.linkLabel != null && widget.onLink != null) ...[
               const SizedBox(height: 8),
               TextButton(
-                onPressed: onLink,
+                onPressed: widget.onLink,
                 style: TextButton.styleFrom(
-                  foregroundColor: AppTheme.maroon,
+                  foregroundColor: LandingColors.maroon,
                   padding: EdgeInsets.zero,
                   minimumSize: const Size(0, 36),
                   alignment: Alignment.centerLeft,
                 ),
                 child: Text(
-                  linkLabel!,
+                  widget.linkLabel!,
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
@@ -376,20 +402,21 @@ class FaqItem extends StatelessWidget {
   }
 }
 
-// ─── The hero's sample application card ─────────────────────────────────
-/// What a student sees after applying: a sample, labelled as one, so the page
-/// shows what happens next without claiming anything about a real application.
-class SampleApplicationCard extends StatelessWidget {
-  const SampleApplicationCard({super.key});
+// ─── Sample ID card ─────────────────────────────────────────────────────
+/// What a Student Assistant's record looks like: a campus ID card with the
+/// application's stages down it. It is a sample, and says so, so it promises
+/// nothing about a real application.
+class IdCard extends StatelessWidget {
+  const IdCard({super.key});
 
   static const _stages = [
-    ('Application submitted', 'Your skills and documents are in.', _Stage.done),
-    ('Screening', 'The Head reviews and picks who to interview.', _Stage.done),
-    ('Approved', 'You get your Student Assistant ID.', _Stage.current),
+    ('Application submitted', 'Your skills and documents are in.', _Stamp.done),
+    ('Screening', 'The Head reviews and picks who to interview.', _Stamp.done),
+    ('Approved', 'You get your Student Assistant ID.', _Stamp.current),
     (
       'Placed in an office',
       'Matched to an office that fits your skills.',
-      _Stage.next,
+      _Stamp.next,
     ),
   ];
 
@@ -397,119 +424,77 @@ class SampleApplicationCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Semantics(
       label:
-          'Sample of the application tracker: submitted, screening, approved, '
-          'then placed in an office.',
+          'Sample student assistant ID card with the application tracker: '
+          'submitted, screening, approved, then placed in an office.',
       child: ExcludeSemantics(
         child: Container(
-          padding: const EdgeInsets.all(22),
           decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(color: AppTheme.slate200),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: LandingColors.rule),
             boxShadow: [
               BoxShadow(
-                color: AppTheme.maroon.withValues(alpha: 0.10),
-                blurRadius: 40,
-                offset: const Offset(0, 18),
+                color: LandingColors.maroonDeep.withValues(alpha: 0.08),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
               ),
             ],
           ),
+          clipBehavior: Clip.antiAlias,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    alignment: Alignment.center,
-                    decoration: const BoxDecoration(
-                      color: AppTheme.maroon50,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Text(
-                      'J',
+              _header(),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(22, 20, 22, 6),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _identity(),
+                    const SizedBox(height: 20),
+                    const Text(
+                      'APPLICATION STATUS',
                       style: TextStyle(
-                        color: AppTheme.maroon,
-                        fontWeight: FontWeight.w800,
-                        fontSize: 16,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'My application',
-                          style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
-                            color: AppTheme.slate900,
-                          ),
-                        ),
-                        Text(
-                          'Student Assistant · sample',
-                          style: TextStyle(
-                            fontSize: 12.5,
-                            color: AppTheme.slate600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppTheme.gold100,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: const Text(
-                      'Sample',
-                      style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 12,
                         fontWeight: FontWeight.w700,
-                        color: AppTheme.maroonDark,
+                        letterSpacing: 1.5,
+                        color: LandingColors.muted,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 14),
+                    for (var i = 0; i < _stages.length; i++)
+                      _StampRow(
+                        title: _stages[i].$1,
+                        note: _stages[i].$2,
+                        stamp: _stages[i].$3,
+                        last: i == _stages.length - 1,
+                      ),
+                  ],
+                ),
               ),
-              const SizedBox(height: 20),
-              for (var i = 0; i < _stages.length; i++)
-                _StageRow(
-                  title: _stages[i].$1,
-                  note: _stages[i].$2,
-                  stage: _stages[i].$3,
-                  last: i == _stages.length - 1,
-                ),
-              const SizedBox(height: 4),
               Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: AppTheme.slate50,
-                  borderRadius: BorderRadius.circular(12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 14,
                 ),
+                color: LandingColors.paper,
                 child: const Row(
                   children: [
                     Icon(
-                      Icons.notifications_active_outlined,
+                      Icons.notifications_none_rounded,
                       size: 18,
-                      color: AppTheme.maroon,
+                      color: LandingColors.maroon,
                     ),
                     SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'You are notified when you are picked for screening and when a decision is made.',
+                        'You are notified when you are picked for screening '
+                        'and when a decision is made.',
                         style: TextStyle(
                           fontSize: 12.5,
-                          height: 1.4,
-                          color: AppTheme.slate600,
+                          height: 1.45,
+                          color: LandingColors.body,
                         ),
                       ),
                     ),
@@ -522,51 +507,185 @@ class SampleApplicationCard extends StatelessWidget {
       ),
     );
   }
+
+  Widget _header() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 16, 16, 14),
+      decoration: const BoxDecoration(
+        color: LandingColors.maroonDeep,
+        border: Border(
+          bottom: BorderSide(color: LandingColors.brass, width: 2),
+        ),
+      ),
+      child: Row(
+        children: [
+          ClipOval(
+            child: Image.asset(
+              'assets/images/seal.png',
+              width: 34,
+              height: 34,
+              fit: BoxFit.cover,
+            ),
+          ),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'MARINDUQUE STATE UNIVERSITY',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'Student Assistant',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Color(0xFFE9DCC4),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(4),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.6)),
+            ),
+            child: const Text(
+              'SAMPLE',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1.4,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _identity() {
+    Widget field(String label, String value) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.3,
+            color: LandingColors.muted,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.only(bottom: 4),
+          decoration: BoxDecoration(
+            border: Border(bottom: BorderSide(color: LandingColors.rule)),
+          ),
+          child: Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: LandingColors.ink,
+            ),
+          ),
+        ),
+      ],
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 62,
+          height: 76,
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: LandingColors.maroonTint,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: const Text(
+            'J',
+            style: TextStyle(
+              fontFamily: landingSerif,
+              fontSize: 30,
+              fontWeight: FontWeight.w600,
+              color: LandingColors.maroon,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: Column(
+            children: [
+              field('NAME', 'Juan D. (sample)'),
+              const SizedBox(height: 10),
+              field('PROGRAM', 'Your program and year level'),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }
 
-enum _Stage { done, current, next }
+enum _Stamp { done, current, next }
 
-class _StageRow extends StatelessWidget {
+class _StampRow extends StatelessWidget {
   final String title;
   final String note;
-  final _Stage stage;
+  final _Stamp stamp;
   final bool last;
 
-  const _StageRow({
+  const _StampRow({
     required this.title,
     required this.note,
-    required this.stage,
+    required this.stamp,
     required this.last,
   });
 
   @override
   Widget build(BuildContext context) {
-    final done = stage == _Stage.done;
-    final current = stage == _Stage.current;
+    final done = stamp == _Stamp.done;
+    final current = stamp == _Stamp.current;
     return IntrinsicHeight(
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           SizedBox(
-            width: 28,
+            width: 24,
             child: Column(
               children: [
                 Container(
-                  width: 24,
-                  height: 24,
+                  width: 22,
+                  height: 22,
+                  alignment: Alignment.center,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: done
-                        ? AppTheme.emerald500
-                        : current
-                        ? AppTheme.maroon
-                        : Colors.white,
+                    color: done ? LandingColors.maroon : Colors.white,
                     border: Border.all(
-                      color: done
-                          ? AppTheme.emerald500
-                          : current
-                          ? AppTheme.maroon
-                          : AppTheme.slate300,
+                      color: done || current
+                          ? LandingColors.maroon
+                          : LandingColors.rule,
                       width: 2,
                     ),
                   ),
@@ -574,9 +693,10 @@ class _StageRow extends StatelessWidget {
                       ? const Icon(Icons.check, size: 14, color: Colors.white)
                       : current
                       ? Container(
-                          margin: const EdgeInsets.all(6),
+                          width: 8,
+                          height: 8,
                           decoration: const BoxDecoration(
-                            color: Colors.white,
+                            color: LandingColors.maroon,
                             shape: BoxShape.circle,
                           ),
                         )
@@ -586,36 +706,38 @@ class _StageRow extends StatelessWidget {
                   Expanded(
                     child: Container(
                       width: 2,
-                      color: done ? AppTheme.emerald500 : AppTheme.slate200,
+                      color: done
+                          ? LandingColors.maroon.withValues(alpha: 0.5)
+                          : LandingColors.rule,
                     ),
                   ),
               ],
             ),
           ),
-          const SizedBox(width: 12),
+          const SizedBox(width: 14),
           Expanded(
             child: Padding(
-              padding: EdgeInsets.only(bottom: last ? 12 : 18),
+              padding: EdgeInsets.only(bottom: last ? 14 : 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     title,
                     style: TextStyle(
-                      fontSize: 14.5,
+                      fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      color: stage == _Stage.next
-                          ? AppTheme.slate600
-                          : AppTheme.slate900,
+                      color: stamp == _Stamp.next
+                          ? LandingColors.muted
+                          : LandingColors.ink,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     note,
                     style: const TextStyle(
-                      fontSize: 12.5,
-                      height: 1.4,
-                      color: AppTheme.slate600,
+                      fontSize: 13.5,
+                      height: 1.45,
+                      color: LandingColors.body,
                     ),
                   ),
                 ],
@@ -640,16 +762,81 @@ class HeroNote extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ExcludeSemantics(child: Icon(icon, size: 17, color: AppTheme.maroon)),
+        ExcludeSemantics(
+          child: Icon(
+            icon,
+            size: 17,
+            color: Colors.white.withValues(alpha: 0.8),
+          ),
+        ),
         const SizedBox(width: 8),
         Flexible(
           child: Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.slate700,
+              fontWeight: FontWeight.w500,
+              color: Colors.white.withValues(alpha: 0.92),
             ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One of the three quick facts on the card under the hero.
+class FactItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+
+  const FactItem({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ExcludeSemantics(
+          child: Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: LandingColors.maroonTint,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: LandingColors.maroon, size: 22),
+          ),
+        ),
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: LandingColors.ink,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                body,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 1.45,
+                  color: LandingColors.muted,
+                ),
+              ),
+            ],
           ),
         ),
       ],
@@ -670,21 +857,23 @@ class StaffChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: AppTheme.slate200),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: LandingColors.rule),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          ExcludeSemantics(child: Icon(icon, size: 16, color: AppTheme.maroon)),
+          ExcludeSemantics(
+            child: Icon(icon, size: 16, color: LandingColors.maroon),
+          ),
           const SizedBox(width: 8),
           Flexible(
             child: Text(
               label,
               style: const TextStyle(
-                fontSize: 13,
+                fontSize: 13.5,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.slate700,
+                color: LandingColors.ink,
               ),
             ),
           ),

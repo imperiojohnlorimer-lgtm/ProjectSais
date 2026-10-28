@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
-import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 import 'landing_widgets.dart';
 
@@ -13,10 +12,13 @@ import 'landing_widgets.dart';
 /// email, sign in, apply while a call is open) and leaves anything the program
 /// decides (who may apply, pay, hours, deadlines) to the hiring call itself.
 ///
-/// Sections: hero, quick facts, why join, how to apply, what to prepare, FAQ,
-/// closing call to action, a short note for offices, footer. The layout
-/// collapses from a multi-column desktop grid to a single column on phones;
-/// the nav links turn into an end drawer below [_drawerBreakpoint].
+/// The look comes from the campus: photos of the main building, MarSU maroon,
+/// the building's warm cream, serif headings (see [LandingColors]).
+///
+/// Sections: photo hero with a facts card over its edge, why join (beside a
+/// campus photo), how to apply (beside a sample ID card), what to prepare, FAQ,
+/// a closing call to action over a photo, a short note for offices, footer.
+/// The nav links turn into an end drawer below [_drawerBreakpoint].
 class LandingScreen extends StatefulWidget {
   final VoidCallback onSignIn;
   final VoidCallback onGetStarted;
@@ -42,8 +44,8 @@ class _LandingScreenState extends State<LandingScreen> {
   static const double _headerHeight = 76;
   static const double _maxContentWidth = 1140;
 
-  /// The warm white the hero sits on.
-  static const Color _warm = Color(0xFFFFFAF5);
+  static const _heroPhoto = 'assets/images/marsu_hero.jpg';
+  static const _campusPhoto = 'assets/images/marsu_campus.jpg';
 
   final _scroll = ScrollController();
   final _whyKey = GlobalKey();
@@ -51,7 +53,7 @@ class _LandingScreenState extends State<LandingScreen> {
   final _faqKey = GlobalKey();
   final _staffKey = GlobalKey();
 
-  /// Drives the header's change from see-through over the hero to a white bar.
+  /// Drives the header's change from see-through over the photo to a bar.
   bool _scrolled = false;
 
   @override
@@ -79,8 +81,7 @@ class _LandingScreenState extends State<LandingScreen> {
           0.0,
           _scroll.position.maxScrollExtent,
         );
-    final reduced = MediaQuery.disableAnimationsOf(context);
-    if (reduced) {
+    if (MediaQuery.disableAnimationsOf(context)) {
       _scroll.jumpTo(target);
     } else {
       _scroll.animateTo(
@@ -95,27 +96,25 @@ class _LandingScreenState extends State<LandingScreen> {
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < _mobileBreakpoint;
-    final isWide = width >= _wideBreakpoint;
+    // Larger system text needs room too, so it folds the nav.
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 14 * 1.15;
     // The inline nav needs more room than the hero layout does, so it folds
     // into the drawer earlier than the page switches to its mobile layout.
-    // Larger system text needs the room too, so it folds the nav as well.
-    final largeText = MediaQuery.textScalerOf(context).scale(14) > 14 * 1.15;
     final useDrawerNav = width < _drawerBreakpoint || largeText;
 
     return Scaffold(
-      backgroundColor: Colors.white,
+      backgroundColor: LandingColors.paper,
       endDrawer: useDrawerNav ? _buildDrawer() : null,
       body: Stack(
         children: [
           Positioned.fill(
             child: SingleChildScrollView(
               controller: _scroll,
-              physics: const BouncingScrollPhysics(),
+              physics: const ClampingScrollPhysics(),
               child: Column(
                 children: [
-                  _buildHero(isMobile, isWide),
-                  _buildQuickFacts(isMobile),
-                  _buildWhyJoin(isMobile, isWide),
+                  _buildHero(isMobile),
+                  _buildWhyJoin(isMobile),
                   _buildHowToApply(isMobile),
                   _buildPrepare(isMobile),
                   _buildFaq(isMobile),
@@ -152,13 +151,12 @@ class _LandingScreenState extends State<LandingScreen> {
       color: color,
       padding: EdgeInsets.symmetric(
         horizontal: isMobile ? 20 : 32,
-        vertical: isMobile ? (verticalMobile ?? 56) : (verticalDesktop ?? 88),
+        vertical: isMobile ? (verticalMobile ?? 64) : (verticalDesktop ?? 96),
       ),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-          // Full width, so a short block sits at the left edge like the rest
-          // instead of being centred.
+          // Full width, so a short block sits at the left edge like the rest.
           child: SizedBox(width: double.infinity, child: child),
         ),
       ),
@@ -169,11 +167,11 @@ class _LandingScreenState extends State<LandingScreen> {
   Widget _grid(
     List<Widget> children, {
     required int maxColumns,
-    double minCard = 300,
+    double minCard = 260,
+    double gap = 24,
   }) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        const gap = 20.0;
         var columns = maxColumns;
         while (columns > 1 &&
             (constraints.maxWidth - gap * (columns - 1)) / columns < minCard) {
@@ -192,43 +190,60 @@ class _LandingScreenState extends State<LandingScreen> {
     );
   }
 
+  Widget _photo(String asset, {Alignment alignment = Alignment.center}) {
+    return ExcludeSemantics(
+      child: Image.asset(
+        asset,
+        fit: BoxFit.cover,
+        alignment: alignment,
+        width: double.infinity,
+        height: double.infinity,
+        // A soft maroon field while it decodes, never a white flash.
+        frameBuilder: (context, child, frame, sync) => frame == null && !sync
+            ? Container(color: LandingColors.maroonDeep)
+            : child,
+        errorBuilder: (_, _, _) => Container(color: LandingColors.maroonDeep),
+      ),
+    );
+  }
+
   // ─── Header ───────────────────────────────────────────────────────────
   Widget _buildHeader(bool isMobile, bool useDrawerNav) {
-    // The hero is light, so the header's text is dark from the start; only the
-    // bar behind it changes once the page scrolls.
-    const foreground = AppTheme.slate700;
     final width = MediaQuery.sizeOf(context).width;
     final showBrandSubtitle = width >= _wideBreakpoint;
-    // On the narrowest phones the drawer carries Apply and Sign in; keeping the
-    // buttons here would squeeze the wordmark down to a few pixels.
+    // On the narrowest phones the drawer carries Apply and Sign in.
     final showInlineApply = width >= 400;
     // The sections keep their side padding outside the 1140 px column, so on
     // a wide window the header's content starts at the column's own edge.
     final edge = width >= _maxContentWidth + 64
         ? 0.0
         : (isMobile ? 20.0 : 32.0);
+    // Over the photo the header is see-through with white text; once the page
+    // scrolls it is a white bar with ink text. Both switch in the same frame,
+    // so the text never sits on a background of nearly its own colour.
+    final foreground = _scrolled ? LandingColors.ink : Colors.white;
 
-    return AnimatedContainer(
-      duration: MediaQuery.disableAnimationsOf(context)
-          ? Duration.zero
-          : const Duration(milliseconds: 220),
+    return Container(
       height: _headerHeight,
       decoration: BoxDecoration(
-        color: _scrolled ? Colors.white : Colors.transparent,
+        color: _scrolled ? Colors.white : null,
+        // Over the photo a maroon shade keeps the white text readable even
+        // where the header crosses bright sky.
+        gradient: _scrolled
+            ? null
+            : LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  LandingColors.maroonDeep.withValues(alpha: 0.72),
+                  LandingColors.maroonDeep.withValues(alpha: 0.55),
+                ],
+              ),
         border: Border(
           bottom: BorderSide(
-            color: _scrolled ? AppTheme.slate200 : Colors.transparent,
+            color: _scrolled ? LandingColors.rule : Colors.transparent,
           ),
         ),
-        boxShadow: _scrolled
-            ? [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: 0.04),
-                  blurRadius: 12,
-                  offset: const Offset(0, 2),
-                ),
-              ]
-            : null,
       ),
       child: SafeArea(
         bottom: false,
@@ -236,9 +251,8 @@ class _LandingScreenState extends State<LandingScreen> {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _maxContentWidth),
             child: Padding(
-              // The menu button's 24px icon sits centred in a 48px tap target,
-              // so trimming 12px on that side lines the icon up with the page
-              // edge the logo and hero copy use.
+              // The menu button's icon sits centred in a 48px tap target, so
+              // trimming 12px on that side lines it up with the page edge.
               padding: EdgeInsets.only(
                 left: edge,
                 right: (edge - (useDrawerNav ? 12 : 0)).clamp(0.0, edge),
@@ -252,27 +266,26 @@ class _LandingScreenState extends State<LandingScreen> {
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'SAIS',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.4,
-                            color: AppTheme.slate900,
+                            fontFamily: landingSerif,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            color: foreground,
                           ),
                         ),
                         if (showBrandSubtitle)
-                          const Text(
+                          Text(
                             'Student Assistant Program · MarSU',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 10.5,
+                              fontSize: 11,
                               fontWeight: FontWeight.w500,
-                              letterSpacing: 0.3,
-                              color: AppTheme.slate600,
+                              color: foreground.withValues(alpha: 0.8),
                             ),
                           ),
                       ],
@@ -298,14 +311,22 @@ class _LandingScreenState extends State<LandingScreen> {
                       child: const Text('Sign in'),
                     ),
                     const SizedBox(width: 8),
-                    _applyButton('Apply now', compact: true),
+                    _applyButton(
+                      'Apply now',
+                      compact: true,
+                      onDark: !_scrolled,
+                    ),
                   ] else ...[
                     if (showInlineApply)
-                      _applyButton('Apply now', compact: true),
+                      _applyButton(
+                        'Apply now',
+                        compact: true,
+                        onDark: !_scrolled,
+                      ),
                     Builder(
                       builder: (ctx) => IconButton(
                         onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-                        icon: const Icon(Icons.menu_rounded, color: foreground),
+                        icon: Icon(Icons.menu_rounded, color: foreground),
                         tooltip: 'Menu',
                       ),
                     ),
@@ -342,42 +363,44 @@ class _LandingScreenState extends State<LandingScreen> {
     }
 
     Widget item(IconData icon, String label, GlobalKey key) => ListTile(
-      leading: Icon(icon, color: AppTheme.slate600),
-      title: Text(label),
+      leading: Icon(icon, color: LandingColors.maroon),
+      title: Text(
+        label,
+        style: const TextStyle(
+          fontWeight: FontWeight.w600,
+          color: LandingColors.ink,
+        ),
+      ),
       onTap: () => go(key),
     );
 
     return Drawer(
-      backgroundColor: Colors.white,
+      backgroundColor: LandingColors.paper,
       child: SafeArea(
         child: ListView(
           children: [
             Container(
               padding: const EdgeInsets.all(20),
-              decoration: const BoxDecoration(
-                color: AppTheme.maroon50,
-                border: Border(
-                  bottom: BorderSide(color: AppTheme.gold400, width: 2),
-                ),
-              ),
+              color: LandingColors.maroonDeep,
               child: const Row(
                 children: [
-                  AppLogo(size: 44),
+                  AppLogo(size: 44, shadow: []),
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
                       'SAIS',
                       style: TextStyle(
-                        color: AppTheme.slate900,
-                        fontSize: 18,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0.4,
+                        fontFamily: landingSerif,
+                        color: Colors.white,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
                 ],
               ),
             ),
+            const SizedBox(height: 8),
             item(Icons.star_outline_rounded, 'Why join', _whyKey),
             item(Icons.route_outlined, 'How to apply', _howKey),
             item(Icons.help_outline_rounded, 'FAQ', _faqKey),
@@ -394,6 +417,7 @@ class _LandingScreenState extends State<LandingScreen> {
                         Navigator.of(context).pop();
                         widget.onGetStarted();
                       },
+                      style: _buttonStyle(onDark: false),
                       child: const Text('Apply now'),
                     ),
                   ),
@@ -405,6 +429,7 @@ class _LandingScreenState extends State<LandingScreen> {
                         Navigator.of(context).pop();
                         widget.onSignIn();
                       },
+                      style: _outlineStyle(onDark: false),
                       child: const Text('Sign in'),
                     ),
                   ),
@@ -418,65 +443,102 @@ class _LandingScreenState extends State<LandingScreen> {
   }
 
   // ─── Hero ─────────────────────────────────────────────────────────────
-  Widget _buildHero(bool isMobile, bool isWide) {
-    return Container(
-      width: double.infinity,
-      clipBehavior: Clip.hardEdge,
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [_warm, Colors.white],
+  Widget _buildHero(bool isMobile) {
+    final photo = Stack(
+      children: [
+        Positioned.fill(
+          child: _photo(
+            _heroPhoto,
+            // The statue and the building's centre stay in view on phones.
+            alignment: const Alignment(0.05, 0.1),
+          ),
         ),
-      ),
-      child: Stack(
-        alignment: Alignment.topCenter,
-        children: [
-          Positioned(
-            top: -120,
-            right: -90,
-            child: _blob(380, AppTheme.maroon.withValues(alpha: 0.06)),
-          ),
-          Positioned(
-            top: 220,
-            left: -110,
-            child: _blob(260, AppTheme.gold300.withValues(alpha: 0.30)),
-          ),
-          Padding(
-            padding: EdgeInsets.fromLTRB(
-              isMobile ? 20 : 32,
-              _headerHeight + (isMobile ? 28 : 56),
-              isMobile ? 20 : 32,
-              isMobile ? 40 : 56,
-            ),
-            child: Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-                child: isMobile
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          _heroCopy(isMobile),
-                          const SizedBox(height: 36),
-                          const SampleApplicationCard(),
-                        ],
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.center,
-                        children: [
-                          Expanded(flex: 6, child: _heroCopy(isMobile)),
-                          SizedBox(width: isWide ? 64 : 40),
-                          const Expanded(
-                            flex: 5,
-                            child: SampleApplicationCard(),
-                          ),
-                        ],
-                      ),
+        // Maroon from the left (from the bottom on phones) so the text reads,
+        // fading out to let the building show.
+        Positioned.fill(
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: isMobile ? Alignment.bottomCenter : Alignment.centerLeft,
+                end: isMobile ? Alignment.topCenter : Alignment.centerRight,
+                colors: [
+                  LandingColors.maroonDeep.withValues(alpha: 0.96),
+                  LandingColors.maroonDeep.withValues(alpha: 0.88),
+                  LandingColors.maroonDeep.withValues(alpha: 0.35),
+                  LandingColors.maroonDeep.withValues(alpha: 0.05),
+                ],
+                stops: isMobile
+                    ? const [0, 0.55, 0.85, 1]
+                    : const [0, 0.38, 0.68, 1],
               ),
             ),
           ),
+        ),
+        Padding(
+          padding: EdgeInsets.fromLTRB(
+            isMobile ? 20 : 32,
+            _headerHeight + (isMobile ? 80 : 72),
+            isMobile ? 20 : 32,
+            isMobile ? 48 : 132,
+          ),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: _heroCopy(isMobile),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+
+    // On phones the card is three rows tall, too tall to lay over the text:
+    // it simply follows the photo.
+    if (isMobile) {
+      return Column(
+        children: [
+          photo,
+          Container(
+            width: double.infinity,
+            color: LandingColors.paper,
+            padding: const EdgeInsets.fromLTRB(20, 24, 20, 0),
+            child: _factsCard(isMobile),
+          ),
         ],
-      ),
+      );
+    }
+
+    // On wider screens the facts card sits half over the photo's bottom edge.
+    const overlap = 56.0;
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Column(
+          children: [
+            photo,
+            Container(height: overlap, color: LandingColors.paper),
+          ],
+        ),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: isMobile ? 20 : 32),
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+                child: _factsCard(isMobile),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -485,66 +547,50 @@ class _LandingScreenState extends State<LandingScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: AppTheme.gold400.withValues(alpha: 0.7)),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.school_outlined, size: 15, color: AppTheme.maroon),
-              SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  'Marinduque State University · Student Assistant Program',
-                  style: TextStyle(
-                    color: AppTheme.maroonDark,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                  ),
+        Row(
+          children: [
+            Container(width: 28, height: 2, color: LandingColors.brass),
+            const SizedBox(width: 12),
+            Flexible(
+              child: Text(
+                'MARINDUQUE STATE UNIVERSITY · STUDENT ASSISTANT PROGRAM',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.9),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.6,
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
         const SizedBox(height: 22),
         Semantics(
           header: true,
-          child: Text.rich(
-            TextSpan(
-              children: [
-                const TextSpan(text: 'Work on campus.\n'),
-                TextSpan(
-                  text: 'Earn while you learn.',
-                  style: TextStyle(color: AppTheme.maroon),
-                ),
-              ],
-            ),
+          child: Text(
+            'Work on campus.\nEarn while you learn.',
             style: TextStyle(
-              fontSize: isMobile ? 38 : 56,
-              height: 1.08,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              letterSpacing: isMobile ? -1.0 : -1.8,
+              fontFamily: landingSerif,
+              fontSize: isMobile ? 36 : 58,
+              height: 1.06,
+              fontWeight: FontWeight.w600,
+              color: Colors.white,
+              letterSpacing: isMobile ? -0.6 : -1.0,
             ),
           ),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 20),
         Text(
           'Apply online to become a Student Assistant. Tell us your skills, '
           'upload your documents, and follow your application from one '
           'account, then get matched to a campus office that fits you.',
           style: TextStyle(
-            fontSize: isMobile ? 15.5 : 17,
-            height: 1.6,
-            color: AppTheme.slate600,
+            fontSize: isMobile ? 16 : 17,
+            height: 1.65,
+            color: Colors.white.withValues(alpha: 0.92),
           ),
         ),
-        const SizedBox(height: 28),
+        const SizedBox(height: 30),
         Wrap(
           spacing: 12,
           runSpacing: 12,
@@ -553,28 +599,26 @@ class _LandingScreenState extends State<LandingScreen> {
               'Apply now',
               large: true,
               icon: Icons.arrow_forward_rounded,
+              onDark: true,
             ),
             OutlinedButton(
               onPressed: widget.onSignIn,
-              style: OutlinedButton.styleFrom(
-                foregroundColor: AppTheme.slate800,
-                side: const BorderSide(color: AppTheme.slate300, width: 1.5),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 17,
-                ),
-              ),
+              style: _outlineStyle(onDark: true),
               child: const Text('I already have an account'),
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        const Text(
+        const SizedBox(height: 16),
+        Text(
           'Apply now opens registration: create your account, verify your '
           'email, then apply when a hiring call is open.',
-          style: TextStyle(fontSize: 13, height: 1.5, color: AppTheme.slate600),
+          style: TextStyle(
+            fontSize: 13.5,
+            height: 1.5,
+            color: Colors.white.withValues(alpha: 0.82),
+          ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 22),
         const Wrap(
           spacing: 22,
           runSpacing: 10,
@@ -594,9 +638,8 @@ class _LandingScreenState extends State<LandingScreen> {
     );
   }
 
-  // ─── Quick facts ──────────────────────────────────────────────────────
-  Widget _buildQuickFacts(bool isMobile) {
-    const items = [
+  Widget _factsCard(bool isMobile) {
+    const facts = [
       (Icons.devices_outlined, 'Apply online', 'From your phone or computer.'),
       (
         Icons.extension_outlined,
@@ -606,140 +649,141 @@ class _LandingScreenState extends State<LandingScreen> {
       (
         Icons.payments_outlined,
         'Paid from verified hours',
-        'Hourly wage payroll.',
+        'Through the Hourly Wage Payroll.',
       ),
     ];
-    return _band(
-      color: Colors.white,
-      isMobile: isMobile,
-      verticalMobile: 28,
-      verticalDesktop: 36,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: isMobile ? 20 : 32,
-          vertical: isMobile ? 22 : 26,
-        ),
-        decoration: BoxDecoration(
-          color: AppTheme.maroon50,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Wrap(
-          spacing: 32,
-          runSpacing: 20,
-          alignment: WrapAlignment.spaceBetween,
-          children: [
-            for (final item in items)
-              SizedBox(
-                width: isMobile ? double.infinity : 320,
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    ExcludeSemantics(
-                      child: Container(
-                        width: 46,
-                        height: 46,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                        child: Icon(item.$1, color: AppTheme.maroon, size: 24),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            item.$2,
-                            style: const TextStyle(
-                              fontSize: 15.5,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.slate900,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            item.$3,
-                            style: const TextStyle(
-                              fontSize: 13.5,
-                              height: 1.4,
-                              color: AppTheme.slate600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
-        ),
+    return Container(
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 20 : 32,
+        vertical: isMobile ? 20 : 26,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: LandingColors.rule),
+        boxShadow: [
+          BoxShadow(
+            color: LandingColors.maroonDeep.withValues(alpha: 0.07),
+            blurRadius: 20,
+            offset: const Offset(0, 8),
+          ),
+        ],
+      ),
+      child: _grid(
+        [for (final f in facts) FactItem(icon: f.$1, title: f.$2, body: f.$3)],
+        maxColumns: 3,
+        minCard: 230,
+        gap: 28,
       ),
     );
   }
 
   // ─── Why join ─────────────────────────────────────────────────────────
-  Widget _buildWhyJoin(bool isMobile, bool isWide) {
+  Widget _buildWhyJoin(bool isMobile) {
     const benefits = [
       (
-        Icons.payments_outlined,
+        '01',
         'Earn while you study',
         'Student Assistants are paid through the Hourly Wage Payroll, worked '
             'out from the hours you actually work.',
       ),
       (
-        Icons.business_center_outlined,
+        '02',
         'Real office experience',
         'Work in a campus office, learn on the job, and build experience you '
             'can put on your resume.',
       ),
       (
-        Icons.extension_outlined,
+        '03',
         'Matched to your skills',
         'List your skills when you apply. The Head takes them into account '
             'when placing you in an office.',
       ),
       (
-        Icons.qr_code_scanner_rounded,
+        '04',
         'Simple, honest attendance',
         'Clock in and out by scanning a QR code. Your verified hours are the '
             'ones that count.',
       ),
       (
-        Icons.description_outlined,
+        '05',
         'Paperwork done for you',
-        'Your contract of appointment, endorsement letter and monthly DTR are '
+        'Your Contract of Appointment, Endorsement Letter and monthly DTR are '
             'filled into the university\'s own templates.',
       ),
       (
-        Icons.autorenew_rounded,
+        '06',
         'A way to stay on',
         'Your supervisor evaluates you each term, and good performance counts '
             'when the Head decides on rehiring.',
       ),
     ];
 
+    final list = _grid(
+      [
+        for (final b in benefits)
+          LedgerItem(number: b.$1, title: b.$2, body: b.$3),
+      ],
+      maxColumns: 2,
+      minCard: 250,
+      gap: 32,
+    );
+
     return _band(
       key: _whyKey,
-      color: AppTheme.slate50,
+      color: LandingColors.paper,
       isMobile: isMobile,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const LandingSectionHeading(
-            eyebrow: 'Why join',
+      verticalDesktop: 80,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const heading = LandingHeading(
+            label: 'Why join',
             title: 'Why be a Student Assistant?',
             subtitle:
                 'Get paid, gain experience in a real office, and let the '
                 'system handle the paperwork.',
-          ),
-          const SizedBox(height: 40),
-          _grid([
-            for (final b in benefits)
-              BenefitCard(icon: b.$1, title: b.$2, body: b.$3),
-          ], maxColumns: 3),
-        ],
+          );
+          final photo = ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: _photo(_campusPhoto, alignment: const Alignment(0.55, 0)),
+          );
+          if (constraints.maxWidth < 860) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                heading,
+                const SizedBox(height: 32),
+                SizedBox(height: 220, child: photo),
+                const SizedBox(height: 36),
+                list,
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    heading,
+                    const SizedBox(height: 36),
+                    SizedBox(height: 280, child: photo),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 64),
+              Expanded(
+                flex: 6,
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: list,
+                ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -748,72 +792,105 @@ class _LandingScreenState extends State<LandingScreen> {
   Widget _buildHowToApply(bool isMobile) {
     const steps = [
       (
-        '01',
+        '1',
         'Create your account',
         'Register with your Gmail or MarSU email, then open the verification '
             'link we send you.',
       ),
       (
-        '02',
+        '2',
         'Apply when hiring is open',
         'Sign in and open the Apply page. When the Head opens a hiring call, '
             'add your skills and upload the documents it asks for.',
       ),
       (
-        '03',
+        '3',
         'Get screened',
         'The Head reviews applications and picks who to interview. Your Apply '
             'page shows where yours stands.',
       ),
       (
-        '04',
+        '4',
         'Start working',
         'If you are approved you get a Student Assistant ID and an office '
             'placement, then your contract.',
       ),
     ];
 
+    final stepList = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < steps.length; i++)
+          StepItem(
+            number: steps[i].$1,
+            title: steps[i].$2,
+            body: steps[i].$3,
+            last: i == steps.length - 1,
+          ),
+        const SizedBox(height: 32),
+        Wrap(
+          spacing: 16,
+          runSpacing: 10,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _applyButton(
+              'Apply now',
+              large: true,
+              icon: Icons.arrow_forward_rounded,
+              onDark: false,
+            ),
+            const Text(
+              'Opens registration.',
+              style: TextStyle(fontSize: 14, color: LandingColors.muted),
+            ),
+          ],
+        ),
+      ],
+    );
+
     return _band(
       key: _howKey,
       color: Colors.white,
       isMobile: isMobile,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const LandingSectionHeading(
-            eyebrow: 'How to apply',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const heading = LandingHeading(
+            label: 'How to apply',
             title: 'Four steps from sign-up to your first shift',
             subtitle:
                 'You apply once, through the hiring call, and you submit '
                 'everything online.',
-          ),
-          const SizedBox(height: 40),
-          _grid(
-            [
-              for (final s in steps)
-                StepCard(number: s.$1, title: s.$2, body: s.$3),
-            ],
-            maxColumns: 4,
-            minCard: 240,
-          ),
-          const SizedBox(height: 32),
-          Wrap(
-            spacing: 16,
-            runSpacing: 10,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          );
+          if (constraints.maxWidth < 860) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                heading,
+                const SizedBox(height: 40),
+                stepList,
+                const SizedBox(height: 48),
+                const IdCard(),
+              ],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _applyButton(
-                'Apply now',
-                large: true,
-                icon: Icons.arrow_forward_rounded,
+              Expanded(
+                flex: 6,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [heading, const SizedBox(height: 44), stepList],
+                ),
               ),
-              const Text(
-                'Opens registration.',
-                style: TextStyle(fontSize: 13.5, color: AppTheme.slate600),
+              const SizedBox(width: 72),
+              const Expanded(
+                flex: 5,
+                child: Padding(padding: EdgeInsets.zero, child: IdCard()),
               ),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -849,44 +926,32 @@ class _LandingScreenState extends State<LandingScreen> {
     ];
 
     return _band(
-      color: AppTheme.maroon50,
+      color: LandingColors.sand,
       isMobile: isMobile,
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final heading = const LandingSectionHeading(
-            eyebrow: 'Before you start',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const LandingHeading(
+            label: 'Before you start',
             title: 'What to have ready',
             subtitle:
                 'A few things make applying quick. The hiring call tells you '
                 'exactly what it needs.',
-          );
-          final list = Column(
-            children: [
-              for (var i = 0; i < items.length; i++) ...[
-                if (i > 0) const SizedBox(height: 20),
-                PrepareItem(
-                  icon: items[i].$1,
-                  title: items[i].$2,
-                  body: items[i].$3,
+          ),
+          const SizedBox(height: 40),
+          _grid(
+            [
+              for (final i in items)
+                // Even bottoms across a row of four.
+                ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: isMobile ? 0 : 236),
+                  child: PrepareItem(icon: i.$1, title: i.$2, body: i.$3),
                 ),
-              ],
             ],
-          );
-          if (constraints.maxWidth < 800) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [heading, const SizedBox(height: 32), list],
-            );
-          }
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(flex: 4, child: heading),
-              const SizedBox(width: 56),
-              Expanded(flex: 5, child: list),
-            ],
-          );
-        },
+            maxColumns: 4,
+            minCard: 230,
+          ),
+        ],
       ),
     );
   }
@@ -944,126 +1009,129 @@ class _LandingScreenState extends State<LandingScreen> {
 
     return _band(
       key: _faqKey,
-      color: Colors.white,
+      color: LandingColors.paper,
       isMobile: isMobile,
-      child: Column(
-        children: [
-          const LandingSectionHeading(
-            eyebrow: 'FAQ',
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const heading = LandingHeading(
+            label: 'FAQ',
             title: 'Questions students ask',
-            centered: true,
-          ),
-          const SizedBox(height: 36),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const SizedBox(height: 12),
-                  items[i],
-                ],
-              ],
+            subtitle:
+                'Still unsure? The hiring call on the Apply page has '
+                'the details for each round.',
+          );
+          final list = Container(
+            decoration: BoxDecoration(
+              border: Border(top: BorderSide(color: LandingColors.rule)),
             ),
-          ),
-        ],
+            child: Column(children: items),
+          );
+          if (constraints.maxWidth < 860) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [heading, const SizedBox(height: 32), list],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Expanded(flex: 4, child: heading),
+              const SizedBox(width: 64),
+              Expanded(flex: 6, child: list),
+            ],
+          );
+        },
       ),
     );
   }
 
   // ─── Closing call to action ───────────────────────────────────────────
   Widget _buildClosingCta(bool isMobile) {
-    return _band(
-      color: Colors.white,
-      isMobile: isMobile,
-      verticalMobile: 8,
-      verticalDesktop: 16,
-      child: Container(
-        padding: EdgeInsets.all(isMobile ? 28 : 52),
-        decoration: BoxDecoration(
-          color: AppTheme.maroon50,
-          borderRadius: BorderRadius.circular(26),
-          border: Border.all(color: AppTheme.maroon100),
-        ),
-        child: Flex(
-          direction: isMobile ? Axis.vertical : Axis.horizontal,
-          crossAxisAlignment: isMobile
-              ? CrossAxisAlignment.start
-              : CrossAxisAlignment.center,
-          children: [
-            Flexible(
-              flex: isMobile ? 0 : 3,
-              fit: isMobile ? FlexFit.loose : FlexFit.tight,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 34,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: AppTheme.gold400,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Semantics(
-                    header: true,
-                    child: Text(
-                      'Ready to apply?',
-                      style: TextStyle(
-                        fontSize: isMobile ? 28 : 36,
-                        fontWeight: FontWeight.w800,
-                        color: AppTheme.slate900,
-                        height: 1.15,
-                        letterSpacing: -0.9,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    'Create your account today, so you are ready the moment a '
-                    'hiring call opens.',
-                    style: TextStyle(
-                      fontSize: 15.5,
-                      height: 1.6,
-                      color: AppTheme.slate600,
-                    ),
-                  ),
-                ],
-              ),
+    return SizedBox(
+      width: double.infinity,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: _photo(_campusPhoto, alignment: const Alignment(0, -0.2)),
+          ),
+          Positioned.fill(
+            child: ColoredBox(
+              color: LandingColors.maroonDeep.withValues(alpha: 0.88),
             ),
-            SizedBox(width: isMobile ? 0 : 40, height: isMobile ? 24 : 0),
-            Flexible(
-              flex: isMobile ? 0 : 2,
-              fit: FlexFit.loose,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _applyButton(
-                    'Create my account',
-                    large: true,
-                    stretch: true,
-                    icon: Icons.arrow_forward_rounded,
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton(
-                    onPressed: widget.onSignIn,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: AppTheme.slate800,
-                      side: const BorderSide(
-                        color: AppTheme.slate300,
-                        width: 1.5,
+          ),
+          _band(
+            color: Colors.transparent,
+            isMobile: isMobile,
+            verticalMobile: 64,
+            verticalDesktop: 64,
+            child: Flex(
+              direction: isMobile ? Axis.vertical : Axis.horizontal,
+              crossAxisAlignment: isMobile
+                  ? CrossAxisAlignment.start
+                  : CrossAxisAlignment.center,
+              children: [
+                Flexible(
+                  flex: isMobile ? 0 : 3,
+                  fit: isMobile ? FlexFit.loose : FlexFit.tight,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Semantics(
+                        header: true,
+                        child: Text(
+                          'Ready to apply?',
+                          style: TextStyle(
+                            fontFamily: landingSerif,
+                            fontSize: isMobile ? 34 : 44,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.white,
+                            height: 1.1,
+                          ),
+                        ),
                       ),
-                      padding: const EdgeInsets.symmetric(vertical: 17),
-                    ),
-                    child: const Text('Sign in'),
+                      const SizedBox(height: 12),
+                      Text(
+                        'Create your account today, so you are ready the '
+                        'moment a hiring call opens.',
+                        style: TextStyle(
+                          fontSize: 16.5,
+                          height: 1.6,
+                          color: Colors.white.withValues(alpha: 0.9),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+                SizedBox(width: isMobile ? 0 : 48, height: isMobile ? 28 : 0),
+                ConstrainedBox(
+                  constraints: BoxConstraints(
+                    maxWidth: isMobile ? double.infinity : 300,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _applyButton(
+                        'Create my account',
+                        large: true,
+                        stretch: true,
+                        icon: Icons.arrow_forward_rounded,
+                        onDark: true,
+                      ),
+                      const SizedBox(height: 12),
+                      OutlinedButton(
+                        onPressed: widget.onSignIn,
+                        style: _outlineStyle(onDark: true),
+                        child: const Text('Sign in'),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1081,15 +1149,15 @@ class _LandingScreenState extends State<LandingScreen> {
     ];
     return _band(
       key: _staffKey,
-      color: AppTheme.slate50,
+      color: LandingColors.paper,
       isMobile: isMobile,
-      verticalMobile: 44,
-      verticalDesktop: 64,
+      verticalMobile: 56,
+      verticalDesktop: 72,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const LandingSectionHeading(
-            eyebrow: 'For offices & staff',
+          const LandingHeading(
+            label: 'For offices & staff',
             title: 'Running the program? SAIS handles the rest.',
             subtitle:
                 'Administrators, the Head and supervisors work from one record, '
@@ -1108,11 +1176,7 @@ class _LandingScreenState extends State<LandingScreen> {
             onPressed: widget.onSignIn,
             icon: const Icon(Icons.login_rounded, size: 18),
             label: const Text('Staff sign in'),
-            style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.maroon,
-              side: const BorderSide(color: AppTheme.maroon200, width: 1.5),
-              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
-            ),
+            style: _outlineStyle(onDark: false),
           ),
         ],
       ),
@@ -1123,10 +1187,7 @@ class _LandingScreenState extends State<LandingScreen> {
   Widget _buildFooter(bool isMobile) {
     return Container(
       width: double.infinity,
-      decoration: const BoxDecoration(
-        color: AppTheme.slate900,
-        border: Border(top: BorderSide(color: AppTheme.gold400, width: 3)),
-      ),
+      color: LandingColors.maroonDeep,
       padding: EdgeInsets.symmetric(
         horizontal: isMobile ? 20 : 32,
         vertical: 36,
@@ -1150,18 +1211,18 @@ class _LandingScreenState extends State<LandingScreen> {
                         const Text(
                           'SAIS',
                           style: TextStyle(
+                            fontFamily: landingSerif,
                             color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w800,
-                            letterSpacing: 0.4,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                         Text(
                           'Student Assistant Information System · '
                           'Marinduque State University',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.7),
-                            fontSize: 11.5,
+                            color: Colors.white.withValues(alpha: 0.75),
+                            fontSize: 12,
                           ),
                         ),
                       ],
@@ -1170,50 +1231,55 @@ class _LandingScreenState extends State<LandingScreen> {
                 ],
               ),
               const SizedBox(height: 28),
-              Divider(color: Colors.white.withValues(alpha: 0.12), height: 1),
+              Divider(color: Colors.white.withValues(alpha: 0.15), height: 1),
               const SizedBox(height: 12),
-              Wrap(
-                spacing: 16,
-                runSpacing: 8,
-                alignment: WrapAlignment.spaceBetween,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Text(
-                    '© ${DateTime.now().year} SAIS. All rights reserved.',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.65),
-                      fontSize: 12,
+              SizedBox(
+                width: double.infinity,
+                child: Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.spaceBetween,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                      '© ${DateTime.now().year} SAIS. All rights reserved.',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        fontSize: 12,
+                      ),
                     ),
-                  ),
-                  Wrap(
-                    children: [
-                      TextButton(
-                        onPressed: widget.onGetStarted,
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppTheme.goldLight,
-                        ),
-                        child: const Text('Apply now'),
-                      ),
-                      TextButton(
-                        onPressed: widget.onSignIn,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white.withValues(alpha: 0.8),
-                        ),
-                        child: const Text('Sign in'),
-                      ),
-                      if (widget.onShowPrivacy != null)
+                    Wrap(
+                      children: [
                         TextButton(
-                          onPressed: widget.onShowPrivacy,
+                          onPressed: widget.onGetStarted,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white,
+                          ),
+                          child: const Text('Apply now'),
+                        ),
+                        TextButton(
+                          onPressed: widget.onSignIn,
                           style: TextButton.styleFrom(
                             foregroundColor: Colors.white.withValues(
-                              alpha: 0.8,
+                              alpha: 0.85,
                             ),
                           ),
-                          child: const Text('Privacy Notice'),
+                          child: const Text('Sign in'),
                         ),
-                    ],
-                  ),
-                ],
+                        if (widget.onShowPrivacy != null)
+                          TextButton(
+                            onPressed: widget.onShowPrivacy,
+                            style: TextButton.styleFrom(
+                              foregroundColor: Colors.white.withValues(
+                                alpha: 0.85,
+                              ),
+                            ),
+                            child: const Text('Privacy Notice'),
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
@@ -1222,7 +1288,67 @@ class _LandingScreenState extends State<LandingScreen> {
     );
   }
 
-  // ─── Small shared bits ────────────────────────────────────────────────
+  // ─── Buttons ──────────────────────────────────────────────────────────
+
+  /// On the photo and dark bands the button is white with maroon text; on
+  /// light backgrounds it is maroon with white text.
+  ButtonStyle _buttonStyle({
+    required bool onDark,
+    bool large = false,
+    bool compact = false,
+  }) {
+    final background = onDark ? Colors.white : LandingColors.maroon;
+    final foreground = onDark ? LandingColors.maroon : Colors.white;
+    return ButtonStyle(
+      backgroundColor: WidgetStateProperty.resolveWith(
+        (states) => states.contains(WidgetState.hovered)
+            ? Color.lerp(
+                background,
+                onDark ? LandingColors.sand : Colors.black,
+                0.12,
+              )
+            : background,
+      ),
+      foregroundColor: WidgetStatePropertyAll(foreground),
+      overlayColor: WidgetStatePropertyAll(foreground.withValues(alpha: 0.08)),
+      elevation: const WidgetStatePropertyAll(0),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
+      padding: WidgetStatePropertyAll(
+        EdgeInsets.symmetric(
+          horizontal: compact ? 18 : (large ? 28 : 24),
+          vertical: compact ? 12 : (large ? 18 : 15),
+        ),
+      ),
+      textStyle: WidgetStatePropertyAll(
+        TextStyle(
+          fontFamily: 'Inter',
+          fontWeight: FontWeight.w700,
+          fontSize: compact ? 13.5 : 15.5,
+        ),
+      ),
+    );
+  }
+
+  ButtonStyle _outlineStyle({required bool onDark}) {
+    return OutlinedButton.styleFrom(
+      foregroundColor: onDark ? Colors.white : LandingColors.maroon,
+      side: BorderSide(
+        color: onDark
+            ? Colors.white.withValues(alpha: 0.65)
+            : LandingColors.maroon.withValues(alpha: 0.5),
+        width: 1.5,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 17),
+      textStyle: const TextStyle(
+        fontFamily: 'Inter',
+        fontWeight: FontWeight.w600,
+        fontSize: 15,
+      ),
+    );
+  }
 
   /// Every "Apply" on the page goes to registration.
   Widget _applyButton(
@@ -1230,24 +1356,9 @@ class _LandingScreenState extends State<LandingScreen> {
     bool compact = false,
     bool large = false,
     bool stretch = false,
+    bool onDark = false,
     IconData? icon,
   }) {
-    final style = ElevatedButton.styleFrom(
-      backgroundColor: AppTheme.maroon,
-      foregroundColor: Colors.white,
-      padding: EdgeInsets.symmetric(
-        horizontal: compact ? 18 : (large ? 28 : 24),
-        vertical: compact ? 12 : (large ? 17 : 15),
-      ),
-      textStyle: TextStyle(
-        fontFamily: 'Inter',
-        fontWeight: FontWeight.w700,
-        fontSize: compact ? 13.5 : 15,
-        letterSpacing: 0.2,
-      ),
-      elevation: 2,
-      shadowColor: AppTheme.maroon.withValues(alpha: 0.35),
-    );
     final child = icon == null
         ? Text(label)
         : Row(
@@ -1260,17 +1371,9 @@ class _LandingScreenState extends State<LandingScreen> {
           );
     final button = ElevatedButton(
       onPressed: widget.onGetStarted,
-      style: style,
+      style: _buttonStyle(onDark: onDark, large: large, compact: compact),
       child: child,
     );
     return stretch ? SizedBox(width: double.infinity, child: button) : button;
   }
-
-  Widget _blob(double size, Color color) => ExcludeSemantics(
-    child: Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-    ),
-  );
 }

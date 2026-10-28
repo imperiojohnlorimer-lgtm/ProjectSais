@@ -205,10 +205,14 @@ differ only in case.
   your own route (`ModalRoute.of(ctx)?.isCurrent`) and check `mounted`.
   Give list items that hold busy state a `ValueKey`.
 - **Landing page** (`lib/screens/landing/`): an advertisement for the Student
-  Assistant hiring. Every "Apply" button calls `onGetStarted` (registration); it
+  Assistant hiring, built on the campus photos (`assets/images/marsu_*.jpg`) with
+  MarSU maroon, warm cream and a serif for headings (`LandingColors`,
+  `SourceSerifDisplay`). No bright yellow: the user found it hard on the eyes. The
+  start-up loader is plain HTML/CSS in `web/index.html` (deep maroon, seal, cream
+  arc; fades out on `flutter-first-frame`). Every "Apply" button calls `onGetStarted` (registration); it
   never says hiring is open (it can't know), invents no pay, hours or eligibility,
   and links the Privacy Notice. Link-preview tags live in `web/index.html`
-  (`web/og-image.png` is 1200x630).
+  (`web/og-image.jpg` is 1200x630).
 - **Opening stored files:** show a student's document with `showDocumentPreview`
   (`lib/widgets/document_preview.dart`), not by signing a link and leaving the app:
   pictures, PDFs and `.docx` are shown in place, with Download inside the viewer.
