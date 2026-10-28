@@ -1,20 +1,34 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
+import 'landing_widgets.dart';
 
-/// Public marketing / entry page shown before a user signs in.
+/// Public page shown before anyone signs in. Its job is to get students to
+/// apply as Student Assistants: every "Apply" button opens registration
+/// ([onGetStarted]); signing in ([onSignIn]) is the quieter second action.
 ///
-/// Sections: hero, capability strip, features, roles, how-it-works, CTA, footer.
-/// The layout collapses from a multi-column desktop grid to a single column on
-/// phones; the nav links turn into an end drawer below [_mobileBreakpoint].
+/// It is a fixed advertisement: it can't know whether a hiring call is open, so
+/// it never says so. It explains the way in (create an account, verify the
+/// email, sign in, apply while a call is open) and leaves anything the program
+/// decides (who may apply, pay, hours, deadlines) to the hiring call itself.
+///
+/// Sections: hero, quick facts, why join, how to apply, what to prepare, FAQ,
+/// closing call to action, a short note for offices, footer. The layout
+/// collapses from a multi-column desktop grid to a single column on phones;
+/// the nav links turn into an end drawer below [_drawerBreakpoint].
 class LandingScreen extends StatefulWidget {
   final VoidCallback onSignIn;
   final VoidCallback onGetStarted;
+
+  /// Opens the Privacy Notice. The link is left out when this is null.
+  final VoidCallback? onShowPrivacy;
 
   const LandingScreen({
     super.key,
     required this.onSignIn,
     required this.onGetStarted,
+    this.onShowPrivacy,
   });
 
   @override
@@ -23,16 +37,21 @@ class LandingScreen extends StatefulWidget {
 
 class _LandingScreenState extends State<LandingScreen> {
   static const double _mobileBreakpoint = 900;
+  static const double _drawerBreakpoint = 1100;
   static const double _wideBreakpoint = 1180;
   static const double _headerHeight = 76;
   static const double _maxContentWidth = 1140;
 
-  final _scroll = ScrollController();
-  final _featuresKey = GlobalKey();
-  final _rolesKey = GlobalKey();
-  final _howKey = GlobalKey();
+  /// The warm white the hero sits on.
+  static const Color _warm = Color(0xFFFFFAF5);
 
-  /// Drives the header's transition from transparent-over-hero to solid white.
+  final _scroll = ScrollController();
+  final _whyKey = GlobalKey();
+  final _howKey = GlobalKey();
+  final _faqKey = GlobalKey();
+  final _staffKey = GlobalKey();
+
+  /// Drives the header's change from see-through over the hero to a white bar.
   bool _scrolled = false;
 
   @override
@@ -50,14 +69,26 @@ class _LandingScreenState extends State<LandingScreen> {
     super.dispose();
   }
 
+  /// Scrolls so the section starts just under the header, not behind it.
   void _scrollTo(GlobalKey key) {
-    final ctx = key.currentContext;
-    if (ctx == null) return;
-    Scrollable.ensureVisible(
-      ctx,
-      duration: const Duration(milliseconds: 500),
-      curve: Curves.easeInOutCubic,
-    );
+    final box = key.currentContext?.findRenderObject();
+    if (box is! RenderBox || !_scroll.hasClients) return;
+    final viewport = RenderAbstractViewport.of(box);
+    final target =
+        (viewport.getOffsetToReveal(box, 0).offset - _headerHeight + 8).clamp(
+          0.0,
+          _scroll.position.maxScrollExtent,
+        );
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    if (reduced) {
+      _scroll.jumpTo(target);
+    } else {
+      _scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 500),
+        curve: Curves.easeInOutCubic,
+      );
+    }
   }
 
   @override
@@ -65,10 +96,11 @@ class _LandingScreenState extends State<LandingScreen> {
     final width = MediaQuery.sizeOf(context).width;
     final isMobile = width < _mobileBreakpoint;
     final isWide = width >= _wideBreakpoint;
-
     // The inline nav needs more room than the hero layout does, so it folds
     // into the drawer earlier than the page switches to its mobile layout.
-    final useDrawerNav = width < 1024;
+    // Larger system text needs the room too, so it folds the nav as well.
+    final largeText = MediaQuery.textScalerOf(context).scale(14) > 14 * 1.15;
+    final useDrawerNav = width < _drawerBreakpoint || largeText;
 
     return Scaffold(
       backgroundColor: Colors.white,
@@ -82,15 +114,13 @@ class _LandingScreenState extends State<LandingScreen> {
               child: Column(
                 children: [
                   _buildHero(isMobile, isWide),
-                  _buildCapabilityStrip(isMobile),
-                  _buildFeatures(
-                    key: _featuresKey,
-                    isMobile: isMobile,
-                    isWide: isWide,
-                  ),
-                  _buildRoles(key: _rolesKey, isMobile: isMobile),
-                  _buildHowItWorks(key: _howKey, isMobile: isMobile),
-                  _buildCallToAction(isMobile),
+                  _buildQuickFacts(isMobile),
+                  _buildWhyJoin(isMobile, isWide),
+                  _buildHowToApply(isMobile),
+                  _buildPrepare(isMobile),
+                  _buildFaq(isMobile),
+                  _buildClosingCta(isMobile),
+                  _buildForOffices(isMobile),
                   _buildFooter(isMobile),
                 ],
               ),
@@ -107,37 +137,98 @@ class _LandingScreenState extends State<LandingScreen> {
     );
   }
 
+  // ─── Layout helpers ───────────────────────────────────────────────────
+  Widget _band({
+    Key? key,
+    required Color color,
+    required bool isMobile,
+    required Widget child,
+    double? verticalMobile,
+    double? verticalDesktop,
+  }) {
+    return Container(
+      key: key,
+      width: double.infinity,
+      color: color,
+      padding: EdgeInsets.symmetric(
+        horizontal: isMobile ? 20 : 32,
+        vertical: isMobile ? (verticalMobile ?? 56) : (verticalDesktop ?? 88),
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: _maxContentWidth),
+          // Full width, so a short block sits at the left edge like the rest
+          // instead of being centred.
+          child: SizedBox(width: double.infinity, child: child),
+        ),
+      ),
+    );
+  }
+
+  /// [children] in a grid of up to [maxColumns] equal columns.
+  Widget _grid(
+    List<Widget> children, {
+    required int maxColumns,
+    double minCard = 300,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 20.0;
+        var columns = maxColumns;
+        while (columns > 1 &&
+            (constraints.maxWidth - gap * (columns - 1)) / columns < minCard) {
+          columns--;
+        }
+        final cardWidth =
+            (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final c in children) SizedBox(width: cardWidth, child: c),
+          ],
+        );
+      },
+    );
+  }
+
   // ─── Header ───────────────────────────────────────────────────────────
   Widget _buildHeader(bool isMobile, bool useDrawerNav) {
-    // Over the maroon hero the header is transparent with light text; once the
-    // user scrolls past it, it becomes an opaque white bar with dark text.
-    final onDark = !_scrolled;
-    final foreground = onDark ? Colors.white : AppTheme.slate700;
+    // The hero is light, so the header's text is dark from the start; only the
+    // bar behind it changes once the page scrolls.
+    const foreground = AppTheme.slate700;
     final width = MediaQuery.sizeOf(context).width;
     final showBrandSubtitle = width >= _wideBreakpoint;
-    // On the narrowest phones the drawer carries sign-in; keeping the button
-    // here would squeeze the wordmark down to a few pixels.
-    final showInlineSignIn = width >= 400;
+    // On the narrowest phones the drawer carries Apply and Sign in; keeping the
+    // buttons here would squeeze the wordmark down to a few pixels.
+    final showInlineApply = width >= 400;
+    // The sections keep their side padding outside the 1140 px column, so on
+    // a wide window the header's content starts at the column's own edge.
+    final edge = width >= _maxContentWidth + 64
+        ? 0.0
+        : (isMobile ? 20.0 : 32.0);
 
     return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : const Duration(milliseconds: 220),
       height: _headerHeight,
       decoration: BoxDecoration(
-        color: onDark ? Colors.transparent : Colors.white,
+        color: _scrolled ? Colors.white : Colors.transparent,
         border: Border(
           bottom: BorderSide(
-            color: onDark ? Colors.transparent : AppTheme.slate200,
+            color: _scrolled ? AppTheme.slate200 : Colors.transparent,
           ),
         ),
-        boxShadow: onDark
-            ? null
-            : [
+        boxShadow: _scrolled
+            ? [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.04),
                   blurRadius: 12,
                   offset: const Offset(0, 2),
                 ),
-              ],
+              ]
+            : null,
       ),
       child: SafeArea(
         bottom: false,
@@ -149,22 +240,19 @@ class _LandingScreenState extends State<LandingScreen> {
               // so trimming 12px on that side lines the icon up with the page
               // edge the logo and hero copy use.
               padding: EdgeInsets.only(
-                left: isMobile ? 20 : 32,
-                right: (isMobile ? 20 : 32) - (useDrawerNav ? 12 : 0),
+                left: edge,
+                right: (edge - (useDrawerNav ? 12 : 0)).clamp(0.0, edge),
               ),
               child: Row(
                 children: [
                   const AppLogo(size: 40, shadow: []),
                   const SizedBox(width: 12),
-                  // Expanded, not Flexible + Spacer: those split the free
-                  // space in half, and the half the wordmark didn't use was
-                  // left empty after the menu, stranding it mid-bar.
                   Expanded(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'SAIS',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -172,40 +260,36 @@ class _LandingScreenState extends State<LandingScreen> {
                             fontSize: 17,
                             fontWeight: FontWeight.w800,
                             letterSpacing: 0.4,
-                            color: onDark ? Colors.white : AppTheme.slate900,
+                            color: AppTheme.slate900,
                           ),
                         ),
-                        // The full name only fits beside the nav links once
-                        // there is room for both; below that the mark alone
-                        // carries the brand.
                         if (showBrandSubtitle)
-                          Text(
-                            'Student Assistant Information System',
+                          const Text(
+                            'Student Assistant Program · MarSU',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               fontSize: 10.5,
                               fontWeight: FontWeight.w500,
                               letterSpacing: 0.3,
-                              color: onDark
-                                  ? Colors.white.withValues(alpha: 0.75)
-                                  : AppTheme.slate500,
+                              color: AppTheme.slate600,
                             ),
                           ),
                       ],
                     ),
                   ),
                   if (!useDrawerNav) ...[
+                    _navLink('Why join', foreground, () => _scrollTo(_whyKey)),
                     _navLink(
-                      'Features',
-                      foreground,
-                      () => _scrollTo(_featuresKey),
-                    ),
-                    _navLink('Roles', foreground, () => _scrollTo(_rolesKey)),
-                    _navLink(
-                      'How it works',
+                      'How to apply',
                       foreground,
                       () => _scrollTo(_howKey),
+                    ),
+                    _navLink('FAQ', foreground, () => _scrollTo(_faqKey)),
+                    _navLink(
+                      'For offices',
+                      foreground,
+                      () => _scrollTo(_staffKey),
                     ),
                     const SizedBox(width: 12),
                     TextButton(
@@ -214,25 +298,14 @@ class _LandingScreenState extends State<LandingScreen> {
                       child: const Text('Sign in'),
                     ),
                     const SizedBox(width: 8),
-                    _primaryButton(
-                      label: 'Get started',
-                      onPressed: widget.onGetStarted,
-                      onDark: onDark,
-                      compact: true,
-                    ),
+                    _applyButton('Apply now', compact: true),
                   ] else ...[
-                    if (showInlineSignIn)
-                      TextButton(
-                        onPressed: widget.onSignIn,
-                        style: TextButton.styleFrom(
-                          foregroundColor: foreground,
-                        ),
-                        child: const Text('Sign in'),
-                      ),
+                    if (showInlineApply)
+                      _applyButton('Apply now', compact: true),
                     Builder(
                       builder: (ctx) => IconButton(
                         onPressed: () => Scaffold.of(ctx).openEndDrawer(),
-                        icon: Icon(Icons.menu_rounded, color: foreground),
+                        icon: const Icon(Icons.menu_rounded, color: foreground),
                         tooltip: 'Menu',
                       ),
                     ),
@@ -263,21 +336,26 @@ class _LandingScreenState extends State<LandingScreen> {
   Widget _buildDrawer() {
     void go(GlobalKey key) {
       Navigator.of(context).pop();
-      Future.delayed(const Duration(milliseconds: 220), () => _scrollTo(key));
+      Future.delayed(const Duration(milliseconds: 220), () {
+        if (mounted) _scrollTo(key);
+      });
     }
+
+    Widget item(IconData icon, String label, GlobalKey key) => ListTile(
+      leading: Icon(icon, color: AppTheme.slate600),
+      title: Text(label),
+      onTap: () => go(key),
+    );
 
     return Drawer(
       backgroundColor: Colors.white,
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: ListView(
           children: [
             Container(
               padding: const EdgeInsets.all(20),
               decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.maroon, AppTheme.maroonDark],
-                ),
+                color: AppTheme.maroon50,
                 border: Border(
                   bottom: BorderSide(color: AppTheme.gold400, width: 2),
                 ),
@@ -290,7 +368,7 @@ class _LandingScreenState extends State<LandingScreen> {
                     child: Text(
                       'SAIS',
                       style: TextStyle(
-                        color: Colors.white,
+                        color: AppTheme.slate900,
                         fontSize: 18,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.4,
@@ -300,31 +378,11 @@ class _LandingScreenState extends State<LandingScreen> {
                 ],
               ),
             ),
-            ListTile(
-              leading: const Icon(
-                Icons.widgets_outlined,
-                color: AppTheme.slate600,
-              ),
-              title: const Text('Features'),
-              onTap: () => go(_featuresKey),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.groups_outlined,
-                color: AppTheme.slate600,
-              ),
-              title: const Text('Roles'),
-              onTap: () => go(_rolesKey),
-            ),
-            ListTile(
-              leading: const Icon(
-                Icons.route_outlined,
-                color: AppTheme.slate600,
-              ),
-              title: const Text('How it works'),
-              onTap: () => go(_howKey),
-            ),
-            const Spacer(),
+            item(Icons.star_outline_rounded, 'Why join', _whyKey),
+            item(Icons.route_outlined, 'How to apply', _howKey),
+            item(Icons.help_outline_rounded, 'FAQ', _faqKey),
+            item(Icons.business_outlined, 'For offices', _staffKey),
+            const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.all(20),
               child: Column(
@@ -336,7 +394,7 @@ class _LandingScreenState extends State<LandingScreen> {
                         Navigator.of(context).pop();
                         widget.onGetStarted();
                       },
-                      child: const Text('Create an account'),
+                      child: const Text('Apply now'),
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -366,36 +424,30 @@ class _LandingScreenState extends State<LandingScreen> {
       clipBehavior: Clip.hardEdge,
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppTheme.maroon, AppTheme.maroonDark],
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [_warm, Colors.white],
         ),
-        border: Border(bottom: BorderSide(color: AppTheme.gold400, width: 3)),
       ),
       child: Stack(
         alignment: Alignment.topCenter,
         children: [
           Positioned(
-            top: -70,
-            right: -60,
-            child: _circle(240, AppTheme.gold300.withValues(alpha: 0.12)),
+            top: -120,
+            right: -90,
+            child: _blob(380, AppTheme.maroon.withValues(alpha: 0.06)),
           ),
           Positioned(
-            bottom: -90,
-            left: -70,
-            child: _circle(220, Colors.white.withValues(alpha: 0.05)),
-          ),
-          Positioned(
-            bottom: 60,
-            right: 120,
-            child: _circle(90, AppTheme.gold300.withValues(alpha: 0.07)),
+            top: 220,
+            left: -110,
+            child: _blob(260, AppTheme.gold300.withValues(alpha: 0.30)),
           ),
           Padding(
             padding: EdgeInsets.fromLTRB(
               isMobile ? 20 : 32,
-              _headerHeight + (isMobile ? 36 : 64),
+              _headerHeight + (isMobile ? 28 : 56),
               isMobile ? 20 : 32,
-              isMobile ? 56 : 88,
+              isMobile ? 40 : 56,
             ),
             child: Center(
               child: ConstrainedBox(
@@ -405,16 +457,19 @@ class _LandingScreenState extends State<LandingScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           _heroCopy(isMobile),
-                          const SizedBox(height: 40),
-                          _heroPreviewCard(),
+                          const SizedBox(height: 36),
+                          const SampleApplicationCard(),
                         ],
                       )
                     : Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           Expanded(flex: 6, child: _heroCopy(isMobile)),
-                          SizedBox(width: isWide ? 56 : 36),
-                          Expanded(flex: 5, child: _heroPreviewCard()),
+                          SizedBox(width: isWide ? 64 : 40),
+                          const Expanded(
+                            flex: 5,
+                            child: SampleApplicationCard(),
+                          ),
                         ],
                       ),
               ),
@@ -433,23 +488,23 @@ class _LandingScreenState extends State<LandingScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.12),
+            color: Colors.white,
             borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: AppTheme.gold400.withValues(alpha: 0.45)),
+            border: Border.all(color: AppTheme.gold400.withValues(alpha: 0.7)),
           ),
           child: const Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.auto_awesome, size: 14, color: AppTheme.goldLight),
+              Icon(Icons.school_outlined, size: 15, color: AppTheme.maroon),
               SizedBox(width: 8),
               Flexible(
                 child: Text(
-                  'One system, from application to payroll',
+                  'Marinduque State University · Student Assistant Program',
                   style: TextStyle(
-                    color: AppTheme.goldLight,
+                    color: AppTheme.maroonDark,
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.4,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.2,
                   ),
                 ),
               ),
@@ -457,674 +512,609 @@ class _LandingScreenState extends State<LandingScreen> {
           ),
         ),
         const SizedBox(height: 22),
-        Text(
-          'Run your Student\nAssistant program\nwithout the paperwork.',
-          style: TextStyle(
-            fontSize: isMobile ? 34 : 50,
-            height: 1.1,
-            fontWeight: FontWeight.w800,
-            color: Colors.white,
-            letterSpacing: isMobile ? -0.8 : -1.4,
+        Semantics(
+          header: true,
+          child: Text.rich(
+            TextSpan(
+              children: [
+                const TextSpan(text: 'Work on campus.\n'),
+                TextSpan(
+                  text: 'Earn while you learn.',
+                  style: TextStyle(color: AppTheme.maroon),
+                ),
+              ],
+            ),
+            style: TextStyle(
+              fontSize: isMobile ? 38 : 56,
+              height: 1.08,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.slate900,
+              letterSpacing: isMobile ? -1.0 : -1.8,
+            ),
           ),
         ),
         const SizedBox(height: 18),
         Text(
-          'SAIS brings applications, screening, office placement, QR '
-          'attendance, DTRs, evaluations, rehiring, and payroll into a single '
-          'record — so the program head, supervisors, and student assistants '
-          'all work from the same source of truth.',
+          'Apply online to become a Student Assistant. Tell us your skills, '
+          'upload your documents, and follow your application from one '
+          'account, then get matched to a campus office that fits you.',
           style: TextStyle(
-            fontSize: isMobile ? 15 : 16.5,
+            fontSize: isMobile ? 15.5 : 17,
             height: 1.6,
-            color: Colors.white.withValues(alpha: 0.82),
-            fontWeight: FontWeight.w400,
+            color: AppTheme.slate600,
           ),
         ),
-        const SizedBox(height: 30),
+        const SizedBox(height: 28),
         Wrap(
           spacing: 12,
           runSpacing: 12,
           children: [
-            _primaryButton(
-              label: 'Get started',
-              onPressed: widget.onGetStarted,
-              onDark: true,
+            _applyButton(
+              'Apply now',
+              large: true,
               icon: Icons.arrow_forward_rounded,
             ),
             OutlinedButton(
               onPressed: widget.onSignIn,
               style: OutlinedButton.styleFrom(
-                foregroundColor: Colors.white,
-                side: BorderSide(
-                  color: Colors.white.withValues(alpha: 0.55),
-                  width: 1.5,
-                ),
+                foregroundColor: AppTheme.slate800,
+                side: const BorderSide(color: AppTheme.slate300, width: 1.5),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 26,
-                  vertical: 16,
+                  horizontal: 24,
+                  vertical: 17,
                 ),
               ),
-              child: const Text('Sign in to your account'),
+              child: const Text('I already have an account'),
             ),
           ],
         ),
-        const SizedBox(height: 26),
+        const SizedBox(height: 14),
+        const Text(
+          'Apply now opens registration: create your account, verify your '
+          'email, then apply when a hiring call is open.',
+          style: TextStyle(fontSize: 13, height: 1.5, color: AppTheme.slate600),
+        ),
+        const SizedBox(height: 24),
         const Wrap(
-          spacing: 20,
+          spacing: 22,
           runSpacing: 10,
           children: [
-            _HeroNote(icon: Icons.lock_outline, label: 'Role-based access'),
-            _HeroNote(icon: Icons.sync_outlined, label: 'Real-time records'),
-            _HeroNote(
-              icon: Icons.description_outlined,
-              label: 'Official forms generated',
+            HeroNote(
+              icon: Icons.smartphone_outlined,
+              label: 'Works on your phone',
             ),
+            HeroNote(
+              icon: Icons.upload_file_outlined,
+              label: 'Upload documents online',
+            ),
+            HeroNote(icon: Icons.timeline_outlined, label: 'Track your status'),
           ],
         ),
       ],
     );
   }
 
-  /// Stylised in-app preview: a miniature of the dashboard users land on.
-  Widget _heroPreviewCard() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.6)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.22),
-            blurRadius: 40,
-            offset: const Offset(0, 18),
-          ),
-        ],
+  // ─── Quick facts ──────────────────────────────────────────────────────
+  Widget _buildQuickFacts(bool isMobile) {
+    const items = [
+      (Icons.devices_outlined, 'Apply online', 'From your phone or computer.'),
+      (
+        Icons.extension_outlined,
+        'Matched by skills',
+        'Placed in an office that fits you.',
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // Window chrome with the gold underline that echoes the app's AppBar.
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                bottom: BorderSide(color: AppTheme.gold400, width: 2.5),
-              ),
-            ),
-            child: Row(
-              children: [
-                _dot(AppTheme.red500),
-                const SizedBox(width: 6),
-                _dot(AppTheme.amber500),
-                const SizedBox(width: 6),
-                _dot(AppTheme.emerald500),
-                const SizedBox(width: 14),
-                const Text(
-                  'Dashboard',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slate700,
-                    letterSpacing: 0.4,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Container(
-            color: AppTheme.slate50,
-            padding: const EdgeInsets.all(16),
-            child: const Column(
-              children: [
-                Row(
+      (
+        Icons.payments_outlined,
+        'Paid from verified hours',
+        'Hourly wage payroll.',
+      ),
+    ];
+    return _band(
+      color: Colors.white,
+      isMobile: isMobile,
+      verticalMobile: 28,
+      verticalDesktop: 36,
+      child: Container(
+        padding: EdgeInsets.symmetric(
+          horizontal: isMobile ? 20 : 32,
+          vertical: isMobile ? 22 : 26,
+        ),
+        decoration: BoxDecoration(
+          color: AppTheme.maroon50,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Wrap(
+          spacing: 32,
+          runSpacing: 20,
+          alignment: WrapAlignment.spaceBetween,
+          children: [
+            for (final item in items)
+              SizedBox(
+                width: isMobile ? double.infinity : 320,
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Expanded(
-                      child: _MiniStat(
-                        label: 'On duty now',
-                        value: '24',
-                        icon: Icons.access_time_filled,
-                        tint: AppTheme.emerald500,
+                    ExcludeSemantics(
+                      child: Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(item.$1, color: AppTheme.maroon, size: 24),
                       ),
                     ),
-                    SizedBox(width: 10),
+                    const SizedBox(width: 14),
                     Expanded(
-                      child: _MiniStat(
-                        label: 'Pending',
-                        value: '7',
-                        icon: Icons.assignment_outlined,
-                        tint: AppTheme.amber500,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            item.$2,
+                            style: const TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w700,
+                              color: AppTheme.slate900,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            item.$3,
+                            style: const TextStyle(
+                              fontSize: 13.5,
+                              height: 1.4,
+                              color: AppTheme.slate600,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ],
                 ),
-                SizedBox(height: 10),
-                _MiniRow(
-                  icon: Icons.how_to_reg_outlined,
-                  title: 'Applicant approved',
-                  subtitle: 'Contract & endorsement generated · 2 min ago',
-                  tint: AppTheme.maroon,
-                ),
-                SizedBox(height: 8),
-                _MiniRow(
-                  icon: Icons.qr_code_scanner_rounded,
-                  title: 'Clocked in via QR',
-                  subtitle: 'Library · morning session · 7:52 AM',
-                  tint: AppTheme.blue500,
-                ),
-                SizedBox(height: 8),
-                _MiniRow(
-                  icon: Icons.payments_outlined,
-                  title: 'Payroll released',
-                  subtitle: '1st Semester · 18 student assistants notified',
-                  tint: AppTheme.emerald500,
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  // ─── Capability strip ─────────────────────────────────────────────────
-  Widget _buildCapabilityStrip(bool isMobile) {
-    const items = [
-      ('4', 'user roles', 'Admin, Head, Supervisor, Student Assistant'),
-      ('7', 'official documents', 'From the contract to the payroll sheet'),
-      ('1', 'student record', 'From application to rehiring and payroll'),
-    ];
-
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 20 : 32,
-        vertical: isMobile ? 32 : 44,
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-          child: Wrap(
-            spacing: 24,
-            runSpacing: 24,
-            alignment: WrapAlignment.spaceBetween,
-            children: [
-              for (final item in items)
-                SizedBox(
-                  width: isMobile ? double.infinity : 320,
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        item.$1,
-                        style: const TextStyle(
-                          fontSize: 40,
-                          fontWeight: FontWeight.w800,
-                          color: AppTheme.maroon,
-                          height: 1,
-                          letterSpacing: -1.5,
-                        ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              item.$2,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: AppTheme.slate800,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                            const SizedBox(height: 3),
-                            Text(
-                              item.$3,
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                height: 1.4,
-                                color: AppTheme.slate500,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
   }
 
-  // ─── Features ─────────────────────────────────────────────────────────
-  Widget _buildFeatures({
-    required Key key,
-    required bool isMobile,
-    required bool isWide,
-  }) {
-    const features = [
+  // ─── Why join ─────────────────────────────────────────────────────────
+  Widget _buildWhyJoin(bool isMobile, bool isWide) {
+    const benefits = [
       (
-        Icons.how_to_reg_outlined,
-        'Applications & screening',
-        'Open a hiring call, collect applications with skills and '
-            'requirements, match skills to office requests, and score each '
-            'interview on the official assessment form.',
+        Icons.payments_outlined,
+        'Earn while you study',
+        'Student Assistants are paid through the Hourly Wage Payroll, worked '
+            'out from the hours you actually work.',
       ),
       (
-        Icons.account_balance_outlined,
-        'Office placement',
-        'Assign approved student assistants to offices, ranked by how well '
-            'their skills and screening results fit each office.',
+        Icons.business_center_outlined,
+        'Real office experience',
+        'Work in a campus office, learn on the job, and build experience you '
+            'can put on your resume.',
+      ),
+      (
+        Icons.extension_outlined,
+        'Matched to your skills',
+        'List your skills when you apply. The Head takes them into account '
+            'when placing you in an office.',
       ),
       (
         Icons.qr_code_scanner_rounded,
-        'QR attendance',
-        'Student assistants clock in and out by scanning the session\'s QR '
-            'code. A missed time-out is flagged instead of counted.',
+        'Simple, honest attendance',
+        'Clock in and out by scanning a QR code. Your verified hours are the '
+            'ones that count.',
       ),
       (
-        Icons.event_note_outlined,
-        'DTR & accomplishment reports',
-        'The monthly DTR/Accomplishment Report fills itself in from verified '
-            'hours, completed tasks, and the class schedule.',
-      ),
-      (
-        Icons.task_alt,
-        'Schedules & tasks',
-        'Weekly class and duty schedules that skip official holidays, plus '
-            'tasks assigned and tracked to completion.',
-      ),
-      (
-        Icons.fact_check_outlined,
-        'Performance evaluation',
-        'Supervisors rate each student assistant every term on the official '
-            'form, backed by their verified hours and approved reports.',
+        Icons.description_outlined,
+        'Paperwork done for you',
+        'Your contract of appointment, endorsement letter and monthly DTR are '
+            'filled into the university\'s own templates.',
       ),
       (
         Icons.autorenew_rounded,
-        'Rehiring',
-        'At the end of a term the Head decides who continues, guided by the '
-            'supervisor\'s rehire recommendation. Rehires get a new contract.',
-      ),
-      (
-        Icons.payments_outlined,
-        'Payroll generation',
-        'Generate each semester\'s payroll from verified hours and approved '
-            'reports, then approve, release, and print the Hourly Wage Payroll.',
-      ),
-      (
-        Icons.folder_copy_outlined,
-        'Official documents',
-        'Contracts, endorsement letters, assessments, evaluations, DTRs, and '
-            'payroll, filled into the university\'s own templates.',
+        'A way to stay on',
+        'Your supervisor evaluates you each term, and good performance counts '
+            'when the Head decides on rehiring.',
       ),
     ];
 
-    final columns = isMobile ? 1 : (isWide ? 3 : 2);
-
-    return Container(
-      key: key,
-      width: double.infinity,
+    return _band(
+      key: _whyKey,
       color: AppTheme.slate50,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 20 : 32,
-        vertical: isMobile ? 56 : 88,
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionHeading(
-                eyebrow: 'What it does',
-                title: 'Every stage of the program, in one place',
-                subtitle:
-                    'No more scattered spreadsheets, printed logsheets, and '
-                    'chat threads. Each step feeds the next.',
-              ),
-              const SizedBox(height: 40),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const gap = 20.0;
-                  final cardWidth =
-                      (constraints.maxWidth - gap * (columns - 1)) / columns;
-                  return Wrap(
-                    spacing: gap,
-                    runSpacing: gap,
-                    children: [
-                      for (final f in features)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _FeatureCard(
-                            icon: f.$1,
-                            title: f.$2,
-                            body: f.$3,
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ],
+      isMobile: isMobile,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const LandingSectionHeading(
+            eyebrow: 'Why join',
+            title: 'Why be a Student Assistant?',
+            subtitle:
+                'Get paid, gain experience in a real office, and let the '
+                'system handle the paperwork.',
           ),
-        ),
+          const SizedBox(height: 40),
+          _grid([
+            for (final b in benefits)
+              BenefitCard(icon: b.$1, title: b.$2, body: b.$3),
+          ], maxColumns: 3),
+        ],
       ),
     );
   }
 
-  // ─── Roles ────────────────────────────────────────────────────────────
-  Widget _buildRoles({required Key key, required bool isMobile}) {
-    const roles = [
-      (
-        Icons.admin_panel_settings_outlined,
-        'Administrator',
-        'Runs accounts and payroll',
-        [
-          'Manage accounts and departments',
-          'Set the academic year and semester',
-          'Generate, approve, and release payroll',
-          'Print the Hourly Wage Payroll',
-        ],
-      ),
-      (
-        Icons.business_outlined,
-        'Head of Student Assistantship',
-        'Hires, places, and rehires',
-        [
-          'Post openings and approve office requests',
-          'Screen and approve applicants',
-          'Assign student assistants to offices',
-          'Decide rehiring each term',
-        ],
-      ),
-      (
-        Icons.supervisor_account_outlined,
-        'Supervisor',
-        'Runs day-to-day duty',
-        [
-          'Request student assistants for the office',
-          'Run QR attendance and assign tasks',
-          'Approve reports and generate DTRs',
-          'Evaluate performance each term',
-        ],
-      ),
-      (
-        Icons.school_outlined,
-        'Student Assistant',
-        'Works and reports',
-        [
-          'Apply online and upload requirements',
-          'Clock in and out by QR scan',
-          'Submit accomplishment reports',
-          'Get notified when payroll is released',
-        ],
-      ),
-    ];
-
-    return Container(
-      key: key,
-      width: double.infinity,
-      color: Colors.white,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 20 : 32,
-        vertical: isMobile ? 56 : 88,
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const _SectionHeading(
-                eyebrow: 'Who it is for',
-                title: 'One system, four points of view',
-                subtitle:
-                    'Everyone signs in to the same record and sees only what '
-                    'their role needs.',
-              ),
-              const SizedBox(height: 40),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const gap = 20.0;
-                  final columns = constraints.maxWidth >= 1000
-                      ? 4
-                      : (constraints.maxWidth >= 640 ? 2 : 1);
-                  final cardWidth =
-                      (constraints.maxWidth - gap * (columns - 1)) / columns;
-                  return Wrap(
-                    spacing: gap,
-                    runSpacing: gap,
-                    children: [
-                      for (final r in roles)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _RoleCard(
-                            icon: r.$1,
-                            title: r.$2,
-                            tagline: r.$3,
-                            points: r.$4,
-                          ),
-                        ),
-                    ],
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  // ─── How it works ─────────────────────────────────────────────────────
-  Widget _buildHowItWorks({required Key key, required bool isMobile}) {
+  // ─── How to apply ─────────────────────────────────────────────────────
+  Widget _buildHowToApply(bool isMobile) {
     const steps = [
       (
         '01',
-        'Apply & screen',
-        'Students apply to be a Student Assistant with their skills and '
-            'requirements; the Head matches skills to office requests and '
-            'picks who to interview.',
+        'Create your account',
+        'Register with your Gmail or MarSU email, then open the verification '
+            'link we send you.',
       ),
       (
         '02',
-        'Appoint & place',
-        'Approved applicants get an SA ID and are placed in an office that '
-            'fits their skills, with a contract and an endorsement letter.',
+        'Apply when hiring is open',
+        'Sign in and open the Apply page. When the Head opens a hiring call, '
+            'add your skills and upload the documents it asks for.',
       ),
       (
         '03',
-        'Work & track',
-        'They clock in by QR, complete tasks, and submit reports; supervisors '
-            'generate the monthly DTR.',
+        'Get screened',
+        'The Head reviews applications and picks who to interview. Your Apply '
+            'page shows where yours stands.',
       ),
       (
         '04',
-        'Evaluate, rehire & pay',
-        'Supervisors evaluate each term, the Head decides who is rehired, and '
-            'the Admin releases payroll.',
+        'Start working',
+        'If you are approved you get a Student Assistant ID and an office '
+            'placement, then your contract.',
       ),
     ];
 
-    return Container(
-      key: key,
-      width: double.infinity,
-      color: AppTheme.maroon50,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 20 : 32,
-        vertical: isMobile ? 56 : 88,
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return _band(
+      key: _howKey,
+      color: Colors.white,
+      isMobile: isMobile,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const LandingSectionHeading(
+            eyebrow: 'How to apply',
+            title: 'Four steps from sign-up to your first shift',
+            subtitle:
+                'You apply once, through the hiring call, and you submit '
+                'everything online.',
+          ),
+          const SizedBox(height: 40),
+          _grid(
+            [
+              for (final s in steps)
+                StepCard(number: s.$1, title: s.$2, body: s.$3),
+            ],
+            maxColumns: 4,
+            minCard: 240,
+          ),
+          const SizedBox(height: 32),
+          Wrap(
+            spacing: 16,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              const _SectionHeading(
-                eyebrow: 'How it works',
-                title: 'From application to payroll in four steps',
-                subtitle:
-                    'The record a student starts on day one is the same record '
-                    'that produces their contract, DTR, evaluation, and pay.',
+              _applyButton(
+                'Apply now',
+                large: true,
+                icon: Icons.arrow_forward_rounded,
               ),
-              const SizedBox(height: 40),
-              LayoutBuilder(
-                builder: (context, constraints) {
-                  const gap = 20.0;
-                  final columns = constraints.maxWidth >= 1000
-                      ? 4
-                      : (constraints.maxWidth >= 640 ? 2 : 1);
-                  final cardWidth =
-                      (constraints.maxWidth - gap * (columns - 1)) / columns;
-                  return Wrap(
-                    spacing: gap,
-                    runSpacing: gap,
-                    children: [
-                      for (final s in steps)
-                        SizedBox(
-                          width: cardWidth,
-                          child: _StepCard(
-                            number: s.$1,
-                            title: s.$2,
-                            body: s.$3,
-                          ),
-                        ),
-                    ],
-                  );
-                },
+              const Text(
+                'Opens registration.',
+                style: TextStyle(fontSize: 13.5, color: AppTheme.slate600),
               ),
             ],
           ),
+        ],
+      ),
+    );
+  }
+
+  // ─── What to prepare ──────────────────────────────────────────────────
+  Widget _buildPrepare(bool isMobile) {
+    const items = [
+      (
+        Icons.mark_email_read_outlined,
+        'An email you can open',
+        'A Gmail or @marsu.edu.ph address. You must open the verification link '
+            'before you can sign in.',
+      ),
+      (
+        Icons.folder_open_outlined,
+        'Your documents',
+        'The hiring call lists what to upload, one file for each requirement. '
+            'PDF, Word, JPG or PNG, up to 10 MB each (a call can limit the '
+            'types for a requirement).',
+      ),
+      (
+        Icons.extension_outlined,
+        'Your skills',
+        'Choose the skills you have. The Head matches them to what offices '
+            'need.',
+      ),
+      (
+        Icons.badge_outlined,
+        'Your details',
+        'Your name, program and year level, and your Student ID if you have it '
+            'at hand.',
+      ),
+    ];
+
+    return _band(
+      color: AppTheme.maroon50,
+      isMobile: isMobile,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final heading = const LandingSectionHeading(
+            eyebrow: 'Before you start',
+            title: 'What to have ready',
+            subtitle:
+                'A few things make applying quick. The hiring call tells you '
+                'exactly what it needs.',
+          );
+          final list = Column(
+            children: [
+              for (var i = 0; i < items.length; i++) ...[
+                if (i > 0) const SizedBox(height: 20),
+                PrepareItem(
+                  icon: items[i].$1,
+                  title: items[i].$2,
+                  body: items[i].$3,
+                ),
+              ],
+            ],
+          );
+          if (constraints.maxWidth < 800) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [heading, const SizedBox(height: 32), list],
+            );
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 4, child: heading),
+              const SizedBox(width: 56),
+              Expanded(flex: 5, child: list),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // ─── FAQ ──────────────────────────────────────────────────────────────
+  Widget _buildFaq(bool isMobile) {
+    final items = <Widget>[
+      const FaqItem(
+        question: 'When does hiring open?',
+        answer:
+            'The Head of Student Assistantship opens a hiring call when the '
+            'program needs new Student Assistants. Create your account now so '
+            'you are ready: the Apply page shows the call, its deadline and '
+            'what to upload as soon as it is open.',
+      ),
+      const FaqItem(
+        question: 'Who can apply?',
+        answer:
+            'You can create an account with a Gmail or a MarSU email, and each '
+            'hiring call says who it is for. Read the call on the Apply page; '
+            'the Head screens every application.',
+      ),
+      const FaqItem(
+        question: 'Can I choose the office I work in?',
+        answer:
+            'You apply to become a Student Assistant, not to one office. If '
+            'you are approved, the Head places you in an office, taking your '
+            'skills into account.',
+      ),
+      const FaqItem(
+        question: 'What if I uploaded the wrong file?',
+        answer:
+            'The Head can send your application back with the reason. Your '
+            'answers and files are kept, so you replace what needs fixing and '
+            'apply again while the call is still open.',
+      ),
+      const FaqItem(
+        question: 'How will I know where my application stands?',
+        answer:
+            'Your Apply page shows where it stands, and you get a notification '
+            'when you are picked for screening and when a decision is made.',
+      ),
+      FaqItem(
+        question: 'Is my information private?',
+        answer:
+            'Your documents are kept in private storage, not on a public page. '
+            'The Privacy Notice explains what we collect, why, and who can '
+            'see it.',
+        linkLabel: widget.onShowPrivacy == null
+            ? null
+            : 'Read the Privacy Notice',
+        onLink: widget.onShowPrivacy,
+      ),
+    ];
+
+    return _band(
+      key: _faqKey,
+      color: Colors.white,
+      isMobile: isMobile,
+      child: Column(
+        children: [
+          const LandingSectionHeading(
+            eyebrow: 'FAQ',
+            title: 'Questions students ask',
+            centered: true,
+          ),
+          const SizedBox(height: 36),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 760),
+            child: Column(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const SizedBox(height: 12),
+                  items[i],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ─── Closing call to action ───────────────────────────────────────────
+  Widget _buildClosingCta(bool isMobile) {
+    return _band(
+      color: Colors.white,
+      isMobile: isMobile,
+      verticalMobile: 8,
+      verticalDesktop: 16,
+      child: Container(
+        padding: EdgeInsets.all(isMobile ? 28 : 52),
+        decoration: BoxDecoration(
+          color: AppTheme.maroon50,
+          borderRadius: BorderRadius.circular(26),
+          border: Border.all(color: AppTheme.maroon100),
+        ),
+        child: Flex(
+          direction: isMobile ? Axis.vertical : Axis.horizontal,
+          crossAxisAlignment: isMobile
+              ? CrossAxisAlignment.start
+              : CrossAxisAlignment.center,
+          children: [
+            Flexible(
+              flex: isMobile ? 0 : 3,
+              fit: isMobile ? FlexFit.loose : FlexFit.tight,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 34,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: AppTheme.gold400,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      'Ready to apply?',
+                      style: TextStyle(
+                        fontSize: isMobile ? 28 : 36,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate900,
+                        height: 1.15,
+                        letterSpacing: -0.9,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    'Create your account today, so you are ready the moment a '
+                    'hiring call opens.',
+                    style: TextStyle(
+                      fontSize: 15.5,
+                      height: 1.6,
+                      color: AppTheme.slate600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            SizedBox(width: isMobile ? 0 : 40, height: isMobile ? 24 : 0),
+            Flexible(
+              flex: isMobile ? 0 : 2,
+              fit: FlexFit.loose,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _applyButton(
+                    'Create my account',
+                    large: true,
+                    stretch: true,
+                    icon: Icons.arrow_forward_rounded,
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: widget.onSignIn,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.slate800,
+                      side: const BorderSide(
+                        color: AppTheme.slate300,
+                        width: 1.5,
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 17),
+                    ),
+                    child: const Text('Sign in'),
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  // ─── Call to action ───────────────────────────────────────────────────
-  Widget _buildCallToAction(bool isMobile) {
-    return Container(
-      width: double.infinity,
-      color: Colors.white,
-      padding: EdgeInsets.symmetric(
-        horizontal: isMobile ? 20 : 32,
-        vertical: isMobile ? 48 : 72,
-      ),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: _maxContentWidth),
-          child: Container(
-            clipBehavior: Clip.hardEdge,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(24),
-              gradient: const LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppTheme.maroon, AppTheme.maroonDark],
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: AppTheme.maroon.withValues(alpha: 0.28),
-                  blurRadius: 30,
-                  offset: const Offset(0, 14),
-                ),
-              ],
-            ),
-            child: Stack(
-              children: [
-                Positioned(
-                  top: -50,
-                  right: -30,
-                  child: _circle(160, AppTheme.gold300.withValues(alpha: 0.12)),
-                ),
-                Padding(
-                  padding: EdgeInsets.all(isMobile ? 28 : 48),
-                  child: Flex(
-                    direction: isMobile ? Axis.vertical : Axis.horizontal,
-                    crossAxisAlignment: isMobile
-                        ? CrossAxisAlignment.start
-                        : CrossAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        flex: isMobile ? 0 : 3,
-                        fit: isMobile ? FlexFit.loose : FlexFit.tight,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              'Ready to get your office on SAIS?',
-                              style: TextStyle(
-                                fontSize: isMobile ? 24 : 30,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                                height: 1.2,
-                                letterSpacing: -0.6,
-                              ),
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              'Create an account to apply as a student '
-                              'assistant, or sign in if your office already '
-                              'has access.',
-                              style: TextStyle(
-                                fontSize: 14.5,
-                                height: 1.6,
-                                color: Colors.white.withValues(alpha: 0.8),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      SizedBox(
-                        width: isMobile ? 0 : 32,
-                        height: isMobile ? 26 : 0,
-                      ),
-                      Flexible(
-                        flex: isMobile ? 0 : 2,
-                        fit: FlexFit.loose,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _primaryButton(
-                              label: 'Create an account',
-                              onPressed: widget.onGetStarted,
-                              onDark: true,
-                              stretch: true,
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton(
-                              onPressed: widget.onSignIn,
-                              style: OutlinedButton.styleFrom(
-                                foregroundColor: Colors.white,
-                                side: BorderSide(
-                                  color: Colors.white.withValues(alpha: 0.5),
-                                  width: 1.5,
-                                ),
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 16,
-                                ),
-                              ),
-                              child: const Text('Sign in'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+  // ─── For offices ──────────────────────────────────────────────────────
+  Widget _buildForOffices(bool isMobile) {
+    const chips = [
+      (Icons.how_to_reg_outlined, 'Applications & screening'),
+      (Icons.account_balance_outlined, 'Office placement'),
+      (Icons.qr_code_scanner_rounded, 'QR attendance'),
+      (Icons.event_note_outlined, 'DTR & reports'),
+      (Icons.fact_check_outlined, 'Evaluation'),
+      (Icons.autorenew_rounded, 'Rehiring'),
+      (Icons.payments_outlined, 'Payroll'),
+    ];
+    return _band(
+      key: _staffKey,
+      color: AppTheme.slate50,
+      isMobile: isMobile,
+      verticalMobile: 44,
+      verticalDesktop: 64,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const LandingSectionHeading(
+            eyebrow: 'For offices & staff',
+            title: 'Running the program? SAIS handles the rest.',
+            subtitle:
+                'Administrators, the Head and supervisors work from one record, '
+                'from the first application to the last payroll.',
+          ),
+          const SizedBox(height: 28),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              for (final c in chips) StaffChip(icon: c.$1, label: c.$2),
+            ],
+          ),
+          const SizedBox(height: 28),
+          OutlinedButton.icon(
+            onPressed: widget.onSignIn,
+            icon: const Icon(Icons.login_rounded, size: 18),
+            label: const Text('Staff sign in'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppTheme.maroon,
+              side: const BorderSide(color: AppTheme.maroon200, width: 1.5),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
             ),
           ),
-        ),
+        ],
       ),
     );
   }
@@ -1167,9 +1157,10 @@ class _LandingScreenState extends State<LandingScreen> {
                           ),
                         ),
                         Text(
-                          'Student Assistant Information System',
+                          'Student Assistant Information System · '
+                          'Marinduque State University',
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
+                            color: Colors.white.withValues(alpha: 0.7),
                             fontSize: 11.5,
                           ),
                         ),
@@ -1190,26 +1181,36 @@ class _LandingScreenState extends State<LandingScreen> {
                   Text(
                     '© ${DateTime.now().year} SAIS. All rights reserved.',
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.55),
+                      color: Colors.white.withValues(alpha: 0.65),
                       fontSize: 12,
                     ),
                   ),
                   Wrap(
                     children: [
                       TextButton(
-                        onPressed: widget.onSignIn,
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.white.withValues(alpha: 0.75),
-                        ),
-                        child: const Text('Sign in'),
-                      ),
-                      TextButton(
                         onPressed: widget.onGetStarted,
                         style: TextButton.styleFrom(
                           foregroundColor: AppTheme.goldLight,
                         ),
-                        child: const Text('Create an account'),
+                        child: const Text('Apply now'),
                       ),
+                      TextButton(
+                        onPressed: widget.onSignIn,
+                        style: TextButton.styleFrom(
+                          foregroundColor: Colors.white.withValues(alpha: 0.8),
+                        ),
+                        child: const Text('Sign in'),
+                      ),
+                      if (widget.onShowPrivacy != null)
+                        TextButton(
+                          onPressed: widget.onShowPrivacy,
+                          style: TextButton.styleFrom(
+                            foregroundColor: Colors.white.withValues(
+                              alpha: 0.8,
+                            ),
+                          ),
+                          child: const Text('Privacy Notice'),
+                        ),
                     ],
                   ),
                 ],
@@ -1223,523 +1224,53 @@ class _LandingScreenState extends State<LandingScreen> {
 
   // ─── Small shared bits ────────────────────────────────────────────────
 
-  /// On the maroon surfaces the primary action inverts to maroon-on-gold so it
-  /// still reads as the strongest element on the page.
-  Widget _primaryButton({
-    required String label,
-    required VoidCallback onPressed,
-    required bool onDark,
-    IconData? icon,
+  /// Every "Apply" on the page goes to registration.
+  Widget _applyButton(
+    String label, {
     bool compact = false,
+    bool large = false,
     bool stretch = false,
+    IconData? icon,
   }) {
     final style = ElevatedButton.styleFrom(
-      backgroundColor: onDark ? AppTheme.gold : AppTheme.maroon,
-      foregroundColor: onDark ? AppTheme.maroonDark : Colors.white,
+      backgroundColor: AppTheme.maroon,
+      foregroundColor: Colors.white,
       padding: EdgeInsets.symmetric(
-        horizontal: compact ? 18 : 26,
-        vertical: compact ? 12 : 16,
+        horizontal: compact ? 18 : (large ? 28 : 24),
+        vertical: compact ? 12 : (large ? 17 : 15),
       ),
       textStyle: TextStyle(
         fontFamily: 'Inter',
         fontWeight: FontWeight.w700,
-        fontSize: compact ? 13 : 14.5,
-        letterSpacing: 0.3,
+        fontSize: compact ? 13.5 : 15,
+        letterSpacing: 0.2,
       ),
-      elevation: onDark ? 0 : 2,
+      elevation: 2,
+      shadowColor: AppTheme.maroon.withValues(alpha: 0.35),
     );
-
     final child = icon == null
         ? Text(label)
         : Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(label),
+              Flexible(child: Text(label, textAlign: TextAlign.center)),
               const SizedBox(width: 8),
               Icon(icon, size: 18),
             ],
           );
-
     final button = ElevatedButton(
-      onPressed: onPressed,
+      onPressed: widget.onGetStarted,
       style: style,
       child: child,
     );
     return stretch ? SizedBox(width: double.infinity, child: button) : button;
   }
 
-  Widget _circle(double size, Color color) => Container(
-    width: size,
-    height: size,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+  Widget _blob(double size, Color color) => ExcludeSemantics(
+    child: Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+    ),
   );
-
-  Widget _dot(Color color) => Container(
-    width: 9,
-    height: 9,
-    decoration: BoxDecoration(shape: BoxShape.circle, color: color),
-  );
-}
-
-// ─── Section heading ────────────────────────────────────────────────────
-class _SectionHeading extends StatelessWidget {
-  final String eyebrow;
-  final String title;
-  final String subtitle;
-
-  const _SectionHeading({
-    required this.eyebrow,
-    required this.title,
-    required this.subtitle,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 640),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 22,
-                height: 3,
-                decoration: BoxDecoration(
-                  color: AppTheme.gold400,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Text(
-                eyebrow.toUpperCase(),
-                style: const TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.maroon,
-                  letterSpacing: 1.2,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 30,
-              fontWeight: FontWeight.w800,
-              color: AppTheme.slate900,
-              height: 1.2,
-              letterSpacing: -0.8,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            subtitle,
-            style: const TextStyle(
-              fontSize: 15,
-              height: 1.6,
-              color: AppTheme.slate500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Feature card ───────────────────────────────────────────────────────
-class _FeatureCard extends StatefulWidget {
-  final IconData icon;
-  final String title;
-  final String body;
-
-  const _FeatureCard({
-    required this.icon,
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  State<_FeatureCard> createState() => _FeatureCardState();
-}
-
-class _FeatureCardState extends State<_FeatureCard> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        transform: Matrix4.translationValues(0, _hover ? -4 : 0, 0),
-        padding: const EdgeInsets.all(24),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _hover ? AppTheme.maroon200 : AppTheme.slate200,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: _hover ? 0.08 : 0.03),
-              blurRadius: _hover ? 22 : 10,
-              offset: Offset(0, _hover ? 10 : 3),
-            ),
-          ],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 46,
-              height: 46,
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(13),
-                gradient: const LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [AppTheme.maroon, AppTheme.maroonDark],
-                ),
-                boxShadow: [
-                  BoxShadow(
-                    color: AppTheme.maroon.withValues(alpha: 0.25),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: Icon(widget.icon, color: Colors.white, size: 22),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              widget.title,
-              style: const TextStyle(
-                fontSize: 16.5,
-                fontWeight: FontWeight.w700,
-                color: AppTheme.slate900,
-                letterSpacing: -0.2,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.body,
-              style: const TextStyle(
-                fontSize: 13.5,
-                height: 1.6,
-                color: AppTheme.slate500,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Role card ──────────────────────────────────────────────────────────
-class _RoleCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String tagline;
-  final List<String> points;
-
-  const _RoleCard({
-    required this.icon,
-    required this.title,
-    required this.tagline,
-    required this.points,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: AppTheme.slate50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.slate200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, color: AppTheme.maroon, size: 28),
-          const SizedBox(height: 16),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.slate900,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            tagline,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.maroon,
-              letterSpacing: 0.2,
-            ),
-          ),
-          const SizedBox(height: 16),
-          for (final point in points)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 9),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 6),
-                    width: 5,
-                    height: 5,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: AppTheme.gold400,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      point,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        height: 1.45,
-                        color: AppTheme.slate600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Step card ──────────────────────────────────────────────────────────
-class _StepCard extends StatelessWidget {
-  final String number;
-  final String title;
-  final String body;
-
-  const _StepCard({
-    required this.number,
-    required this.title,
-    required this.body,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.maroon100),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            number,
-            style: TextStyle(
-              fontSize: 34,
-              fontWeight: FontWeight.w800,
-              height: 1,
-              letterSpacing: -1.5,
-              color: AppTheme.maroon.withValues(alpha: 0.18),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.slate900,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            body,
-            style: const TextStyle(
-              fontSize: 13.5,
-              height: 1.6,
-              color: AppTheme.slate500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Hero note chip ─────────────────────────────────────────────────────
-class _HeroNote extends StatelessWidget {
-  final IconData icon;
-  final String label;
-
-  const _HeroNote({required this.icon, required this.label});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: AppTheme.goldLight),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Colors.white.withValues(alpha: 0.8),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-// ─── Hero preview bits ──────────────────────────────────────────────────
-class _MiniStat extends StatelessWidget {
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color tint;
-
-  const _MiniStat({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.tint,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.slate200),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 30,
-            height: 30,
-            decoration: BoxDecoration(
-              color: tint.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 16, color: tint),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  value,
-                  style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.slate900,
-                    height: 1.1,
-                  ),
-                ),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: AppTheme.slate500,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _MiniRow extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Color tint;
-
-  const _MiniRow({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.tint,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.slate200),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              color: tint.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(icon, size: 15, color: tint),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.slate800,
-                  ),
-                ),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 10.5,
-                    color: AppTheme.slate500,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }

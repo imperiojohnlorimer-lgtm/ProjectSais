@@ -147,6 +147,7 @@ class _AuthGate extends StatelessWidget {
         return LandingScreen(
           onSignIn: () => go(PublicPage.login),
           onGetStarted: () => go(PublicPage.register),
+          onShowPrivacy: () => go(PublicPage.privacy),
         );
     }
   }
