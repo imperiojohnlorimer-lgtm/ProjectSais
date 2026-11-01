@@ -202,13 +202,16 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                             ]),
                             const SizedBox(width: 6),
                             // Avatar / profile
-                            GestureDetector(
+                            Tooltip(
+                              message: 'View Profile',
+                              child: GestureDetector(
                               onTap: () => setState(() => _tab = 2),
                               child: UserAvatar(
                                 avatarUrl: state.currentUser?.avatar,
                                 initials: state.currentUser?.initials ?? '?',
                                 size: 36,
                               ),
+                            ),
                             ),
                             const SizedBox(width: 6),
                             // Logout
@@ -277,13 +280,16 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                                   ),
                               ],
                             ),
-                            GestureDetector(
+                            Tooltip(
+                              message: 'View Profile',
+                              child: GestureDetector(
                               onTap: () => setState(() => _tab = 2),
                               child: UserAvatar(
                                 avatarUrl: state.currentUser?.avatar,
                                 initials: state.currentUser?.initials ?? '?',
                                 size: 34,
                               ),
+                            ),
                             ),
                             const SizedBox(width: 8),
                             IconButton(

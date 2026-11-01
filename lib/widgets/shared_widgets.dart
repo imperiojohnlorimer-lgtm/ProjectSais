@@ -450,6 +450,87 @@ class LoadingState extends StatelessWidget {
   }
 }
 
+/// The top of a dialog: a soft maroon icon tile, the title with a line of
+/// explanation under it, and a Close button, on white with a hairline below.
+/// (Dialogs used to open with a solid maroon gradient band.)
+class LightDialogHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String? subtitle;
+
+  /// Null while the dialog must stay open (it is saving).
+  final VoidCallback? onClose;
+  final EdgeInsetsGeometry padding;
+
+  const LightDialogHeader({
+    super.key,
+    required this.icon,
+    required this.title,
+    this.subtitle,
+    required this.onClose,
+    this.padding = const EdgeInsets.fromLTRB(20, 18, 12, 16),
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppTheme.slate100)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppTheme.maroon50,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Icon(icon, color: AppTheme.maroon, size: 21),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate900,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle!,
+                    maxLines: 3,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppTheme.slate500,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          IconButton(
+            tooltip: 'Close',
+            onPressed: onClose,
+            icon: const Icon(Icons.close_rounded, color: AppTheme.slate500),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Primary Button ─────────────────────────────────
 class PrimaryButton extends StatelessWidget {
   final String label;

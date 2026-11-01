@@ -1075,14 +1075,14 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
             child: CircularProgressIndicator(
               value: (combinedAvg / 5.0).clamp(0.0, 1.0),
               strokeWidth: 4.5,
-              backgroundColor: Colors.white.withValues(alpha: 0.2),
-              valueColor: const AlwaysStoppedAnimation(Colors.white),
+              backgroundColor: AppTheme.slate200,
+              valueColor: const AlwaysStoppedAnimation(AppTheme.maroon),
             ),
           ),
           Text(
             combinedAvg.toStringAsFixed(1),
             style: const TextStyle(
-              color: Colors.white,
+              color: AppTheme.slate900,
               fontWeight: FontWeight.w800,
               fontSize: 14,
             ),
@@ -1097,7 +1097,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
         const Text(
           'Live Assessment Score',
           style: TextStyle(
-            color: Colors.white,
+            color: AppTheme.slate900,
             fontWeight: FontWeight.w800,
             fontSize: 13.5,
           ),
@@ -1105,10 +1105,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
         const SizedBox(height: 2),
         Text(
           '${name.text.isEmpty ? 'Candidate' : name.text} · updates as you rate each criterion',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.8),
-            fontSize: 11,
-          ),
+          style: const TextStyle(color: AppTheme.slate500, fontSize: 11),
           maxLines: isMobile ? 2 : 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -1129,17 +1126,14 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
         vertical: isMobile ? 14 : 16,
       ),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [AppTheme.maroon, AppTheme.maroonDark],
-        ),
+        color: Colors.white,
+        border: Border.all(color: AppTheme.slate200),
         borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: AppTheme.maroon.withValues(alpha: 0.25),
+            color: AppTheme.maroon.withValues(alpha: 0.06),
             blurRadius: 16,
-            offset: const Offset(0, 6),
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1176,7 +1170,8 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.14),
+        color: AppTheme.slate50,
+        border: Border.all(color: AppTheme.slate200),
         borderRadius: BorderRadius.circular(10),
       ),
       child: Column(
@@ -1184,15 +1179,15 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           Text(
             value.toStringAsFixed(1),
             style: const TextStyle(
-              color: Colors.white,
+              color: AppTheme.slate900,
               fontWeight: FontWeight.w800,
               fontSize: 13,
             ),
           ),
           Text(
             label,
-            style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.75),
+            style: const TextStyle(
+              color: AppTheme.slate500,
               fontSize: 8.5,
               fontWeight: FontWeight.w600,
             ),

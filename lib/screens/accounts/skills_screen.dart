@@ -417,7 +417,7 @@ class _SkillTileState extends State<_SkillTile> {
                                       fontWeight: FontWeight.w800,
                                       color: used
                                           ? AppTheme.emerald500
-                                          : AppTheme.slate500,
+                                          : AppTheme.slate600,
                                     ),
                                   ),
                                 ],

@@ -1563,54 +1563,12 @@ class _QrScanDialogState extends State<_QrScanDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Header
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.maroon, AppTheme.maroonDark],
-                ),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.qr_code_scanner_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Scan QR Code',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                        Text(
-                          'Point camera at your attendance QR code',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
+            LightDialogHeader(
+              icon: Icons.qr_code_scanner_rounded,
+              title: 'Scan QR Code',
+              subtitle: 'Point camera at your attendance QR code',
+              onClose: () => Navigator.pop(context),
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 14),
             ),
 
             // Scanner viewport
@@ -1877,54 +1835,12 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             // Header
-            Container(
-              padding: const EdgeInsets.fromLTRB(20, 16, 16, 16),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [AppTheme.maroon, AppTheme.maroonDark],
-                ),
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.qr_code_2_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                  const SizedBox(width: 10),
-                  const Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Attendance QR Code',
-                          style: TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.w800,
-                            fontSize: 16,
-                          ),
-                        ),
-                        Text(
-                          'Have the student assistant scan this to log in/out',
-                          style: TextStyle(color: Colors.white70, fontSize: 11),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Close',
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.close_rounded,
-                      color: Colors.white70,
-                      size: 20,
-                    ),
-                    padding: EdgeInsets.zero,
-                    constraints: const BoxConstraints(),
-                  ),
-                ],
-              ),
+            LightDialogHeader(
+              icon: Icons.qr_code_2_rounded,
+              title: 'Attendance QR Code',
+              subtitle: 'Have the student assistant scan this to log in/out',
+              onClose: () => Navigator.pop(context),
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 14),
             ),
 
             // QR code

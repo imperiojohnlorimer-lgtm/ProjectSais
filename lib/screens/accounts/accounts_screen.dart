@@ -3292,7 +3292,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: ann.isOpen ? AppTheme.emerald500 : AppTheme.slate500,
+                    color: ann.isOpen ? AppTheme.emerald500 : AppTheme.slate600,
                   ),
                 ),
               ),

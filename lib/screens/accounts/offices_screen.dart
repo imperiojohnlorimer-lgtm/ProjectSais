@@ -233,78 +233,16 @@ class _OfficesScreenState extends State<OfficesScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     // Header
-                    Container(
-                      padding: const EdgeInsets.fromLTRB(24, 22, 20, 22),
-                      decoration: const BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [AppTheme.maroon, AppTheme.maroonDark],
-                        ),
-                        borderRadius: BorderRadius.vertical(
-                          top: Radius.circular(22),
-                        ),
-                      ),
-                      child: Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.16),
-                              borderRadius: BorderRadius.circular(13),
-                            ),
-                            child: Icon(
-                              office == null
-                                  ? Icons.add_business_rounded
-                                  : Icons.edit_outlined,
-                              color: Colors.white,
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  office == null ? 'Add Office' : 'Edit Office',
-                                  style: const TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w800,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  office == null
-                                      ? 'Create a new office and assign its staff'
-                                      : 'Update office details and staffing',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: Colors.white.withValues(alpha: 0.82),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          InkWell(
-                            onTap: () => Navigator.pop(dialogContext, false),
-                            borderRadius: BorderRadius.circular(20),
-                            child: Container(
-                              padding: const EdgeInsets.all(6),
-                              decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.14),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.close_rounded,
-                                color: Colors.white,
-                                size: 16,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
+                    LightDialogHeader(
+                      icon: office == null
+                          ? Icons.add_business_rounded
+                          : Icons.edit_outlined,
+                      title: office == null ? 'Add Office' : 'Edit Office',
+                      subtitle: office == null
+                          ? 'Create a new office and assign its staff'
+                          : 'Update office details and staffing',
+                      onClose: () => Navigator.pop(dialogContext, false),
+                      padding: const EdgeInsets.fromLTRB(24, 20, 14, 16),
                     ),
                     // Body
                     Flexible(

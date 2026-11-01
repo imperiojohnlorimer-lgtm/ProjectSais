@@ -1012,59 +1012,13 @@ class EndorsementSummaryButton extends StatelessWidget {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [AppTheme.maroon, AppTheme.maroonDark],
-                    ),
-                    borderRadius: BorderRadius.vertical(
-                      top: Radius.circular(24),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Generate Endorsement Summary',
-                              style: TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: Colors.white,
-                              ),
-                            ),
-                            SizedBox(height: 4),
-                            Text(
-                              'One letter listing every Approved Student Assistant, '
-                              'for the VP for Student Affairs and Services.',
-                              style: TextStyle(
-                                fontSize: 11.5,
-                                color: Colors.white70,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      GestureDetector(
-                        onTap: () => Navigator.pop(dialogContext),
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.2),
-                            shape: BoxShape.circle,
-                          ),
-                          child: const Icon(
-                            Icons.close_rounded,
-                            color: Colors.white,
-                            size: 16,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
+                LightDialogHeader(
+                  icon: Icons.description_outlined,
+                  title: 'Generate Endorsement Summary',
+                  subtitle:
+                      'One letter listing every Approved Student Assistant, '
+                      'for the VP for Student Affairs and Services.',
+                  onClose: () => Navigator.pop(dialogContext),
                 ),
                 Flexible(
                   child: SingleChildScrollView(

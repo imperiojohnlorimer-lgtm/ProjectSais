@@ -453,96 +453,11 @@ class _RequestDialogState extends State<_RequestDialog> {
       );
 
   Widget _header() {
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
-      child: Stack(
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(20, 22, 20, 20),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [AppTheme.maroon, AppTheme.maroonDark],
-              ),
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: const Icon(
-                    Icons.campaign_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Request Student Assistant',
-                        style: TextStyle(
-                          fontSize: 19,
-                          fontWeight: FontWeight.w800,
-                          color: Colors.white,
-                          letterSpacing: -0.3,
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Sent to the Head for approval',
-                        style: TextStyle(fontSize: 12.5, color: Colors.white70),
-                      ),
-                    ],
-                  ),
-                ),
-                Tooltip(
-                  message: 'Close',
-                  child: GestureDetector(
-                    onTap: _submitting
-                        ? null
-                        : () => Navigator.of(context).pop(),
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.14),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.close_rounded,
-                        color: Colors.white,
-                        size: 18,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Positioned(
-            right: -30,
-            top: -30,
-            child: IgnorePointer(
-              child: Container(
-                width: 110,
-                height: 110,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.06),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
+    return LightDialogHeader(
+      icon: Icons.campaign_rounded,
+      title: 'Request Student Assistant',
+      subtitle: 'Sent to the Head for approval',
+      onClose: _submitting ? null : () => Navigator.of(context).pop(),
     );
   }
 

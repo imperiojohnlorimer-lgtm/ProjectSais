@@ -894,13 +894,16 @@ class _AppShellState extends State<AppShell> {
                               ),
                             if (showNotificationBell) const SizedBox(width: 6),
                             // Avatar / profile
-                            GestureDetector(
-                              onTap: () =>
-                                  context.read<AppState>().setTab('profile'),
-                              child: UserAvatar(
-                                avatarUrl: state.currentUser?.avatar,
-                                initials: state.currentUser?.initials ?? '?',
-                                size: 36,
+                            Tooltip(
+                              message: 'View Profile',
+                              child: GestureDetector(
+                                onTap: () =>
+                                    context.read<AppState>().setTab('profile'),
+                                child: UserAvatar(
+                                  avatarUrl: state.currentUser?.avatar,
+                                  initials: state.currentUser?.initials ?? '?',
+                                  size: 36,
+                                ),
                               ),
                             ),
                           ],
