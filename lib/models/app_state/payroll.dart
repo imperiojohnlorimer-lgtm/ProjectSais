@@ -517,6 +517,17 @@ extension AppStatePayroll on AppState {
     return saved;
   }
 
+  /// Payroll is worked out from lists that must have arrived whole: after a
+  /// failed or unanswered query it could pay from old or missing figures.
+  void _requirePayrollData() {
+    if (!payrollDataLoaded) {
+      throw StateError(
+        'Some information has not loaded, so payroll cannot be checked '
+        'yet. Wait a moment or use Try again, then retry.',
+      );
+    }
+  }
+
   /// Administrators approve payroll: computes the payable amount from
   /// total hours rendered for every currently-'Ready' entry in [preview]
   /// and records it in the payroll records with status 'Approved' —
@@ -529,6 +540,7 @@ extension AppStatePayroll on AppState {
   Future<(int count, double total)> approvePayroll(
     List<PayrollRecord> preview,
   ) async {
+    _requirePayrollData();
     final held = AppState.payrollHeldBy(preview);
     if (held.isNotEmpty) {
       throw StateError(
@@ -572,6 +584,7 @@ extension AppStatePayroll on AppState {
   Future<(int count, double total)> releasePayroll(
     List<PayrollRecord> approved,
   ) async {
+    _requirePayrollData();
     _firestoreService ??= FirestoreService();
     final today = _formattedToday();
     var count = 0;

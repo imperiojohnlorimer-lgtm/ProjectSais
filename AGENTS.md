@@ -189,7 +189,11 @@ differ only in case.
   maroon only as an accent, no big gradient banners. Check a 390 px phone
   width. A list shows `LoadingState` until `AppState.isLoaded('<label>')`
   (its live query has answered once) and only then `EmptyState`, so "nothing
-  here" never flashes. Grey text uses `slate500` or darker (`slate400` is
+  here" never flashes. A live query that fails goes through
+  `AppState._markFailed(label, error)` (never a bare `debugPrint`): the shells
+  then show `LoadProblemBanner` with Try again (`retryLoading`), and payroll
+  approve/release refuse until `payrollDataLoaded`. A fallback query the
+  rules always refuse belongs in `_optionalLoads`. Grey text uses `slate500` or darker (`slate400` is
   for icons and borders: it fails contrast as text). Tappable areas that
   aren't buttons use `TapTarget` (keyboard and screen-reader friendly), and
   icon-only buttons get a `tooltip`. A dropdown with `isExpanded: true` in

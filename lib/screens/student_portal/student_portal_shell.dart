@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/load_problem_banner.dart';
 import '../../widgets/shared_widgets.dart';
 import 'announcements_screen.dart';
 import 'sp_notifications_screen.dart';
@@ -294,6 +295,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                           ],
                         ),
                 ),
+                const LoadProblemBanner(),
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),

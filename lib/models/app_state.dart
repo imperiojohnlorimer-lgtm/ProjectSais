@@ -30,6 +30,7 @@ part 'app_state/payroll.dart';
 part 'app_state/payroll_requirements.dart';
 part 'app_state/my_pay.dart';
 part 'app_state/rehiring.dart';
+part 'app_state/load_problems.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
@@ -81,6 +82,20 @@ class AppState extends ChangeNotifier {
   final Set<String> _loadExpected = {};
   final Set<String> _loadReady = {};
   bool _loadTracking = false;
+
+  /// Queries that got a real answer in this session of listeners (an error
+  /// or the load timeout never adds one), and the ones that failed, with the
+  /// Firebase error code. See `load_problems.dart`.
+  final Set<String> _loadOk = {};
+  final Map<String, String> _loadFailures = {};
+
+  /// A "Try again" under way, so a second tap joins it.
+  Future<void>? _retryInFlight;
+
+  /// Fallback queries the rules can't allow (a student's reports and tasks
+  /// found by name, which no rule can tie to the account): they are tried
+  /// and refused as a matter of course, so they are never a problem to report.
+  static const _optionalLoads = {'Reports: named', 'Tasks: named'};
 
   /// True from the moment a signed-in user is known until their listeners
   /// start (the initial fetches in between can be slow): pages show loading.
@@ -425,10 +440,16 @@ class AppState extends ChangeNotifier {
     _loadPending = false;
     _loadExpected.clear();
     _loadReady.clear();
+    _loadOk.clear();
+    _loadFailures.clear();
     _loadTracking = true;
     _loadTimeout = Timer(loadTimeout, () {
-      if (_loadReady.length >= _loadExpected.length) return;
-      _loadReady.addAll(_loadExpected);
+      final unanswered = _loadExpected.difference(_loadReady);
+      if (unanswered.isEmpty) return;
+      // Lists stop loading and show what they have, and the user is told.
+      for (final label in unanswered) {
+        _markFailed(label, 'no answer in time');
+      }
       notifyListeners();
     });
   }
@@ -439,6 +460,8 @@ class AppState extends ChangeNotifier {
     _loadPending = false;
     _loadExpected.clear();
     _loadReady.clear();
+    _loadOk.clear();
+    _loadFailures.clear();
     _loadTracking = false;
   }
 
@@ -449,7 +472,38 @@ class AppState extends ChangeNotifier {
 
   void _expectLoad(String label) => _loadExpected.add(label);
 
-  void _markLoaded(String label) => _loadReady.add(label);
+  /// A query answered with data: it is loaded, and any earlier failure of it
+  /// is over.
+  void _markLoaded(String label) {
+    _loadReady.add(label);
+    _loadOk.add(label);
+    _loadFailures.remove(label);
+  }
+
+  /// Applies one snapshot of a hand-written query: loaded when [apply] (which
+  /// reads the documents) works, failed when it throws, so a snapshot that
+  /// can't be read never counts as fresh. Listeners are told either way.
+  void _applySnapshot(String label, void Function() apply) {
+    try {
+      apply();
+      _markLoaded(label);
+    } catch (error) {
+      _markFailed(label, error);
+    }
+    notifyListeners();
+  }
+
+  /// A query failed (a refusal, the quota, data it couldn't read). It counts
+  /// as answered so its list stops loading, but never as [_loadOk], and the
+  /// user is told through [hasLoadProblem] unless it is an [_optionalLoads]
+  /// query, whose refusal is normal.
+  void _markFailed(String label, Object error) {
+    debugPrint('$label failed: $error');
+    _loadReady.add(label);
+    _loadOk.remove(label);
+    if (_optionalLoads.contains(label)) return;
+    _loadFailures[label] = error is FirebaseException ? error.code : 'error';
+  }
 
   /// Whether the live queries whose label starts with [prefix] ('Tasks',
   /// 'Reports', 'Users', ...) have each answered once. True for one this
@@ -478,8 +532,7 @@ class AppState extends ChangeNotifier {
       _annSub?.cancel();
       _expectLoad('Announcements');
       _annSub = _firestoreService!.announcementsStream().listen(
-        (list) {
-          _markLoaded('Announcements');
+        (list) => _applySnapshot('Announcements', () {
           announcements = list.map((m) {
             final createdAt = m['createdAt'];
             String postedAt = '';
@@ -523,11 +576,9 @@ class AppState extends ChangeNotifier {
               attachmentSize: (m['attachmentSize'] as num?)?.toDouble(),
             );
           }).toList();
-          notifyListeners();
-        },
+        }),
         onError: (Object error) {
-          debugPrint('Announcements stream error: $error');
-          _markLoaded('Announcements');
+          _markFailed('Announcements', error);
           notifyListeners();
         },
       );
@@ -545,19 +596,18 @@ class AppState extends ChangeNotifier {
                     ))
               .listen(
                 (list) {
-                  _markLoaded('Attendance');
-                  attendance = list
-                      .map((m) => AttendanceRecord.fromJson(m))
-                      .toList();
-                  notifyListeners();
+                  _applySnapshot('Attendance', () {
+                    attendance = list
+                        .map((m) => AttendanceRecord.fromJson(m))
+                        .toList();
+                  });
                   if (isStaffUser) invalidateMissedTimeOuts();
                   if (role == 'Student Assistant') remindToClockOutIfDue();
                 },
                 // Without this a rejected query (a missing index, say) kills
                 // the subscription silently and the list just stays empty.
                 onError: (Object error) {
-                  debugPrint('Attendance stream error: $error');
-                  _markLoaded('Attendance');
+                  _markFailed('Attendance', error);
                   notifyListeners();
                 },
               );
@@ -580,41 +630,40 @@ class AppState extends ChangeNotifier {
       if (isStaffUser) {
         _expectLoad('Tasks');
         _taskSub = _firestoreService!.tasksStream().listen(
-          (list) {
-            _markLoaded('Tasks');
+          (list) => _applySnapshot('Tasks', () {
             tasks = list.map((m) => Task.fromJson(m)).toList();
-            notifyListeners();
-          },
+          }),
           onError: (Object error) {
-            debugPrint('Tasks stream error: $error');
-            _markLoaded('Tasks');
+            _markFailed('Tasks', error);
             notifyListeners();
           },
         );
       }
 
       _appSub?.cancel();
-      _expectLoad('Applications');
-      _appSub =
+      _appSub = null;
+      // The rules give applications to the Head and the applicant only, so a
+      // Supervisor's query would be refused every time.
+      if (role != 'Supervisor') _expectLoad('Applications');
+      if (role != 'Supervisor') {
+        _appSub =
           (isStaffUser
                   ? _firestoreService!.applicationsStream()
                   : _firestoreService!.applicationsStreamForApplicant(
                       currentUser!.id,
                     ))
               .listen(
-                (list) {
-                  _markLoaded('Applications');
+                (list) => _applySnapshot('Applications', () {
                   applications = list
                       .map((m) => Application.fromJson(m))
                       .toList();
-                  notifyListeners();
-                },
+                }),
                 onError: (Object error) {
-                  debugPrint('Applications stream error: $error');
-                  _markLoaded('Applications');
+                  _markFailed('Applications', error);
                   notifyListeners();
                 },
               );
+      }
 
       // Head/Supervisor: keep "Sent to Head" items in sync in real time so
       // a forward shows up immediately even if the Head's screen was
@@ -623,14 +672,11 @@ class AppState extends ChangeNotifier {
       if (isStaffUser) {
         _expectLoad('Head forwards');
         _headForwardsSub = _firestoreService!.headForwardsStream().listen(
-          (list) {
-            _markLoaded('Head forwards');
+          (list) => _applySnapshot('Head forwards', () {
             headForwards = list.map((m) => HeadForward.fromJson(m)).toList();
-            notifyListeners();
-          },
+          }),
           onError: (Object error) {
-            debugPrint('Head forwards stream error: $error');
-            _markLoaded('Head forwards');
+            _markFailed('Head forwards', error);
             notifyListeners();
           },
         );
@@ -644,31 +690,25 @@ class AppState extends ChangeNotifier {
         _expectLoad('Payroll records');
         _expectLoad('Payroll sheets');
         _payrollSub = _firestoreService!.payrollRecordsStream().listen(
-          (list) {
+          (list) => _applySnapshot('Payroll records', () {
             payrollRecords = list
                 .map((m) => PayrollRecord.fromJson(m))
                 .toList();
             payrollRecordsLoaded = true;
-            _markLoaded('Payroll records');
-            notifyListeners();
-          },
+          }),
           // payrollRecordsLoaded stays false: payroll can't be approved
           // without knowing who has been paid.
           onError: (Object error) {
-            debugPrint('Payroll records stream error: $error');
-            _markLoaded('Payroll records');
+            _markFailed('Payroll records', error);
             notifyListeners();
           },
         );
         _payrollSheetsSub = _firestoreService!.payrollSheetsStream().listen(
-          (list) {
+          (list) => _applySnapshot('Payroll sheets', () {
             payrollSheets = list.map((m) => PayrollSheet.fromJson(m)).toList();
-            _markLoaded('Payroll sheets');
-            notifyListeners();
-          },
+          }),
           onError: (Object error) {
-            debugPrint('Payroll sheets stream error: $error');
-            _markLoaded('Payroll sheets');
+            _markFailed('Payroll sheets', error);
             notifyListeners();
           },
         );
@@ -739,18 +779,18 @@ class AppState extends ChangeNotifier {
           (data) {
             try {
               onData(data);
+              _markLoaded(label);
             } catch (error) {
-              debugPrint('$label update failed: $error');
+              // The list keeps what it had; the user is told it is behind.
+              _markFailed(label, error);
             }
-            _markLoaded(label);
             notifyListeners();
           },
           // Without this a rejected query dies silently and the list just
-          // stops updating. It counts as answered: the list shows what it
-          // has rather than loading forever.
+          // stops updating. It counts as answered (the list shows what it
+          // has rather than loading forever) and as a problem to report.
           onError: (Object error) {
-            debugPrint('$label stream error: $error');
-            _markLoaded(label);
+            _markFailed(label, error);
             notifyListeners();
           },
         ),
@@ -990,9 +1030,8 @@ class AppState extends ChangeNotifier {
             );
           })
           .catchError((Object error) {
-            debugPrint('Student-record tasks lookup failed: $error');
             if (generation != _liveGeneration) return;
-            _markLoaded('Tasks: student record');
+            _markFailed('Tasks: student record', error);
             notifyListeners();
           });
 

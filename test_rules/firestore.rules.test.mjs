@@ -19,6 +19,10 @@ import {
   updateDoc,
   deleteDoc,
   getDoc,
+  getDocs,
+  collection,
+  query,
+  where,
   runTransaction,
   setLogLevel,
 } from 'firebase/firestore';
@@ -595,5 +599,102 @@ test('a report is made Pending and unreviewed', async () => {
   );
   await assertFails(
     setDoc(doc(as('sa'), 'reports', 'r3'), report({ reviewedAt: '2026-10-01T00:00:00.000Z' })),
+  );
+});
+
+// ── queries the app tries as fallbacks ─────────────────────────────────
+
+test('a student\'s own queries work; the by-name fallbacks are refused', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'reports', 'r1'), {
+      applicantId: 'stu',
+      studentName: 'Stu Student',
+      status: 'Pending',
+    });
+    await setDoc(doc(db, 'tasks', 't1'), {
+      assignedTo: 'stu',
+      assignedToName: 'Stu Student',
+    });
+  });
+  const db = as('stu');
+  // What the app relies on...
+  await assertSucceeds(getDocs(query(collection(db, 'reports'), where('applicantId', '==', 'stu'))));
+  await assertSucceeds(getDocs(query(collection(db, 'tasks'), where('assignedTo', '==', 'stu'))));
+  // ...and the legacy by-name lookups, which the app treats as optional
+  // (AppState._optionalLoads) because no rule can tie a name to an account.
+  await assertFails(getDocs(query(collection(db, 'reports'), where('studentName', '==', 'Stu Student'))));
+  await assertFails(getDocs(query(collection(db, 'tasks'), where('assignedToName', '==', 'Stu Student'))));
+});
+
+// ── the live queries each role opens (AppState._startLiveData) ──────────
+// A refused one is reported to the user as a problem, so a query a role
+// opens as a matter of course must be allowed.
+
+const everyone = ['offices', 'departments', 'programs', 'skills', 'announcements'];
+const rosterReads = [
+  'users', 'students', 'reports', 'attendance', 'tasks', 'headForwards',
+  'evaluations', 'documents', 'classSchedules', 'taskDuties',
+];
+
+async function reads(uid, collections) {
+  const db = as(uid);
+  for (const name of collections) {
+    await assertSucceeds(getDocs(collection(db, name)));
+  }
+  for (const id of ['academic_year_settings', 'task_categories', 'task_templates']) {
+    if (uid === 'sa' || uid === 'stu') {
+      if (id !== 'academic_year_settings') continue;
+    }
+    await assertSucceeds(getDoc(doc(db, 'meta', id)));
+  }
+}
+
+test('the Head\'s live queries are all allowed', async () => {
+  await reads('head', [
+    ...everyone, ...rosterReads,
+    'applications', 'payrollChecks', 'rehireRecords', 'screeningRecords',
+  ]);
+});
+
+test('a Supervisor\'s live queries are allowed (applications are the Head\'s)', async () => {
+  await reads('sup', [...everyone, ...rosterReads]);
+  await assertFails(getDocs(collection(as('sup'), 'applications')));
+});
+
+test('the Admin\'s live queries are all allowed', async () => {
+  await reads('admin', [
+    ...everyone, 'users', 'students', 'reports', 'attendance',
+    'payrollChecks', 'payrollRecords', 'payrollSheets',
+  ]);
+});
+
+test('a Student Assistant\'s own live queries are allowed', async () => {
+  const db = as('sa');
+  await reads('sa', everyone);
+  await assertSucceeds(getDocs(query(collection(db, 'attendance'), where('studentId', '==', 'sa'))));
+  await assertSucceeds(getDocs(query(collection(db, 'applications'), where('applicantId', '==', 'sa'))));
+  await assertSucceeds(getDocs(query(collection(db, 'payrollRecords'), where('studentId', '==', 'sa'))));
+  await assertSucceeds(getDocs(query(collection(db, 'taskDuties'), where('assignedTo', '==', 'sa'))));
+  await assertSucceeds(getDocs(query(collection(db, 'classSchedules'), where('studentId', '==', 'sa'))));
+  await assertSucceeds(getDocs(query(collection(db, 'notifications'), where('userId', '==', 'sa'))));
+  await assertSucceeds(getDocs(query(collection(db, 'reports'), where('applicantId', '==', 'sa'))));
+});
+
+test('a Student\'s own live queries are allowed', async () => {
+  const db = as('stu');
+  await reads('stu', everyone);
+  await assertSucceeds(getDocs(query(collection(db, 'applications'), where('applicantId', '==', 'stu'))));
+  await assertSucceeds(getDocs(query(collection(db, 'notifications'), where('userId', '==', 'stu'))));
+});
+
+test('tasks given to a student\'s roster record are found by that record\'s id', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'students', 's1'), { userId: 'stu', name: 'Stu Student' });
+    await setDoc(doc(db, 'tasks', 't9'), { assignedTo: 's1', title: 'Shelve books' });
+  });
+  await assertSucceeds(
+    getDocs(query(collection(as('stu'), 'tasks'), where('assignedTo', 'in', ['s1']))),
   );
 });

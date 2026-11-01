@@ -31,6 +31,7 @@ import './accounts/admin_notifications_screen.dart';
 import './accounts/head_forwards_screen.dart';
 import './accounts/student_documents_screen.dart';
 import './student_portal/sp_notifications_screen.dart';
+import '../widgets/load_problem_banner.dart';
 import './supervisor/sv_announcements_screen.dart';
 import './supervisor/performance_evaluation_screen.dart';
 import './supervisor/dtr_accomplishment_report_screen.dart';
@@ -1036,6 +1037,7 @@ class _AppShellState extends State<AppShell> {
                     !(onAcademicYear &&
                         state.academicYearShown == archiveNoticeYear))
                   _archiveBanner(state),
+                const LoadProblemBanner(),
                 // Main content
                 Expanded(
                   child: AnimatedSwitcher(
