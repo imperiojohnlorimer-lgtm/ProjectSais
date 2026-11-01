@@ -780,9 +780,19 @@ class EndorsementSummaryButton extends StatelessWidget {
     // "SA 002", ...), never typed in by hand, and reused on every future
     // endorsement letter once assigned.
     final saIds = <String>[];
+    // Applicants whose account isn't there (deleted, or not loaded yet)
+    // can't be given an ID, and the letter would print theirs blank: they
+    // are left off it, and the Head is told.
+    final noProfile = <Application>[];
     try {
       for (final app in approved) {
-        saIds.add(await state.ensureStudentAssistantId(app.applicantId) ?? '');
+        final id = (await state.ensureStudentAssistantId(app.applicantId))
+            ?.trim();
+        if (id == null || id.isEmpty) {
+          noProfile.add(app);
+        } else {
+          saIds.add(id);
+        }
       }
     } catch (e) {
       say(
@@ -794,6 +804,15 @@ class EndorsementSummaryButton extends StatelessWidget {
     }
     // Left the page while the IDs were being given out: no dialog now.
     if (!context.mounted) return;
+    if (noProfile.isNotEmpty) {
+      approved.removeWhere(noProfile.contains);
+      say(
+        'Left off the letter, no account found: '
+        '${noProfile.map((a) => a.applicantName).join(', ')}.',
+        AppTheme.amber500,
+      );
+      if (approved.isEmpty) return;
+    }
 
     final today = DateTime.now();
     const months = [

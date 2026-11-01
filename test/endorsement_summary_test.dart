@@ -57,6 +57,7 @@ void main() {
     WidgetTester tester,
     List<User> assistants, {
     double width = 1440,
+    List<Application> extraApplications = const [],
   }) async {
     tester.view.physicalSize = Size(width, 1000);
     tester.view.devicePixelRatio = 1.0;
@@ -76,7 +77,10 @@ void main() {
         create: (_) => AppState(firestoreService: store)
           ..currentUser = _head
           ..users = [_head, ...assistants]
-          ..applications = [for (final u in assistants) _approved(u)],
+          ..applications = [
+            for (final u in assistants) _approved(u),
+            ...extraApplications,
+          ],
         child: MaterialApp(
           theme: AppTheme.theme,
           home: const Scaffold(body: ApplicantScreeningScreen()),
@@ -134,6 +138,31 @@ void main() {
     // The button is back for another try.
     expect(find.text('Endorsement Summary'), findsOneWidget);
     expect(find.text('Preparing…'), findsNothing);
+  });
+
+  testWidgets('leaves off an applicant whose account is gone', (tester) async {
+    final stranger = User(
+      id: 'gone',
+      name: 'Missing Person',
+      email: 'gone@gmail.com',
+      role: 'Student Assistant',
+    );
+    await pumpPage(
+      tester,
+      [_assistant(1)],
+      extraApplications: [_approved(stranger)],
+    );
+
+    await tester.tap(find.text('Endorsement Summary'));
+    await tester.pumpAndSettle();
+
+    // The letter opens without them, and says so.
+    expect(dialogTitle, findsOneWidget);
+    expect(find.text('Approved Student Assistants (1)'), findsOneWidget);
+    expect(
+      find.textContaining('Left off the letter, no account found: Missing Person'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('with nobody approved it says so', (tester) async {
