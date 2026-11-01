@@ -30,7 +30,6 @@ import './student_portal/announcements_screen.dart';
 import './accounts/admin_notifications_screen.dart';
 import './accounts/head_forwards_screen.dart';
 import './accounts/student_documents_screen.dart';
-import './accounts/document_folders_screen.dart';
 import './student_portal/sp_notifications_screen.dart';
 import './supervisor/sv_announcements_screen.dart';
 import './supervisor/performance_evaluation_screen.dart';
@@ -435,8 +434,6 @@ class _AppShellState extends State<AppShell> {
         return const StudentDocumentsScreen();
       case 'payroll_requirements':
         return const PayrollRequirementsScreen();
-      case 'document_folders':
-        return const DocumentFoldersScreen();
       case AppState.academicYearTab:
         return const AcademicYearArchiveScreen();
       default:
@@ -493,8 +490,6 @@ class _AppShellState extends State<AppShell> {
         return 'Student Documents';
       case 'payroll_requirements':
         return 'Payroll Requirements';
-      case 'document_folders':
-        return 'Document Folders';
       case AppState.academicYearTab:
         return 'Academic Year';
       default:

@@ -1796,31 +1796,6 @@ class FirestoreService {
     await _screeningRecords.doc(id).delete();
   }
 
-  // Document Folders (Head's free-form file manager)
-
-  CollectionReference get _documentFolders => _db.collection('documentFolders');
-
-  Future<List<DocumentFolder>> getAllDocumentFolders() async {
-    final snap = await _documentFolders.get();
-    return snap.docs
-        .map(
-          (doc) => DocumentFolder.fromJson({
-            ...(doc.data() as Map<String, dynamic>),
-            'id': doc.id,
-          }),
-        )
-        .toList();
-  }
-
-  Future<String> addDocumentFolder(DocumentFolder folder) async {
-    final ref = await _documentFolders.add(folder.toJson());
-    return ref.id;
-  }
-
-  Future<void> deleteDocumentFolder(String id) async {
-    await _documentFolders.doc(id).delete();
-  }
-
   // Notifications
 
   Future<List<Map<String, dynamic>>> getNotificationsForUser(

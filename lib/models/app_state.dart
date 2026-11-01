@@ -282,7 +282,6 @@ class AppState extends ChangeNotifier {
   List<ScreeningRecord> screeningRecords = [];
   List<AppNotification> notifications = [];
   List<Document> documents = [];
-  List<DocumentFolder> documentFolders = [];
   List<Office> offices = [];
   String academicYear = '2026-2027';
   String academicSemester = '1st Semester';
@@ -926,12 +925,6 @@ class AppState extends ChangeNotifier {
           list.map(ScreeningRecord.fromJson).toList(),
         );
       });
-      listen(
-        'Document folders',
-        fs.collectionStream('documentFolders'),
-        (list) =>
-            documentFolders = _sortedFolders(list.map(DocumentFolder.fromJson)),
-      );
     }
 
     // ── Student Assistants and Students: only their own records ──
@@ -1855,7 +1848,6 @@ class AppState extends ChangeNotifier {
     screeningRecords = [];
     notifications = [];
     documents = [];
-    documentFolders = [];
     _deletedAccounts = [];
   }
 
@@ -2123,16 +2115,6 @@ class AppState extends ChangeNotifier {
         if (overtaken()) return;
         documents = [];
       }
-      // Document Folders
-      try {
-        final fetched = await service.getAllDocumentFolders();
-        if (overtaken()) return;
-        documentFolders = _sortedFolders(fetched);
-      } catch (_) {
-        if (overtaken()) return;
-        documentFolders = [];
-      }
-
       if (overtaken()) return;
       notifications = [];
 
@@ -4339,8 +4321,6 @@ class AppState extends ChangeNotifier {
   /// as soon as it's written, before the save itself returns.
   static List<T> _withAdded<T>(List<T> list, T item, String Function(T) idOf) =>
       list.any((x) => idOf(x) == idOf(item)) ? list : [item, ...list];
-
-  // ─── Document Folders (Head file manager) ─────────────
 
   /// "to be a Student Assistant", or for an older application to a
   /// posting, "for" and its title in quotes.

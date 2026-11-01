@@ -1,50 +1,8 @@
 part of '../app_state.dart';
 
-  // ─── Document Folders (Head file manager) ─────────────
 extension AppStateApplicationsAndFolders on AppState {
-  /// Newest first, so a folder just made shows up at the front.
-  List<DocumentFolder> _sortedFolders(Iterable<DocumentFolder> list) =>
-      list.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-
-  Future<void> createDocumentFolder(String name) async {
-    if (name.trim().isEmpty) return;
-    _firestoreService ??= FirestoreService();
-    final folder = DocumentFolder(
-      id: '',
-      name: name.trim(),
-      createdBy: currentUser?.name ?? '',
-      createdAt: DateTime.now().toIso8601String(),
-    );
-    final id = await _firestoreService!.addDocumentFolder(folder);
-    documentFolders = AppState._withAdded(
-      documentFolders,
-      DocumentFolder(
-        id: id,
-        name: folder.name,
-        createdBy: folder.createdBy,
-        createdAt: folder.createdAt,
-      ),
-      (f) => f.id,
-    );
-    _notify();
-  }
-
-  Future<void> deleteDocumentFolder(String folderId) async {
-    _firestoreService ??= FirestoreService();
-    final docsInFolder = documents
-        .where((d) => d.folderId == folderId)
-        .toList();
-    for (final doc in docsInFolder) {
-      await _firestoreService!.deleteDocument(doc.id);
-    }
-    await _firestoreService!.deleteDocumentFolder(folderId);
-    documents = documents.where((d) => d.folderId != folderId).toList();
-    documentFolders = documentFolders.where((f) => f.id != folderId).toList();
-    _notify();
-  }
-
-  /// Uploads a document either into a folder ([folderId]) or directly onto
-  /// a student's own document list ([studentId]/[studentName]).
+  /// Uploads a document onto a student's own document list
+  /// ([studentId]/[studentName]).
   Future<void> uploadManualDocument({
     String? folderId,
     String? studentId,

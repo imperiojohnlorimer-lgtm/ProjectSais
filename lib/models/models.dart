@@ -2421,36 +2421,6 @@ class RehireRecord {
   );
 }
 
-/// A Head-managed folder for organizing freely-uploaded documents that
-/// don't belong to an application, report, or evaluation — e.g. office
-/// memos, MOAs, or misc. files the Head wants stored in the system.
-class DocumentFolder {
-  final String id;
-  final String name;
-  final String createdBy;
-  final String createdAt;
-
-  const DocumentFolder({
-    required this.id,
-    required this.name,
-    required this.createdBy,
-    required this.createdAt,
-  });
-
-  factory DocumentFolder.fromJson(Map<String, dynamic> json) => DocumentFolder(
-    id: json['id']?.toString() ?? json['_id']?.toString() ?? '',
-    name: json['name']?.toString() ?? 'Untitled Folder',
-    createdBy: json['createdBy']?.toString() ?? '',
-    createdAt: json['createdAt']?.toString() ?? '',
-  );
-
-  Map<String, dynamic> toJson() => {
-    'name': name,
-    'createdBy': createdBy,
-    'createdAt': createdAt,
-  };
-}
-
 /// One row of the batch endorsement letter's Student Assistant table.
 class EndorsementEntry {
   final String saNumber;

@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
-import 'package:projectsais/screens/accounts/document_folders_screen.dart';
 import 'package:projectsais/screens/accounts/offices_screen.dart';
 import 'package:projectsais/screens/accounts/rehiring_screen.dart';
 import 'package:projectsais/screens/accounts/student_documents_screen.dart';
@@ -76,7 +75,6 @@ void main() {
   final screens = <String, ({User user, Widget screen})>{
     'Students': (user: _head, screen: const StudentsScreen()),
     'Offices': (user: _head, screen: const OfficesScreen()),
-    'Document Folders': (user: _head, screen: const DocumentFoldersScreen()),
     'Student Documents': (user: _head, screen: const StudentDocumentsScreen()),
     'Rehiring': (user: _head, screen: const RehiringScreen()),
     'Academic Year Settings': (
