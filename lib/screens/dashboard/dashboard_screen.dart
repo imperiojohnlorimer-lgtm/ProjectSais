@@ -1671,7 +1671,7 @@ class _CampusEnrollmentChart extends StatelessWidget {
                                 fontWeight: FontWeight.w800,
                                 // A campus with none reads as empty.
                                 color: entries[i].value == 0
-                                    ? AppTheme.slate400
+                                    ? AppTheme.slate500
                                     : AppTheme.slate900,
                               ),
                             ),

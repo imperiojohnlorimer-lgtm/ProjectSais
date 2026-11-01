@@ -440,7 +440,7 @@ class _DtrAccomplishmentReportScreenState
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
-            color: ok ? AppTheme.emerald500 : AppTheme.slate400,
+            color: ok ? AppTheme.emerald500 : AppTheme.slate500,
           ),
         ),
       ],
@@ -1829,6 +1829,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           height: size,
           fit: BoxFit.cover,
           gaplessPlayback: true,
+          excludeFromSemantics: true,
           errorBuilder: (_, _, _) => initials(),
         );
       } catch (_) {
@@ -1840,6 +1841,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       width: size,
       height: size,
       fit: BoxFit.cover,
+      excludeFromSemantics: true,
       errorBuilder: (_, _, _) => initials(),
     );
   }
@@ -2391,7 +2393,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                               fontSize: 8.5,
                               color: special
                                   ? AppTheme.maroonLight
-                                  : AppTheme.slate400,
+                                  : AppTheme.slate500,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.4,
                             ),
@@ -2829,7 +2831,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                         fontSize: 8.5,
                         color: special
                             ? AppTheme.maroonLight
-                            : AppTheme.slate400,
+                            : AppTheme.slate500,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0.4,
                       ),

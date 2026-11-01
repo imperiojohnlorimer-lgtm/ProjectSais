@@ -121,7 +121,7 @@ class _DutyRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w700,
-                    color: duty.active ? AppTheme.slate900 : AppTheme.slate400,
+                    color: duty.active ? AppTheme.slate900 : AppTheme.slate500,
                   ),
                 ),
               ),

@@ -654,7 +654,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                           fontWeight: FontWeight.w600,
                                           color: checked
                                               ? AppTheme.slate700
-                                              : AppTheme.slate400,
+                                              : AppTheme.slate500,
                                         ),
                                       ),
                                     ),

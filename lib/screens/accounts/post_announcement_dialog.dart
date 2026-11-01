@@ -725,7 +725,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
                 style: TextStyle(
                   fontSize: 14,
                   color: _deadline == null
-                      ? AppTheme.slate400
+                      ? AppTheme.slate500
                       : AppTheme.slate800,
                 ),
               ),

@@ -1236,6 +1236,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
           height: 90,
           fit: BoxFit.cover,
           gaplessPlayback: true,
+          semanticLabel: 'Applicant photo',
           errorBuilder: (_, __, ___) => _printPhotoPlaceholder(),
         );
       } catch (_) {
@@ -1247,6 +1248,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
       width: 90,
       height: 90,
       fit: BoxFit.cover,
+      semanticLabel: 'Applicant photo',
       errorBuilder: (_, __, ___) => _printPhotoPlaceholder(),
     );
   }

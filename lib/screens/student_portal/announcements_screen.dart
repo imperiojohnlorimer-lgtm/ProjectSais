@@ -717,7 +717,7 @@ class _TrackStep extends StatelessWidget {
           style: TextStyle(
             fontSize: 10.5,
             fontWeight: FontWeight.w700,
-            color: on ? AppTheme.slate800 : AppTheme.slate400,
+            color: on ? AppTheme.slate800 : AppTheme.slate500,
           ),
         ),
       ],

@@ -280,6 +280,7 @@ class _DocumentPreviewDialogState extends State<DocumentPreviewDialog> {
               bytes,
               cacheWidth: 2400,
               fit: BoxFit.contain,
+              semanticLabel: widget.fileName,
               errorBuilder: (_, _, _) => _notice(
                 Icons.broken_image_outlined,
                 "This picture can't be shown. Download it to open it.",

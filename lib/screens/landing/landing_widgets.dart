@@ -525,6 +525,7 @@ class IdCard extends StatelessWidget {
               width: 34,
               height: 34,
               fit: BoxFit.cover,
+              semanticLabel: 'Marinduque State University seal',
             ),
           ),
           const SizedBox(width: 12),

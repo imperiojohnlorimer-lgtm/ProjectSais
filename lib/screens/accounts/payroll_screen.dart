@@ -769,7 +769,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
                         fontWeight: FontWeight.w600,
                         color: activeFilters > 0
                             ? AppTheme.maroon
-                            : AppTheme.slate400,
+                            : AppTheme.slate500,
                       ),
                     ),
                     const SizedBox(width: 4),
@@ -1737,7 +1737,7 @@ class _PayrollRow extends StatelessWidget {
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: ok ? AppTheme.slate400 : AppTheme.amber500,
+              color: ok ? AppTheme.slate500 : AppTheme.amber500,
             ),
           ),
           Text(

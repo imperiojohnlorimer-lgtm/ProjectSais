@@ -1297,7 +1297,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                               fontSize: 10.5,
                               fontWeight: FontWeight.w800,
                               color: !hasLimit
-                                  ? AppTheme.slate400
+                                  ? AppTheme.slate500
                                   : full
                                   ? AppTheme.red500
                                   : AppTheme.emerald500,

@@ -576,7 +576,7 @@ class _PerformanceEvaluationScreenState
           style: TextStyle(
             fontSize: 11.5,
             fontWeight: FontWeight.w700,
-            color: ok ? AppTheme.emerald500 : AppTheme.slate400,
+            color: ok ? AppTheme.emerald500 : AppTheme.slate500,
           ),
         ),
       ],

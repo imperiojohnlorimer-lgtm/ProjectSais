@@ -120,7 +120,7 @@ class NotificationTile extends StatelessWidget {
                         fontSize: 12,
                         height: 1.5,
                         color: notif.isRead
-                            ? AppTheme.slate400
+                            ? AppTheme.slate500
                             : AppTheme.slate600,
                       ),
                     ),

@@ -43,6 +43,8 @@ class UserAvatar extends StatelessWidget {
                 : Image.network(
                     avatarUrl!,
                     fit: BoxFit.cover,
+                    // The name sits beside an avatar; don't read it twice.
+                    excludeFromSemantics: true,
                     errorBuilder: (_, __, ___) => _initials(),
                   ))
           : _initials(),
@@ -65,6 +67,7 @@ class UserAvatar extends StatelessWidget {
         height: size,
         fit: BoxFit.cover,
         gaplessPlayback: true,
+        excludeFromSemantics: true,
         errorBuilder: (_, __, ___) => _initials(),
       );
     } catch (_) {
@@ -111,7 +114,11 @@ class AppLogo extends StatelessWidget {
             ],
       ),
       clipBehavior: Clip.antiAlias,
-      child: Image.asset('assets/images/logo.jpg', fit: BoxFit.cover),
+      child: Image.asset(
+        'assets/images/logo.jpg',
+        fit: BoxFit.cover,
+        semanticLabel: 'SAIS logo',
+      ),
     );
   }
 }

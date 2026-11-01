@@ -250,7 +250,7 @@ class _TasksScreenState extends State<TasksScreen> {
                                 Text(
                                   '${statusCounts[s]}',
                                   style: TextStyle(
-                                    color: selected ? color : AppTheme.slate400,
+                                    color: selected ? color : AppTheme.slate500,
                                     fontWeight: FontWeight.w800,
                                     fontSize: 11.5,
                                   ),

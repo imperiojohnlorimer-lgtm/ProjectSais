@@ -704,7 +704,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   fontWeight: FontWeight.w700,
                   color: metCount == rules.length
                       ? AppTheme.emerald500
-                      : AppTheme.slate400,
+                      : AppTheme.slate500,
                 ),
               ),
             ],

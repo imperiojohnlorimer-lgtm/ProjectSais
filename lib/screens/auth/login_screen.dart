@@ -501,7 +501,13 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Image.asset('assets/images/google_logo.png', width: 20, height: 20),
+            Image.asset(
+              'assets/images/google_logo.png',
+              width: 20,
+              height: 20,
+              // The button's own text says it.
+              excludeFromSemantics: true,
+            ),
             const SizedBox(width: 12),
             const Flexible(
               child: Text(
