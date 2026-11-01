@@ -21,6 +21,7 @@ const {
   EMAIL_LEASE_MS,
   EMAIL_PER_PERSON_CAP,
   EMAIL_PER_PERSON_CLOCKOUT_CAP,
+  emailFailureReason,
   emailFor,
   emailState,
   htmlEscape,
@@ -158,4 +159,30 @@ test("the limits stay under Gmail's own", () => {
   assert.ok(EMAIL_DAILY_CAP < 500);
   assert.ok(EMAIL_PER_PERSON_CAP >= 1);
   assert.ok(EMAIL_PER_PERSON_CLOCKOUT_CAP >= 2); // morning and afternoon
+});
+
+test("a failed test email says the likely cause in plain words", () => {
+  const cases: [unknown, RegExp][] = [
+    [new Error("535 5.7.8 Username and Password not accepted"), /refused the sign-in/],
+    [new Error("invalid cred: BadCredentials"), /refused the sign-in/],
+    [new Error("Email server timed out."), /did not answer in time/],
+    [new Error("Connection refused (os error 111)"), /could not connect/],
+    [new Error("NotCapable: net access to smtp.gmail.com:465 is blocked"), /could not connect/],
+    [new Error("something odd"), /did not accept the message/],
+  ];
+  for (const [error, expected] of cases) {
+    assert.match(emailFailureReason(error), expected, String(error));
+  }
+  assert.match(emailFailureReason(new Error("x")), /\(x\)$/);
+});
+
+test("the reason never contains the secrets, and stays short", () => {
+  const reason = emailFailureReason(
+    new Error("login failed for sais@gmail.com with abcdefghijklmnop " + "z".repeat(500)),
+    ["abcdefghijklmnop", "sais@gmail.com", ""],
+  );
+  assert.ok(!reason.includes("abcdefghijklmnop"));
+  assert.ok(!reason.includes("sais@gmail.com"));
+  assert.ok(reason.length < 400);
+  assert.equal(emailFailureReason(""), "The email server did not accept the message.");
 });

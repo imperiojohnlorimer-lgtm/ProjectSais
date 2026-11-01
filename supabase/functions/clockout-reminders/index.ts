@@ -194,6 +194,44 @@ export function emailFor(
   return { subject, text, html };
 }
 
+/**
+ * What to tell the person who pressed "Send a test email" when sending
+ * failed: the likely cause in plain words, then a short piece of the real
+ * error, with the secrets taken out of it. Only the test button shows this
+ * (to the person who asked); other emails just log the error.
+ */
+export function emailFailureReason(
+  error: unknown,
+  secrets: string[] = [],
+): string {
+  let raw = error instanceof Error ? error.message : String(error);
+  for (const secret of secrets) {
+    if (secret) raw = raw.split(secret).join("***");
+  }
+  raw = raw.replace(/\s+/g, " ").trim().slice(0, 160);
+  const lower = raw.toLowerCase();
+  let cause: string;
+  if (/timed out|timeout/.test(lower)) {
+    cause = "Gmail did not answer in time.";
+  } else if (
+    /535|534|username and password not accepted|badcredentials|invalid login|authentication|auth/.test(
+      lower,
+    )
+  ) {
+    cause = "Gmail refused the sign-in: check the sender address and the " +
+      "App Password (16 characters, no spaces, from the same Google account).";
+  } else if (
+    /refused|econnrefused|not allowed|notcapable|permission|denied|blocked|unreachable|dns|lookup|connect|network|os error/
+      .test(lower)
+  ) {
+    cause = "The server could not connect to Gmail (the connection may be " +
+      "blocked).";
+  } else {
+    cause = "The email server did not accept the message.";
+  }
+  return raw ? `${cause} (${raw})` : cause;
+}
+
 /** One plain mailbox: no list, no name part, no control characters. */
 export function validMailbox(address: unknown): address is string {
   return typeof address === "string" &&
@@ -1464,8 +1502,7 @@ async function sendTestEmail(userId: string): Promise<Response> {
       await bumpEmailCounts(userId, "other", -1, token).catch(() => {});
     }
     return json({
-      error: "The email server did not accept the message. Check the " +
-        "sender settings.",
+      error: emailFailureReason(error, [emailPassword, emailFrom]),
     }, 502);
   }
   return json({ sent: true, to: address.replace(/^(.).*(@.*)$/, "$1***$2") });
