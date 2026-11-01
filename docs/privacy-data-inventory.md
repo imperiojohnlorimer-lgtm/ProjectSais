@@ -21,7 +21,7 @@ Google). Removed only in the Firebase console, under Authentication.
 
 | Collection | What it holds about a person | Who can read it |
 |---|---|---|
-| `users` | Name (and its parts), email, phone, address, photo, skills, Student ID, SA ID, course/program, year level, department, campus, role, status, consent time and version | The person; Head, Supervisor, Admin |
+| `users` | Name (and its parts), email, phone, address, photo, skills, Student ID, SA ID, course/program, year level, department, campus, role, status, consent time and version, whether they get notification emails | The person; Head, Supervisor, Admin |
 | `studentIds` | Which account holds a Student ID | Any signed-in account (one ID at a time) |
 | `students` | Roster record: name, email, department, campus, hours, phone, address, photo | Head, Supervisor, Admin, the person |
 | `officeAssignments`, `offices` | Which office a person is in; names of supervisors and assistants | Head, Supervisors, assistants |
@@ -39,6 +39,7 @@ Google). Removed only in the Firebase console, under Authentication.
 | `payrollChecks` | The Head's check of each person's payroll requirements | Head, Admin |
 | `documents`, `documentFolders` | Files and folders the Head keeps about students | Head |
 | `notifications` | Messages to a person, which can mention pay, ratings, decisions | Only the person |
+| `emailQuota` | Counts of notification emails sent per day and per account id (no email text, no addresses) | Nobody in the app; the notification function only |
 | `pushTokens` | A code that identifies a browser or phone for push notifications | Only the person |
 | `meta/heads` | Account ids of the Heads | Everyone signed in |
 | `meta/academic_year_archives/years/*` | Copies of each closed year's applications, reports, attendance, tasks, with the people in them | Head, Admin |
@@ -60,6 +61,15 @@ only through links that expire after an hour.
 - **Push messages** pass through Google's Firebase Cloud Messaging. Since
   October 2026 pay, rating, rehire and payroll-requirement notifications are
   sent without their details.
+- **Notification emails** are sent from a Gmail account of the project through
+  Google's mail servers, to each person's own verified sign-in address, unless
+  they switch it off on their Notifications page. An email says only what kind
+  of update there is ("You have a new update about a task") and links to SAIS;
+  it never repeats the notification's text, and for pay, ratings, hiring
+  decisions, rehiring, payroll requirements and office changes it says only
+  "You have a new update". Copies stay in the sender's Sent folder and in the
+  person's own mailbox, outside SAIS: erasing a person from SAIS does not
+  remove them. The DPO should confirm this is covered by the privacy notice.
 
 ## What the school must keep
 Payroll, attendance and accomplishment records the school needs for its own

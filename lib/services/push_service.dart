@@ -51,17 +51,71 @@ class PushService {
       final idToken = await fb_auth.FirebaseAuth.instance.currentUser
           ?.getIdToken();
       if (idToken == null || idToken.isEmpty) return;
-      await http.post(
+      // The function takes 50 at a time; more are sent in turns.
+      for (var i = 0; i < notificationIds.length; i += deliverBatch) {
+        final end = i + deliverBatch < notificationIds.length
+            ? i + deliverBatch
+            : notificationIds.length;
+        await http.post(
+          Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
+          headers: {
+            'Authorization': 'Bearer $idToken',
+            'apikey': SupabaseStorageService.publishableKey,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'notificationIds': notificationIds.sublist(i, end)}),
+        );
+      }
+    } catch (error) {
+      debugPrint('Could not push notifications: $error');
+    }
+  }
+
+  /// How many notification ids one request to the function may carry.
+  static const deliverBatch = 50;
+
+  /// Asks the clockout-reminders function to email the signed-in person a
+  /// test message at their own verified address. [message] is what to tell
+  /// them either way.
+  Future<({bool ok, String message})> sendTestEmail() async {
+    try {
+      final idToken = await fb_auth.FirebaseAuth.instance.currentUser
+          ?.getIdToken();
+      if (idToken == null || idToken.isEmpty) {
+        return (ok: false, message: 'You must be signed in.');
+      }
+      final response = await http.post(
         Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
         headers: {
           'Authorization': 'Bearer $idToken',
           'apikey': SupabaseStorageService.publishableKey,
           'Content-Type': 'application/json',
         },
-        body: jsonEncode({'notificationIds': notificationIds}),
+        body: jsonEncode({'testEmail': true}),
+      );
+      final body = jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return (
+          ok: true,
+          message:
+              'A test email was sent to ${body['to'] ?? 'your address'}. '
+              'Check your inbox, and your spam folder.',
+        );
+      }
+      return (
+        ok: false,
+        message:
+            body['error']?.toString() ??
+            'The server could not send a test email.',
       );
     } catch (error) {
-      debugPrint('Could not push notifications: $error');
+      debugPrint('Test email failed: $error');
+      return (
+        ok: false,
+        message:
+            'Could not reach the server. Check your connection and try '
+            'again.',
+      );
     }
   }
 

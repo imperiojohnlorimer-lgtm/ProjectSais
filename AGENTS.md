@@ -32,7 +32,8 @@ DTR/Accomplishment Reports, rehiring, documents and payroll.
   always signs a fresh link) and Edge Functions in `supabase/functions/`:
   `clock-attendance` (QR clock-in/out, decided on the server's clock in
   Philippine time), `upload-document`, `clockout-reminders` (push through
-  Firebase Cloud Messaging, run by `pg_cron`).
+  Firebase Cloud Messaging, and the same notifications by email through
+  Gmail's SMTP server, run by `pg_cron`).
 - **Security** lives in `firestore.rules`: every role's access is enforced
   on the server. A new write path needs a rules change, and a case in
   `test_rules/firestore.rules.test.mjs` (run with `npm test` there; it starts
@@ -140,6 +141,20 @@ with `lib/utils/csv.dart` (BOM, quoting, formula guard) and saved by
 - New uploads get random storage names (`randomObjectName`). Pushes for
   pay, ratings, decisions and requirements say only "You have a new
   update" (`pushTextFor` in `clockout-reminders`).
+- **Email notifications** (for people who aren't signed in): every
+  notification the app saves, and each clock-out reminder, is also emailed by
+  `clockout-reminders` to the account's verified Auth address, unless the
+  person turned it off (`User.emailNotifications`, `EmailNotificationsCard`;
+  only the owner may change it, in the rules). An email NEVER carries a
+  notification's own text (staff can write any text for anyone): it says only
+  what kind of update it is (`emailFor`) and links to SAIS; the clock-out
+  reminder's sentence is built by the function from attendance data. Each
+  notification's email has its own claim (`emailClaimedAt` lease,
+  `emailedAt`), separate from `pushedAt`. Daily limits live in
+  `emailQuota/*` (no rule matches it, so only the function writes it). Needs
+  the secrets `EMAIL_FROM_ADDRESS` and `EMAIL_APP_PASSWORD` (a Gmail App
+  Password) in Supabase; never put either in the repo. Supabase blocks
+  outgoing ports 25 and 587, so SMTP is over TLS on 465.
 - "Remember me" picks the Firebase persistence (unchecked: the tab only);
   `IdleSignOutGuard` signs out after 30 minutes idle. Passwords need 10+
   characters and not a common one.

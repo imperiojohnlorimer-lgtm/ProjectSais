@@ -698,3 +698,37 @@ test('tasks given to a student\'s roster record are found by that record\'s id',
     getDocs(query(collection(as('stu'), 'tasks'), where('assignedTo', 'in', ['s1']))),
   );
 });
+
+// ── email notifications (the switch on a profile) ──────────────────────
+
+test('a person turns their own email notifications off and on', async () => {
+  const db = as('sa');
+  await assertSucceeds(updateDoc(doc(db, 'users', 'sa'), { emailNotifications: false }));
+  await assertSucceeds(updateDoc(doc(db, 'users', 'sa'), { emailNotifications: true }));
+});
+
+test('the setting must be true or false', async () => {
+  for (const bad of ['no', 0, 'false', ['x']]) {
+    await assertFails(updateDoc(doc(as('sa'), 'users', 'sa'), { emailNotifications: bad }));
+  }
+});
+
+test('nobody else changes it, the Admin and the Head included', async () => {
+  for (const uid of ['admin', 'head', 'stu', 'sup']) {
+    await assertFails(
+      updateDoc(doc(as(uid), 'users', 'sa'), { emailNotifications: false }),
+    );
+  }
+});
+
+test('the Admin and the Head still edit a profile that holds the setting', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), 'users', 'sa'), { emailNotifications: false });
+  });
+  await assertSucceeds(updateDoc(doc(as('admin'), 'users', 'sa'), { department: 'Education' }));
+  await assertSucceeds(updateDoc(doc(as('head'), 'users', 'sa'), { skills: ['Typing'] }));
+});
+
+test('an older profile without the setting saves as before (Admin)', async () => {
+  await assertSucceeds(updateDoc(doc(as('admin'), 'users', 'sa'), { department: 'Education' }));
+});

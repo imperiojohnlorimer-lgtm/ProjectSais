@@ -11,7 +11,7 @@ import '../../theme/app_theme.dart';
 /// a way that matters, change [version]: the version a person accepted is
 /// saved with their profile.
 abstract final class PrivacyNotice {
-  static const version = '2026-10-draft';
+  static const version = '2026-11-draft';
 
   /// Who people write to about their data. To be filled in by the school.
   static const contact =
@@ -42,7 +42,8 @@ abstract final class PrivacyNotice {
             'out for you.',
         'To keep the system working: the notifications sent to you, and, '
             'only if you turn on phone notifications, a code that identifies '
-            'your browser or phone.',
+            'your browser or phone. Your sign-in email address is also used '
+            'to email you notifications (see below).',
       ],
     ),
     (
@@ -63,6 +64,11 @@ abstract final class PrivacyNotice {
             'uploaded files with Supabase, both cloud services. Files are '
             'private: they open only through links that expire after an '
             'hour.',
+        'Notifications are also sent by email, through Gmail (Google), to '
+            'the address you sign in with, so you hear about them when you '
+            'are signed out. An email says only what kind of update you '
+            'have and links to SAIS; it does not repeat the notification. '
+            'You can turn these emails off on your Notifications page.',
       ],
     ),
     (

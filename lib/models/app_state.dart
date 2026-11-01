@@ -5978,6 +5978,7 @@ class AppState extends ChangeNotifier {
     String? avatar,
     List<String>? skills,
     String? yearLevel,
+    bool? emailNotifications,
   }) async {
     if (currentUser != null) {
       final previousUser = currentUser;
@@ -5988,6 +5989,7 @@ class AppState extends ChangeNotifier {
         avatar: avatar,
         skills: skills,
         yearLevel: yearLevel,
+        emailNotifications: emailNotifications,
       );
 
       users = users.map((user) {
@@ -6272,8 +6274,15 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> updateManagedUser(User user) async {
-    await _upsertUser(user);
-    await _saveUserProfile(user);
+    // The edit dialog's copy may be older than the person's own choice of
+    // email notifications, which only they may change (the rules): carry
+    // the latest one along rather than their old one.
+    final latest = users.where((u) => u.id == user.id).firstOrNull;
+    final toSave = latest == null
+        ? user
+        : user.withEmailNotifications(latest.emailNotifications);
+    await _upsertUser(toSave);
+    await _saveUserProfile(toSave);
     notifyListeners();
   }
 

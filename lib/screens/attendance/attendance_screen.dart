@@ -11,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/web_print_stub.dart'
     if (dart.library.html) '../../utils/web_print.dart'
     as web_print;
+import '../../widgets/email_notifications_card.dart';
 import '../../widgets/push_notifications_card.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -814,6 +815,8 @@ class _ClockCardState extends State<_ClockCard> {
                         'On for this device: a notification 30 minutes before '
                         'your session ends, even with SAIS closed.',
                   ),
+                  const SizedBox(height: 10),
+                  const EmailNotificationsCard(),
                 ] else ...[
                   const SizedBox(height: 16),
                   Container(

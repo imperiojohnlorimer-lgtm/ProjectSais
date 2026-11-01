@@ -75,6 +75,10 @@ extension AppStatePush on AppState {
     }
   }
 
+  /// Asks the clockout-reminders function to email the signed-in person a
+  /// test message. Returns what to tell them.
+  Future<({bool ok, String message})> sendTestEmail() => _push.sendTestEmail();
+
   /// Asks the clockout-reminders function to send this account's devices a
   /// test notification. Returns what to tell the user.
   Future<({bool ok, String message})> sendTestPush() async {

@@ -188,6 +188,13 @@ service cloud.firestore {
         && (version == null || (version is string && version.size() <= 40));
     }
 
+    // Whether they also get notifications by email: true, false or absent
+    // (absent counts as on). Only the person changes it.
+    function validEmailPref(data) {
+      let pref = data.get('emailNotifications', null);
+      return pref == null || pref is bool;
+    }
+
     // A person registering themselves must have accepted it.
     function acceptedNotice(data) {
       return data.get('consentAt', null) is string
@@ -217,6 +224,7 @@ service cloud.firestore {
           && request.resource.data.email.lower()
             == request.auth.token.email.lower()
           && acceptedNotice(request.resource.data)
+          && validEmailPref(request.resource.data)
         );
 
       // Role/status changes (Accounts screen) stay Admin-only, with three
@@ -239,7 +247,7 @@ service cloud.firestore {
       // Nobody (the Admin and the Head included) rewrites the record of
       // when someone accepted the Privacy Notice.
       allow update: if (isAdmin() && unchanged('consentAt')
-          && unchanged('consentVersion'))
+          && unchanged('consentVersion') && unchanged('emailNotifications'))
         || (
           signedIn()
           && request.auth.uid == uid
@@ -259,6 +267,7 @@ service cloud.firestore {
           && unchanged('campus')
           && unchanged('courseProgram')
           && sameOr('deleted', false)
+          && validEmailPref(request.resource.data)
         )
         || (
           isHead()
@@ -271,6 +280,7 @@ service cloud.firestore {
           && sameOr('deleted', false)
           && unchanged('consentAt')
           && unchanged('consentVersion')
+          && unchanged('emailNotifications')
         );
 
       // A registration that can't finish (its Student ID is taken) removes

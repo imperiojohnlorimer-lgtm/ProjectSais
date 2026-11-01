@@ -382,6 +382,45 @@ class User {
   final String? consentAt;
   final String? consentVersion;
 
+  /// Whether this person also gets their notifications by email (to the
+  /// address they signed up with), for when they aren't signed in. Null on
+  /// accounts that never chose: that counts as on. Only the person
+  /// themselves may change it (the rules).
+  final bool? emailNotifications;
+
+  /// Email notifications are on unless the person turned them off.
+  bool get emailsOn => emailNotifications != false;
+
+  /// This profile with the email choice set to [value] (null: never chose).
+  /// [copyWith] can't set a field back to null. An Admin's or Head's edit of
+  /// someone else's profile uses it to carry the person's latest choice
+  /// along, which only they may change.
+  User withEmailNotifications(bool? value) => User(
+    id: id,
+    name: name,
+    firstName: firstName,
+    middleName: middleName,
+    lastName: lastName,
+    suffix: suffix,
+    email: email,
+    role: role,
+    department: department,
+    campus: campus,
+    phone: phone,
+    address: address,
+    avatar: avatar,
+    skills: skills,
+    status: status,
+    studentId: studentId,
+    courseProgram: courseProgram,
+    yearLevel: yearLevel,
+    saId: saId,
+    isDeleted: isDeleted,
+    consentAt: consentAt,
+    consentVersion: consentVersion,
+    emailNotifications: value,
+  );
+
   User({
     required this.id,
     required this.name,
@@ -405,6 +444,7 @@ class User {
     this.isDeleted = false,
     this.consentAt,
     this.consentVersion,
+    this.emailNotifications,
   });
 
   User copyWith({
@@ -424,6 +464,7 @@ class User {
     String? yearLevel,
     String? saId,
     bool? isDeleted,
+    bool? emailNotifications,
   }) => User(
     id: id ?? this.id,
     name: name ?? nameParts?.display ?? this.name,
@@ -447,6 +488,7 @@ class User {
     isDeleted: isDeleted ?? this.isDeleted,
     consentAt: consentAt,
     consentVersion: consentVersion,
+    emailNotifications: emailNotifications ?? this.emailNotifications,
   );
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -474,6 +516,9 @@ class User {
     isDeleted: json['deleted'] == true,
     consentAt: json['consentAt']?.toString(),
     consentVersion: json['consentVersion']?.toString(),
+    emailNotifications: json['emailNotifications'] is bool
+        ? json['emailNotifications'] as bool
+        : null,
   );
 
   Map<String, dynamic> toJson() => {
@@ -503,6 +548,9 @@ class User {
     if (isDeleted) 'deleted': true,
     if (consentAt != null) 'consentAt': consentAt,
     if (consentVersion != null) 'consentVersion': consentVersion,
+    // Left off until the person chooses, so an older profile saves exactly
+    // as it was (and an Admin's edit of it doesn't add the field).
+    if (emailNotifications != null) 'emailNotifications': emailNotifications,
   };
 
   /// Whether the name has been split into parts. Older accounts have only
