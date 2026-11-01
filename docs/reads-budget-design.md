@@ -30,21 +30,34 @@ documents; for the Head also rehire records, and for Head and Supervisor the
 forwards to the Head. Students and Student Assistants' live listeners are
 filtered to their own records (by account id), but the one-time load still asks
 every role for several whole collections (users, students, evaluations,
-applications, documents). The rules refuse most of those for them, and a
-refused query is still billed as one read, so it is wasted work rather than a
-leak.
+applications, documents). The rules refuse most of those for them; refused
+requests are not free of charge in general (what a rule-dependent query costs
+is not a fixed one read), so this is wasted work rather than a leak.
 
-**2. Live listeners that read the same collections again** (the first snapshot
-of each listener returns every document, then each later change is one read per
-listener). Staff listeners: announcements, attendance, tasks, applications,
-head forwards, users, students, reports, evaluations, documents, class
-schedules, task duties, notifications, offices, departments, programs, skills;
-Head also payroll checks, rehire and screening records; Admin also payroll
-records and sheets.
+**2. Live listeners that read many of the same collections again** (the first
+snapshot of each listener returns every document it matches, then each later
+change is one read per listener).
+- Head: announcements, attendance, tasks, applications, head forwards, users,
+  students, reports, evaluations, documents, class schedules, task duties,
+  task categories and templates, notifications (own), offices, departments,
+  programs, skills, payroll checks, rehire and screening records.
+- Supervisor: the same without applications, payroll checks, rehire and
+  screening records (the rules give applications to the Head and the
+  applicant only).
+- Admin: announcements, attendance, applications (own), users, students,
+  reports, payroll checks, payroll records and sheets, notifications (own),
+  offices, departments, programs, skills; not tasks, evaluations, documents,
+  class schedules or duties.
+- Student and Student Assistant: shared announcements, offices, departments,
+  programs and skills, plus their own attendance, applications, reports, tasks,
+  duties, schedules, pay and notifications.
 
-So a staff sign-in pays for the same documents **at least twice** (the load and
-the listener's first snapshot), and every later change to any of them is billed
-again to every open staff session.
+So for the collections both paths cover, a staff sign-in pays for the same
+documents **about twice** (the load and the listener's first snapshot). The
+paths do not cover identical sets (announcements, duties and payroll are only
+listened to; departments are loaded by two queries), so "twice the readable
+documents" is a rough upper figure, not a budget. Every later change is billed
+again to every open session that listens to it.
 
 ## What it costs (estimates, to be measured)
 
@@ -52,9 +65,14 @@ Only one real figure exists: the first weekly backup (2026-09-29) found **511
 documents in total** across Firestore. That is small, so today's cost is small.
 The risk is growth:
 
-- Per sign-in of a staff account: about `2 x (documents they can read)`.
-  At 511 documents that is roughly 1,000 reads; at 5,000 documents, 10,000
-  (one Head sign-in would spend a fifth of the day's quota).
+- Per sign-in of a staff account: up to about `2 x (documents they can
+  read)` for the collections both paths cover. At 511 documents that is
+  roughly 1,000 reads; at 5,000 documents, 10,000 (one Head sign-in would spend
+  a fifth of the day's quota). Billing is not that simple in either direction:
+  a listener that reconnects re-bills its query unless the browser cache
+  resumes it (and resuming stops working after the connection has been down
+  more than about 30 minutes); deleted documents are not billed to listeners;
+  results served from a cache are not billed.
 - Per day: `sign-ins x that figure` + `changes x open staff sessions` (each
   attendance clock-in or out, task or notification change is re-read by every
   open staff session) + page reloads (each reload is a new sign-in cost) +
@@ -77,12 +95,20 @@ counts turn out to be.
 
 ## Options, cheapest and safest first
 
-**Step 0: stop reading everything twice.** The listeners already deliver the
-same documents, so the one-time load is largely redundant. Replace it with
-"wait for the listeners' first answers" (the app already tracks that with
-`isLoaded`). This roughly halves a staff sign-in with no change to what anyone
-sees. Risk: low; some derived state (rehire decisions that take effect, archive
-checks) is computed from the load and must be re-run when the listeners answer.
+**Step 0: stop reading everything twice, carefully.** The listeners deliver
+most of the same documents, so much of the one-time load is redundant. But the
+load is also where start-up *work* happens, and that work must be kept:
+rehire decisions are put into effect once the settings, users, students,
+offices and the decisions are all ready (and a decision is marked applied even
+when its person is missing, so running it early loses it); office assignments
+are synchronised; schedule ownership is migrated; approved applications'
+skills are imported; archive metadata is loaded, and archive timers skip a
+deadline that has already passed, so scheduling alone can't replace running the
+check once at start. So Step 0 means: keep that work, but trigger it when the
+specific listeners it needs have delivered **server-confirmed** data, then drop
+only the duplicate reads. Estimated saving: up to about half of a staff
+sign-in. Risk: medium, not low: this is a behaviour-preserving refactor of the
+start-up sequence and needs its own tests (one per piece of start-up work).
 
 **Step 1: only load what a role uses.** Several roles read collections they
 never display (for example students and assistants reading the whole student
@@ -99,8 +125,13 @@ older periods on demand.
   (`2026-10-26`) to new records and **backfill** old ones with a one-off admin
   script; index it.
 - Queries become `where dateKey >= termStart` (and `<= termEnd` for a chosen
-  period). Records lacking `dateKey` are read by a fallback until the backfill
-  is verified complete.
+  period). A query on a field never returns documents that lack it, so
+  unbackfilled records are invisible to it: the fallback must be a separate,
+  explicit read (a scan with a manifest of what was keyed), not "treat missing
+  as null". The backfill needs semantic date validation (the stored text may be
+  malformed), a plan for records written by an older app version while it
+  runs, and a reconciliation report listing every record, not only matching
+  counts.
 - Reports and tasks need the equivalent (`academicYear` already exists on
   several; the rest need a key).
 
@@ -132,6 +163,23 @@ silently run on a partial one. These are the places that do:
   copies, manual archives and live records must not be double counted.
 - **A failure never counts as "nothing there".** A range that failed to load is
   reported (the banner) and blocks payroll, as now.
+- **"Answered" is not "complete".** `isLoaded` also counts failed answers, and
+  neither it nor the payroll guard knows whether a snapshot came from the
+  browser's cache or the server (the service's streams drop that detail).
+  Anything that unlocks payroll or generates a DTR must wait for
+  **server-confirmed** snapshots (Firestore's snapshot metadata) for the exact
+  range. Without that, a cached, partial result could unlock work.
+- **Payroll's full dependency list**: attendance for the period (including
+  year-archived), the identity mappings that tie records to people, reports,
+  the Head's checks, existing payouts and the roster of former assistants.
+- **DTR's**: attendance, class schedules (with their fallback) and tasks chosen
+  by **completion date** for that month. Today the DTR excludes archived
+  attendance and tasks while payroll deliberately keeps year-archived
+  attendance payable: the design must name one canonical set of records for each
+  and de-duplicate archive copies against live ones.
+- **Shared lists.** A range loaded for one screen must not overwrite the list
+  another screen is using (a Head looking at last year must not change this
+  term's totals).
 
 ## Rollout order (each step deployable on its own)
 
@@ -164,9 +212,13 @@ silently run on a partial one. These are the places that do:
    history views, or must everything always be on screen?
 4. Staff on shared computers: is a persistent browser cache acceptable?
 
-## Not covered
+## Other readers of the same quota (measure them too)
 
-Cutting reads is separate from the cron and push functions' own small reads,
-from the weekly backup (it reads every document once a week, on GitHub's side,
-using the same quota), and from moving to a paid plan, which the project has
-ruled out.
+Other collections stay unbounded after Step 2; archiving a year scans all
+attendance; the cron job reads the day's attendance twice a day; push and email
+add notification, profile, push-token and email-counter reads on every
+notification; the weekly backup reads every document once a week (on GitHub's
+side, against the same quota); retries, reconnects and multiple open tabs each
+repeat a query. Persistent caching also needs its tab coordination and a
+reliable clean-up between people on a shared computer worked out first. Moving
+to a paid plan is not an option for this project.
