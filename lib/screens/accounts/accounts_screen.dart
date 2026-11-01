@@ -6,11 +6,29 @@ import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/csv_export.dart';
 import '../../utils/input_formats.dart';
 import '../../widgets/document_preview.dart';
+import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 const _roles = ['Admin', 'Head', 'Supervisor', 'Student Assistant', 'Student'];
+
+/// The spreadsheet rows for [users]: the header, then one row each.
+@visibleForTesting
+List<List<Object?>> accountsCsvRows(List<User> users) => [
+  ['Name', 'Email', 'Role', 'Status', 'Department', 'Campus', 'SA ID'],
+  for (final u in users)
+    [
+      u.name,
+      u.email,
+      u.role,
+      u.status,
+      u.department ?? '',
+      u.campus ?? '',
+      u.saId ?? '',
+    ],
+];
 
 class AccountsScreen extends StatefulWidget {
   const AccountsScreen({super.key});
@@ -47,6 +65,14 @@ class _AccountsScreenState extends State<AccountsScreen>
     _tabCtrl.dispose();
     super.dispose();
   }
+
+  /// Saves the accounts as listed (search and filters applied) as a
+  /// spreadsheet. Only what the Admin needs to see who has an account:
+  /// no phone, address or Student ID.
+  void _exportAccounts(List<User> users) => saveCsv(
+    _showArchived ? 'accounts-archived.csv' : 'accounts.csv',
+    accountsCsvRows(users),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -586,7 +612,12 @@ class _AccountsScreenState extends State<AccountsScreen>
             ],
           ),
           const SizedBox(height: 12),
-          // Archived toggle
+          // Archived toggle and export
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
           GestureDetector(
             onTap: () => setState(() => _showArchived = !_showArchived),
             child: Container(
@@ -626,6 +657,11 @@ class _AccountsScreenState extends State<AccountsScreen>
                 ],
               ),
             ),
+          ),
+              ExportCsvButton(
+                onPressed: users.isEmpty ? null : () => _exportAccounts(users),
+              ),
+            ],
           ),
           const SizedBox(height: 20),
           Container(

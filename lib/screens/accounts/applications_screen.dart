@@ -6,12 +6,51 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/endorsement_document_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/csv_export.dart';
 import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
 import '../../widgets/application_status.dart';
 import '../../widgets/document_preview.dart';
+import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
+
+/// The spreadsheet rows for [apps] as listed (filters and order applied).
+/// Department and campus come from the applicant's profile and are blank when
+/// it isn't loaded; "Matching requests" is how many open Supervisor requests
+/// the applicant's skills fit.
+@visibleForTesting
+List<List<Object?>> applicationsCsvRows(
+  AppState state,
+  List<Application> apps,
+  Map<String, List<SkillMatch>> matches,
+) {
+  User? profile(Application a) =>
+      state.users.where((u) => u.id == a.applicantId).firstOrNull;
+  return [
+    [
+      'Applicant',
+      'Status',
+      'Applied',
+      'Academic year',
+      'Department',
+      'Campus',
+      'Skills',
+      'Matching requests',
+    ],
+    for (final a in apps)
+      [
+        a.applicantName,
+        a.status,
+        a.appliedAt.split('T').first,
+        a.academicYear ?? '',
+        profile(a)?.department ?? '',
+        profile(a)?.campus ?? '',
+        state.applicantSkills(a).join('; '),
+        matches[a.id]?.length ?? 0,
+      ],
+  ];
+}
 
 /// The applicants on the Head's Applications & Screening page
 /// ([ApplicantScreeningScreen]). Each applicant's skills are matched
@@ -63,6 +102,12 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
     }
     return null;
   }
+
+  void _export(
+    AppState state,
+    List<Application> apps,
+    Map<String, List<SkillMatch>> matches,
+  ) => saveCsv('applications.csv', applicationsCsvRows(state, apps, matches));
 
   @override
   Widget build(BuildContext context) {
@@ -243,7 +288,14 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
             ],
           ),
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerRight,
+          child: ExportCsvButton(
+            onPressed: apps.isEmpty ? null : () => _export(state, apps, matches),
+          ),
+        ),
+        const SizedBox(height: 12),
         if (pendingShown.isNotEmpty) ...[
           _selectionBar(state, pendingShown),
           const SizedBox(height: 8),
