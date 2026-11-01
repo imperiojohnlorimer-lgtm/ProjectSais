@@ -38,7 +38,7 @@ flutter test                                   # app tests
 (cd test_rules && npm ci && npm test)          # Firestore rules, on the emulator (needs Java)
 (cd supabase/functions/clock-attendance && node --test records.test.ts sessions.test.ts)
 (cd supabase/functions/upload-document && node --test paths.test.ts)
-(cd supabase/functions/clockout-reminders && node --test reminders.test.ts pushtext.test.ts)
+(cd supabase/functions/clockout-reminders && node --test reminders.test.ts pushtext.test.ts email.test.ts email-core.test.ts)
 ```
 
 The function tests need Node 23.6 or newer. The same checks run on every push
@@ -54,8 +54,11 @@ The project owner deploys. Order matters when a change touches the rules:
    the function's editor in the Supabase dashboard.
 
 Secrets are set in the Supabase dashboard, never in this repository:
-`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `CLOCKOUT_REMINDER_SECRET`
-(and the service-role key Supabase provides to its functions). The Firebase
+`FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY`, `CLOCKOUT_REMINDER_SECRET`,
+and for notification emails `EMAIL_FROM_ADDRESS` and `EMAIL_APP_PASSWORD` (a
+Gmail address and its App Password; use a dedicated account, and rotate the
+password if it leaks), plus the service-role key Supabase provides to its
+functions. The Firebase
 web configuration in `lib/firebase_options.dart` and the Supabase publishable
 key in `lib/main.dart` are public identifiers by design.
 
