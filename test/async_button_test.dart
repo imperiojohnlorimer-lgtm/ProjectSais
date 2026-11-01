@@ -91,6 +91,8 @@ void main() {
     }, (error, _) => errors.add(error));
 
     expect(errors, hasLength(1));
+    // The user is told, in plain words (no "Bad state:").
+    expect(find.text('That did not go through: nope'), findsOneWidget);
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(
       tester.widget<TextButton>(find.byType(TextButton)).onPressed,

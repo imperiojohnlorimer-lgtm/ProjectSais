@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import '../theme/app_snackbar.dart';
 import '../theme/app_theme.dart';
 
 // ─── Avatar Widget ──────────────────────────────────
@@ -530,8 +531,9 @@ enum AsyncButtonKind { elevated, filled, outlined, text }
 /// in place of the icon, switches its label to [busyLabel], and ignores
 /// further taps. When the action first asks "are you sure?", pass that as
 /// [confirm]: the spinner starts only once it answers true, not while the
-/// question is on screen. An error thrown by [onPressed] still reaches whoever
-/// handles errors; the button just comes back.
+/// question is on screen. An error thrown by [onPressed] is shown to the
+/// user in a snackbar, still reaches whoever handles errors, and the button
+/// comes back. (An action that reports its own failure should catch it.)
 class AsyncButton extends StatefulWidget {
   final String label;
 
@@ -562,6 +564,13 @@ class AsyncButton extends StatefulWidget {
   State<AsyncButton> createState() => _AsyncButtonState();
 }
 
+/// An error as a sentence for a snackbar: no "Exception:" or "Bad state:".
+String _errorText(Object error) {
+  if (error is StateError) return error.message;
+  final text = error.toString();
+  return text.replaceFirst(RegExp(r'^(Exception|Bad state): '), '');
+}
+
 class _AsyncButtonState extends State<AsyncButton> {
   bool _busy = false;
 
@@ -573,12 +582,24 @@ class _AsyncButtonState extends State<AsyncButton> {
     final action = widget.onPressed;
     if (_running || action == null) return;
     _running = true;
+    // Taken now: the page may be gone by the time the action fails.
+    final messenger = ScaffoldMessenger.maybeOf(context);
     try {
       if (widget.confirm != null) {
         if (!await widget.confirm!() || !mounted) return;
       }
       setState(() => _busy = true);
       await action();
+    } catch (error) {
+      if (messenger != null) {
+        AppSnackBar.showWithMessenger(
+          messenger,
+          'That did not go through: ${_errorText(error)}',
+          type: SnackType.error,
+          duration: const Duration(seconds: 5),
+        );
+      }
+      rethrow;
     } finally {
       _running = false;
       if (mounted && _busy) setState(() => _busy = false);

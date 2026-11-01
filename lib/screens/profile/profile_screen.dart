@@ -4,6 +4,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../widgets/avatar_editor.dart';
@@ -19,6 +20,10 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _isEditing = false;
   bool _isUploadingPhoto = false;
+
+  /// A skill is being saved: the boxes wait, so two quick taps can't race.
+  /// Kept here, not in the skills section, which a rebuild recreates.
+  bool _savingSkills = false;
   late TextEditingController _firstNameCtrl;
   late TextEditingController _middleNameCtrl;
   late TextEditingController _lastNameCtrl;
@@ -475,19 +480,38 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           style: const TextStyle(fontSize: 13),
                         ),
                         value: selectedSkills.contains(skill),
-                        onChanged: !canEditSkills
+                        onChanged: !canEditSkills || _savingSkills
                             ? null
                             : (checked) async {
+                                if (_savingSkills) return;
+                                final before = selectedSkills.toList();
                                 setState(() {
+                                  _savingSkills = true;
                                   if (checked == true) {
                                     selectedSkills.add(skill);
                                   } else {
                                     selectedSkills.remove(skill);
                                   }
                                 });
-                                await state.updateProfile(
-                                  skills: selectedSkills.toList(),
-                                );
+                                try {
+                                  await state.updateProfile(
+                                    skills: selectedSkills.toList(),
+                                  );
+                                } catch (e) {
+                                  // Not saved: put the box back.
+                                  selectedSkills
+                                    ..clear()
+                                    ..addAll(before);
+                                  if (context.mounted) {
+                                    AppSnackBar.error(
+                                      context,
+                                      'Could not save your skills: $e',
+                                    );
+                                  }
+                                } finally {
+                                  _savingSkills = false;
+                                  if (context.mounted) setState(() {});
+                                }
                               },
                       ),
                     )

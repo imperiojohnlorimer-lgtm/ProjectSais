@@ -7,9 +7,13 @@ import 'package:projectsais/services/firestore_service.dart';
 /// so a second AppState (a reload) reads back what the first one saved.
 class _ProfileStore extends FirestoreService {
   final profiles = <String, User>{};
+  bool failSave = false;
 
   @override
-  Future<void> setUserProfile(User user) async => profiles[user.id] = user;
+  Future<void> setUserProfile(User user) async {
+    if (failSave) throw Exception('offline');
+    profiles[user.id] = user;
+  }
 
   @override
   Future<User?> getUserProfileById(String id) async => profiles[id];
@@ -72,6 +76,29 @@ void main() {
       );
 
       expect(reloaded.currentUser?.avatar, 'data:image/png;base64,abc123');
+    });
+
+    test('a profile change that cannot be saved is taken back', () async {
+      final state = AppState(firestoreService: store);
+      await state.init();
+      await state.login(
+        User(
+          id: 'u1',
+          name: 'Test User',
+          email: 'test@example.com',
+          role: 'Supervisor',
+          skills: const ['Typing'],
+        ),
+      );
+      store.failSave = true;
+
+      await expectLater(
+        state.updateProfile(skills: const ['Typing', 'Filing']),
+        throwsException,
+      );
+
+      expect(state.currentUser?.skills, ['Typing']);
+      expect(state.users.where((u) => u.id == 'u1').single.skills, ['Typing']);
     });
 
     // Found by email when the account id it signs in with has changed —

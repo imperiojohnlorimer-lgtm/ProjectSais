@@ -108,6 +108,10 @@ class _OfficesScreenState extends State<OfficesScreen> {
     var requiredSkills = [...(office?.requiredSkills ?? const <String>[])];
     var isActive = office?.isActive ?? true;
     final availableSkills = [...state.skills]..sort();
+    // Why the last save failed, shown in the dialog (a snackbar would sit
+    // behind it), and whether one is under way.
+    String? saveError;
+    var saving = false;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -718,6 +722,18 @@ class _OfficesScreenState extends State<OfficesScreen> {
                         ),
                       ),
                     ),
+                    if (saveError != null)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                        child: Text(
+                          saveError!,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppTheme.red500,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
                     // Footer actions
                     Container(
                       padding: const EdgeInsets.fromLTRB(24, 14, 24, 20),
@@ -748,7 +764,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
                           Expanded(
                             flex: 2,
                             child: ElevatedButton.icon(
-                              onPressed: () async {
+                              onPressed: saving
+                                  ? null
+                                  : () async {
                                 final name = nameController.text.trim();
                                 final code = codeController.text.trim();
                                 final capacity =
@@ -795,16 +813,31 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                   isActive: isActive,
                                   requiredSkills: requiredSkills,
                                 );
-                                await state.saveOffice(
-                                  savedOffice,
-                                  basedOn: office,
-                                );
-                                if (dialogContext.mounted) {
-                                  Navigator.pop(dialogContext, true);
+                                setState(() {
+                                  saving = true;
+                                  saveError = null;
+                                });
+                                try {
+                                  await state.saveOffice(
+                                    savedOffice,
+                                    basedOn: office,
+                                  );
+                                  if (dialogContext.mounted) {
+                                    Navigator.pop(dialogContext, true);
+                                  }
+                                } catch (e) {
+                                  if (dialogContext.mounted) {
+                                    setState(() {
+                                      saving = false;
+                                      saveError =
+                                          'Could not save the office: $e';
+                                    });
+                                  }
                                 }
                               },
-                              icon: Icon(
-                                office == null
+                              icon: BusyIcon(
+                                busy: saving,
+                                icon: office == null
                                     ? Icons.add_rounded
                                     : Icons.check_rounded,
                                 size: 18,

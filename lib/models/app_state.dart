@@ -6042,6 +6042,7 @@ class AppState extends ChangeNotifier {
     String? yearLevel,
   }) async {
     if (currentUser != null) {
+      final previousUser = currentUser;
       currentUser = currentUser!.copyWith(
         nameParts: nameParts,
         phone: phone,
@@ -6066,7 +6067,26 @@ class AppState extends ChangeNotifier {
         users = [...users, currentUser!];
       }
 
-      await _saveUserProfile(currentUser!);
+      final saving = currentUser!;
+      try {
+        await _saveUserProfile(saving);
+      } catch (_) {
+        // Not saved: show what is stored again (unless something newer was
+        // saved meanwhile), and let the caller report it.
+        if (identical(currentUser, saving) && previousUser != null) {
+          currentUser = previousUser;
+          // Only this account goes back; the rest of the list may have
+          // changed meanwhile.
+          users = users.map((user) {
+            final same =
+                user.id == saving.id ||
+                user.email.toLowerCase() == saving.email.toLowerCase();
+            return same ? previousUser : user;
+          }).toList();
+          notifyListeners();
+        }
+        rethrow;
+      }
       notifyListeners();
     }
   }
