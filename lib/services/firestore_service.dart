@@ -18,6 +18,22 @@ class SaCounterNotSeeded implements Exception {
   String toString() => 'The SA ID counter has not been created yet.';
 }
 
+/// What [FirestoreService.allocateSaId] decides from what it read: the ID the
+/// profile already holds, else the number to give out (the counter's, or the
+/// seed's next one), else null when the counter doesn't exist and there is no
+/// seed.
+@visibleForTesting
+({String? held, int? number}) planSaId({
+  required String held,
+  required int? counterNext,
+  required int? seedMax,
+}) {
+  final id = held.trim();
+  if (id.isNotEmpty) return (held: id, number: null);
+  final number = counterNext ?? (seedMax == null ? null : seedMax + 1);
+  return (held: null, number: number);
+}
+
 class FirestoreService {
   FirestoreService({FirebaseFirestore? instance}) : _instance = instance;
 
@@ -303,32 +319,34 @@ class FirestoreService {
   /// already has when it has one. The counter is created from [seedMax] (the
   /// highest number in use) the first time; without a seed, a missing counter
   /// throws [SaCounterNotSeeded] so the caller can work one out.
-  Future<String> allocateSaId(String userId, {int? seedMax}) {
+  Future<String> allocateSaId(String userId, {int? seedMax}) async {
     final counterRef = _db.collection('meta').doc('saCounter');
-    return _db.runTransaction((transaction) async {
+    // [SaCounterNotSeeded] is thrown out here, not inside the transaction: on
+    // the web the Firestore SDK wraps whatever a transaction throws in a
+    // plain JavaScript error, so the caller's `on SaCounterNotSeeded` would
+    // never match and the first approval would fail with "Dart exception".
+    final id = await _db.runTransaction<String?>((transaction) async {
       final userRef = _users.doc(userId);
       final profile = await transaction.get(userRef);
-      final existing =
-          ((profile.data() as Map<String, dynamic>?)?['saId'] ?? '')
-              .toString()
-              .trim();
-      if (existing.isNotEmpty) return existing;
-
       final counter = await transaction.get(counterRef);
-      final int next;
-      if (counter.exists) {
-        next = ((counter.data() as Map<String, dynamic>)['next'] as num)
-            .toInt();
-      } else if (seedMax != null) {
-        next = seedMax + 1;
-      } else {
-        throw const SaCounterNotSeeded();
-      }
-      final id = 'SA ${next.toString().padLeft(3, '0')}';
-      transaction.set(counterRef, {'next': next + 1});
+      final plan = planSaId(
+        held: ((profile.data() as Map<String, dynamic>?)?['saId'] ?? '')
+            .toString(),
+        counterNext: counter.exists
+            ? ((counter.data() as Map<String, dynamic>)['next'] as num).toInt()
+            : null,
+        seedMax: seedMax,
+      );
+      if (plan.held != null) return plan.held;
+      final number = plan.number;
+      if (number == null) return null; // no counter, no seed
+      final id = 'SA ${number.toString().padLeft(3, '0')}';
+      transaction.set(counterRef, {'next': number + 1});
       transaction.update(userRef, {'saId': id});
       return id;
     });
+    if (id == null) throw const SaCounterNotSeeded();
+    return id;
   }
 
   Future<void> deleteUserProfile(String id) async {
