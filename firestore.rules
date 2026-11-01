@@ -376,7 +376,8 @@ service cloud.firestore {
         );
 
       // A new application is always Pending, under the applicant's own
-      // name. Only the Head decides it. A student applies to be a Student
+      // name, from a Student account (an assistant, a Supervisor or the
+      // Admin can't apply). Only the Head decides it. A student applies to be a Student
       // Assistant once a year, for the year in effect: the id names them
       // and the year (app_<uid>_<year>), so a second one is an update,
       // which they can't make. It goes through an open hiring call of the
@@ -396,6 +397,8 @@ service cloud.firestore {
 
       function isNewApplication() {
         return signedIn()
+          && userExists()
+          && currentRole() == 'Student'
           && request.resource.data.applicantId == request.auth.uid
           && id == 'app_' + request.auth.uid + '_'
             + request.resource.data.academicYear

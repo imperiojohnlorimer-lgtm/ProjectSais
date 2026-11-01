@@ -241,6 +241,35 @@ test('a Supervisor\'s request is not a hiring call', async () => {
   );
 });
 
+test('only a Student account can apply', async () => {
+  for (const uid of ['sa', 'sup', 'admin', 'head']) {
+    await assertFails(
+      setDoc(doc(as(uid), 'applications', `app_${uid}_2026-2027`), application(uid)),
+    );
+  }
+});
+
+test('an account that stopped being a Student cannot replace a rejected application', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(
+      doc(ctx.firestore(), 'applications', 'app_sa_2026-2027'),
+      application('sa', { status: 'Rejected' }),
+    );
+  });
+  await assertFails(
+    setDoc(doc(as('sa'), 'applications', 'app_sa_2026-2027'), application('sa')),
+  );
+});
+
+test('the Head still decides an application (keeps working)', async () => {
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu')),
+  );
+  await assertSucceeds(
+    updateDoc(doc(as('head'), 'applications', 'app_stu_2026-2027'), { status: 'For Screening' }),
+  );
+});
+
 test('a rejected application can be replaced by its applicant (keeps working)', async () => {
   await env.withSecurityRulesDisabled(async (ctx) => {
     await setDoc(
