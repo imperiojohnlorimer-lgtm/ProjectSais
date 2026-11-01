@@ -119,54 +119,6 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                     () => _showArchived = !_showArchived,
                                   ),
                                 ),
-                              if (state.role == 'Head' ||
-                                  state.role == 'Supervisor')
-                                OutlinedButton.icon(
-                                  onPressed: () async {
-                                    final result = await runWithBusy(
-                                      context,
-                                      state.recalculateAttendanceHours,
-                                      message: 'Recalculating hours…',
-                                    );
-                                    if (!context.mounted) return;
-                                    final (:fixed, :failed) = result;
-                                    _snack(
-                                      context,
-                                      failed > 0
-                                          ? 'Could not save $failed record(s) — '
-                                                'their hours will revert. Sign in '
-                                                'as Head or Supervisor and retry.'
-                                          : fixed == 0
-                                          ? 'All completed records already have correct hours'
-                                          : 'Recalculated hours for $fixed record(s)',
-                                      failed > 0
-                                          ? AppTheme.red500
-                                          : AppTheme.emerald500,
-                                    );
-                                  },
-                                  icon: const Icon(
-                                    Icons.calculate_outlined,
-                                    size: 16,
-                                  ),
-                                  label: const Text('Recalculate'),
-                                  style: OutlinedButton.styleFrom(
-                                    foregroundColor: AppTheme.maroon,
-                                    side: const BorderSide(
-                                      color: AppTheme.maroon,
-                                    ),
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                      vertical: 11,
-                                    ),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    textStyle: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 13,
-                                    ),
-                                  ),
-                                ),
                             ],
                             stats: [
                               HeroStatData(
