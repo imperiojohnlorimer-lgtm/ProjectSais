@@ -1,6 +1,6 @@
 # Keeping SAIS inside Firestore's free read quota: a design
 
-**Status: proposal. Step 0 is built for every role except the Head (2026-11-02):** their sign-in reads only the academic year settings and the archive list (the Admin also the accounts), and the live queries deliver the rest; the pages wait for the first answers (`AppState.initialDataReady`). The Head still runs the full load, because its start-up jobs need it. **Nothing else here is built.** For the project owner to approve
+**Status: proposal. Step 0 is built (2026-11-02):** every role but the Head reads at sign-in only the academic year settings and the archive list (the Admin also the accounts), and the live queries deliver the rest; the pages wait for the first answers (`AppState.initialDataReady`). The Head still reads what its start-up jobs work from (accounts, students, offices, departments, skills, rehire decisions, applications) - those jobs rewrite roles and archives and must not run on partial live data - but no longer reads attendance, tasks, reports, evaluations, documents and the other big lists a second time. Running the Head's jobs from the live answers is deferred (needs server-confirmed snapshots and a serialized job runner). **Nothing else here is built.** For the project owner to approve
 before any code is written, because payroll and the DTR depend on the full
 attendance history and a mistake here shows up as wrong pay, not as a slow page.
 
@@ -21,6 +21,8 @@ grows with the amount of history, not with how much they actually look at.
 Read from `lib/models/app_state.dart` (`_loadAllFromFirestore`,
 `_startRealtimeListeners`, `_startLiveData`). "Collection" means every document
 in it, any year.
+
+**(Updated 2026-11-02: item 1 below is now only the Head's, and a much smaller one; see the status line above.)**
 
 **1. A one-time full load at every sign-in** (`_loadAllFromFirestore`, also run
 on a role change and on startup): users, academic settings and archives,

@@ -2052,11 +2052,19 @@ class AppState extends ChangeNotifier {
     _notify();
   }
 
-  /// Loads the signed-in account's data. Reads that don't depend on each other
-  /// run together, so a phone pays the network round trip once per step
-  /// instead of once per collection; every answer is then applied in the order
-  /// it always was. Steps that rewrite records (closing an academic year,
-  /// rehiring) still run before the reads that could see their changes.
+  /// Loads the signed-in account's data before its live queries start.
+  ///
+  /// Every role but the Head's only needs what its live queries don't deliver
+  /// ([_loadWhatListenersDont]). The Head's start-up jobs below (closing a
+  /// finished academic year, putting rehire decisions into effect, office
+  /// assignments, the schedule migration, importing approved applicants'
+  /// skills) work from fresh reads of the data they need: the accounts,
+  /// students, offices, departments, skills, rehire decisions and applications.
+  /// Those run together, the answers are applied in the order they always
+  /// were, and the steps that rewrite records come before the reads that could
+  /// see their changes. The big lists the Head's live queries deliver anyway
+  /// (attendance, tasks, reports, evaluations, documents, ...) are not read
+  /// here, since the live queries would download them a second time.
   Future<void> _loadAllFromFirestore() async {
     _firestoreService ??= FirestoreService();
     final service = _firestoreService!;
@@ -2068,46 +2076,21 @@ class AppState extends ChangeNotifier {
     // Nobody is signed in (a visitor on the landing page): every private read
     // would be refused, so there is nothing to load.
     if (overtaken()) return;
-    // The live queries of every role but the Head's deliver what the full load
-    // below would read again, so only what they don't cover is read here.
     if (role != 'Head') {
       await _loadWhatListenersDont(service, overtaken);
       return;
     }
     try {
-      final isStaff = role == 'Head' || role == 'Supervisor' || role == 'Admin';
-      final isHeadOrSupervisor = role == 'Head' || role == 'Supervisor';
-      final isHead = role == 'Head';
-
-      // Step 1: everything that nothing below rewrites.
+      // Step 1: what the jobs work from.
       final usersRead = _fetch(() => service.getAllUserProfiles());
       final settingsRead = _fetch(() => service.getAcademicYearSettings());
       final archivesRead = _fetch(() => service.getAcademicYearArchives());
       final officesRead = _fetch(() => service.getAllOffices());
       final departmentsRead = _fetch(() => service.getAllDepartments());
       final codesRead = _fetch(() => service.getDepartmentCodes());
-      final programsRead = _fetch(() => service.getAllPrograms());
       final skillsRead = _fetch(() => service.getAllSkills());
-      final screeningRead = _fetch(() => service.getAllScreeningRecords());
       final studentsRead = _fetch(() => service.getAllStudents());
-      final attendanceRead = _fetch(() async {
-        final raw = isStaff
-            ? await service.getAllAttendance()
-            : await service.getAttendanceForStudent(currentUser!.id);
-        return raw.map((m) => AttendanceRecord.fromJson(m)).toList();
-      });
-      final schedulesRead = _fetch(
-        () => isHeadOrSupervisor
-            ? service.getAllClassSchedules()
-            : service.getClassSchedulesForStudent(currentUser!.id),
-      );
-      final rehireRead = isHead
-          ? _fetch(() => service.getAllRehireRecords())
-          : null;
-      final forwardsRead = isHeadOrSupervisor
-          ? _fetch(() => service.getAllHeadForwards())
-          : null;
-      final documentsRead = _fetch(() => service.getAllDocuments());
+      final rehireRead = _fetch(() => service.getAllRehireRecords());
       await Future.wait<Object?>([
         usersRead,
         settingsRead,
@@ -2115,15 +2098,9 @@ class AppState extends ChangeNotifier {
         officesRead,
         departmentsRead,
         codesRead,
-        programsRead,
         skillsRead,
-        screeningRead,
         studentsRead,
-        attendanceRead,
-        schedulesRead,
-        ?rehireRead,
-        ?forwardsRead,
-        documentsRead,
+        rehireRead,
       ]);
       if (overtaken()) return;
 
@@ -2150,22 +2127,10 @@ class AppState extends ChangeNotifier {
         departments = departmentsAnswer.data;
         departmentCodes = codesAnswer.data;
       }
-      final programsAnswer = await programsRead;
-      if (programsAnswer.ok) {
-        try {
-          programs = _sortedPrograms(programsAnswer.data);
-        } catch (_) {}
-      }
       final skillsAnswer = await skillsRead;
       if (skillsAnswer.ok) {
         try {
           _setSkills(skillsAnswer.data);
-        } catch (_) {}
-      }
-      final screeningAnswer = await screeningRead;
-      if (screeningAnswer.ok) {
-        try {
-          screeningRecords = _dedupeScreeningRecords(screeningAnswer.data);
         } catch (_) {}
       }
 
@@ -2175,106 +2140,33 @@ class AppState extends ChangeNotifier {
 
       _setAllUsers(firestoreUsers);
 
-      // Attendance
-      final attendanceAnswer = await attendanceRead;
-      attendance = attendanceAnswer.ok ? attendanceAnswer.data : [];
-
-      // Class Schedules (weekly, used to auto-fill DTR/Accomplishment
-      // Report's Class Schedule grid)
-      final schedulesAnswer = await schedulesRead;
-      classSchedules = schedulesAnswer.ok ? schedulesAnswer.data : [];
       await _archiveFinishedAcademicYears(academicSettings);
       if (overtaken()) return;
       await _restampUndoneAcademicYear();
       if (overtaken()) return;
 
-      // Step 2: the records closing or undoing a year rewrites.
-      final tasksRead = _fetch<List<Task>>(() async {
-        if (isHeadOrSupervisor) return service.getAllTasks();
-        final uid = currentUser!.id;
-        final direct = _fetch(() => service.getTasksForUser(uid));
-        final assigned = _fetch(() async {
-          final studentIds = await service.getStudentIdsForUser(uid);
-          return service.getTasksForAssigneeIds(studentIds);
-        });
-        // No lookup by name: the Firestore rules only share a task with
-        // the account it is assigned to, since anyone can register under
-        // a classmate's name.
-        final byUser = await direct;
-        final byAssignee = await assigned;
-        return [
-          if (byUser.ok) ...byUser.data,
-          if (byAssignee.ok) ...byAssignee.data,
-        ];
-      });
-      final reportsRead = _fetch(
-        // By account only, never by name — see Tasks above.
-        () => isStaff
-            ? service.getAllReports()
-            : service.getReportsForApplicant(currentUser!.id),
-      );
-      final evaluationsRead = _fetch(() => service.getAllEvaluations());
-      // The Head's rehire steps below come before this read; for the others
-      // nothing does, so it goes now.
-      final earlyApplicationsRead = isHead
-          ? null
-          : _fetch(() => service.getAllApplications());
-      await Future.wait<Object?>([
-        tasksRead,
-        reportsRead,
-        evaluationsRead,
-        ?earlyApplicationsRead,
-      ]);
-      if (overtaken()) return;
-
-      // Tasks
-      final tasksAnswer = await tasksRead;
-      if (tasksAnswer.ok) {
-        final taskById = <String, Task>{
-          for (final task in tasksAnswer.data) task.id: task,
-        };
-        tasks = taskById.values.toList();
-      } else {
-        tasks = [];
-      }
-
-      // Reports
-      final reportsAnswer = await reportsRead;
-      reports = reportsAnswer.ok ? reportsAnswer.data : [];
-
-      // Performance Evaluations
-      final evaluationsAnswer = await evaluationsRead;
-      evaluations = evaluationsAnswer.ok ? evaluationsAnswer.data : [];
-
       // Rehire decisions. Any whose term has started since they were made
       // are put into effect now — only a Head may change the roster records
       // involved, so this runs in the Head's session.
-      if (isHead) {
-        final rehireAnswer = await rehireRead!;
-        try {
-          if (!rehireAnswer.ok) throw rehireAnswer.error!;
-          rehireRecords = rehireAnswer.data;
-          await _applyDueRehireDecisions();
-        } catch (_) {
-          if (overtaken()) return;
-          rehireRecords = [];
-        }
+      final rehireAnswer = await rehireRead;
+      try {
+        if (!rehireAnswer.ok) throw rehireAnswer.error!;
+        rehireRecords = rehireAnswer.data;
+        await _applyDueRehireDecisions();
+      } catch (_) {
         if (overtaken()) return;
-        await _syncOfficeAssignments();
-        if (overtaken()) return;
-        await _moveSchedulesToAccounts(firestoreUsers);
-        if (overtaken()) return;
+        rehireRecords = [];
       }
-
-      // Items supervisors have forwarded to the Head.
-      if (forwardsRead != null) {
-        final forwardsAnswer = await forwardsRead;
-        headForwards = forwardsAnswer.ok ? forwardsAnswer.data : [];
-      }
+      if (overtaken()) return;
+      await _syncOfficeAssignments();
+      if (overtaken()) return;
+      await _moveSchedulesToAccounts(firestoreUsers);
+      if (overtaken()) return;
 
       // Applications
-      final applicationsAnswer = await (earlyApplicationsRead ??
-          _fetch(() => service.getAllApplications()));
+      final applicationsAnswer = await _fetch(
+        () => service.getAllApplications(),
+      );
       if (overtaken()) return;
       try {
         if (!applicationsAnswer.ok) throw applicationsAnswer.error!;
@@ -2284,10 +2176,6 @@ class AppState extends ChangeNotifier {
         if (overtaken()) return;
         applications = [];
       }
-      // Documents
-      final documentsAnswer = await documentsRead;
-      if (overtaken()) return;
-      documents = documentsAnswer.ok ? documentsAnswer.data : [];
       if (overtaken()) return;
       notifications = [];
 

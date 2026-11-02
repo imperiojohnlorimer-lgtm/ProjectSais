@@ -22,6 +22,8 @@ class _LoadStore extends FirestoreService {
   List<Application> applicationRecords = [];
   List<Document> documentRecords = [];
   List<Map<String, dynamic>> archiveRecords = [];
+  List<RehireRecord> rehireDecisions = [];
+  final savedRehire = <RehireRecord>[];
 
   void hold(String name) => _holds[name] = Completer<void>();
   void release(String name) => _holds[name]?.complete();
@@ -109,7 +111,13 @@ class _LoadStore extends FirestoreService {
       _read('applications', applicationRecords);
   @override
   Future<List<RehireRecord>> getAllRehireRecords() =>
-      _read('rehire', <RehireRecord>[]);
+      _read('rehire', rehireDecisions);
+  @override
+  Future<void> setRehireRecord(RehireRecord record) async {
+    await _read('setRehire', null);
+    savedRehire.add(record);
+  }
+
   @override
   Future<void> setSkill(String name) => _read('setSkill', null);
   @override
@@ -128,6 +136,10 @@ class _LoadStore extends FirestoreService {
 
   StreamController<Map<String, dynamic>?> docController(String key) =>
       _docs.putIfAbsent(key, StreamController.broadcast);
+
+  /// One live query answers with [data].
+  void push(String key, List<Map<String, dynamic>> data) =>
+      _stream(key).add(data);
 
   /// Every live query answers once, with nothing.
   void pushAll() {
@@ -211,23 +223,39 @@ class _LoadStore extends FirestoreService {
       docController('$collection/$id').stream;
 }
 
-const _wave1 = [
-  'rehire',
+/// What the Head's start-up jobs work from: the only things its sign-in reads.
+const _jobInputs = [
   'users',
   'settings',
   'archives',
   'offices',
   'departments',
   'codes',
-  'programs',
   'skills',
-  'screening',
   'students',
+  'rehire',
+];
+
+/// What the Head's live queries deliver: not read again at sign-in.
+const _liveOnly = [
   'attendance',
   'schedules',
+  'tasks',
+  'tasksByUser',
+  'reports',
+  'evaluations',
   'forwards',
   'documents',
+  'programs',
+  'screening',
 ];
+
+Student _student1() => Student(
+  id: 'rec1',
+  name: 'Sam Assistant',
+  email: 'sam@example.com',
+  department: 'Computing',
+);
 
 final _supervisor = User(
   id: 'sv1',
@@ -260,15 +288,6 @@ final _assistant = User(
   role: 'Student Assistant',
 );
 
-Task _task(String id, String title) => Task(
-  id: id,
-  title: title,
-  description: '',
-  status: 'Not Started',
-  priority: 'Medium',
-  dueDate: 'Oct 30, 2026',
-);
-
 Document _document() => Document(
   id: 'd1',
   name: 'Form',
@@ -297,17 +316,17 @@ void main() {
   }
 
   group('Sign-in load', () {
-    test('independent reads start together, not one after another', () async {
+    test('the Head reads what its start-up jobs work from, together', () async {
       final (state, store) = await start();
       store._holds.clear();
-      for (final name in _wave1) {
+      for (final name in _jobInputs) {
         store.hold(name);
       }
 
       final signIn = state.login(_head);
       await _settle();
 
-      for (final name in _wave1) {
+      for (final name in _jobInputs) {
         expect(
           store.started(name),
           isTrue,
@@ -319,89 +338,64 @@ void main() {
         isEmpty,
         reason: 'nothing has been answered yet',
       );
-      expect(store.started('tasks'), isFalse);
 
       store.releaseAll();
       expect(await signIn, isTrue);
     });
 
-    test('tasks, reports and evaluations wait for the earlier steps', () async {
+    test('the Head does not read what its live queries deliver', () async {
       final (state, store) = await start();
-      store.hold('schedules');
-
-      final signIn = state.login(_head);
-      await _settle();
-
-      expect(store.started('schedules'), isTrue);
-      expect(store.started('tasks'), isFalse);
-      expect(store.started('reports'), isFalse);
-      expect(store.started('evaluations'), isFalse);
-
-      store.release('schedules');
-      await signIn;
-      expect(store.at('end:schedules'), lessThan(store.at('start:tasks')));
-      expect(store.at('end:schedules'), lessThan(store.at('start:reports')));
-      expect(
-        store.at('end:schedules'),
-        lessThan(store.at('start:evaluations')),
-      );
-    });
-
-    test('everything is loaded and applied as before', () async {
-      final (state, store) = await start();
-      store.userProfiles = [_head];
-      store.studentRecords = [
-        Student(
-          id: 'rec1',
-          name: 'Sam Assistant',
-          email: 'sam@example.com',
-          department: 'Computing',
-        ),
-      ];
-      store.tasksOfUser = [_task('t1', 'Sort files')];
 
       await state.login(_head);
 
+      for (final name in _liveOnly) {
+        expect(
+          store.started(name),
+          isFalse,
+          reason: '$name comes from a live query',
+        );
+      }
+    });
+
+    test('the start-up data is applied, the big lists come live', () async {
+      final (state, store) = await start();
+      store.userProfiles = [_head];
+      store.studentRecords = [_student1()];
+
+      await state.login(_head);
+      await _settle();
+
       expect(state.students.map((s) => s.id), ['rec1']);
       expect(state.users.map((u) => u.id), contains('head1'));
-      expect(state.tasks.map((t) => t.id), ['t1']);
       expect(state.departments, ['Computing']);
+
+      store.push('tasks', [
+        {'id': 't1', 'title': 'Sort files'},
+      ]);
+      store.push('documents', [_document().toJson()]);
+      await _settle();
+
+      expect(state.tasks.map((t) => t.id), ['t1']);
+      expect(state.documents.map((d) => d.id), ['d1']);
     });
 
     test('a read that fails leaves only its own list empty', () async {
       final (state, store) = await start();
-      store.studentRecords = [
-        Student(
-          id: 'rec1',
-          name: 'Sam Assistant',
-          email: 'sam@example.com',
-          department: 'Computing',
-        ),
-      ];
-      store.tasksOfUser = [_task('t1', 'Sort files')];
-      store.failing.addAll(['attendance', 'reports', 'codes']);
+      store.userProfiles = [_head];
+      store.studentRecords = [_student1()];
+      store.failing.addAll(['students', 'codes']);
 
       await state.login(_head);
 
-      expect(state.attendance, isEmpty);
-      expect(state.reports, isEmpty);
-      expect(state.students.map((s) => s.id), ['rec1']);
-      expect(state.tasks.map((t) => t.id), ['t1']);
+      expect(state.students, isEmpty);
+      expect(state.users.map((u) => u.id), contains('head1'));
       // The departments are taken only when both of their reads answered.
       expect(state.departments, isNot(contains('Computing')));
     });
 
     test('signing out mid-load leaves none of the answers behind', () async {
       final (state, store) = await start();
-      store.studentRecords = [
-        Student(
-          id: 'rec1',
-          name: 'Sam Assistant',
-          email: 'sam@example.com',
-          department: 'Computing',
-        ),
-      ];
-      store.tasksOfUser = [_task('t1', 'Sort files')];
+      store.studentRecords = [_student1()];
       store.hold('students');
 
       final signIn = state.login(_head);
@@ -411,8 +405,7 @@ void main() {
       await signIn;
 
       expect(state.students, isEmpty);
-      expect(state.tasks, isEmpty);
-      expect(store.started('tasks'), isFalse);
+      expect(store.started('applications'), isFalse);
     });
   });
 
@@ -426,50 +419,84 @@ void main() {
       expect(store.log, isEmpty);
     });
 
-    test('the Head applications are read after the rehire step', () async {
-      final (state, store) = await start();
-      store.documentRecords = [_document()];
-      store.hold('rehire');
+    test(
+      'the Head applications are read after a due decision is saved',
+      () async {
+        final (state, store) = await start();
+        // Due (an earlier term), and for someone with no account, so putting it
+        // into effect only marks it applied.
+        store.rehireDecisions = [
+          RehireRecord(
+            id: 'r1',
+            studentId: 'ghost',
+            studentName: 'Gone Student',
+            academicYear: '2025-2026',
+            semester: '1st Semester',
+            decision: 'Rehired',
+            decidedById: 'head1',
+            decidedByName: 'Hana Head',
+            decidedAt: 'Oct 1, 2026',
+          ),
+        ];
+        store.hold('setRehire');
 
-      final signIn = state.login(_head);
-      await _settle();
+        final signIn = state.login(_head);
+        await _settle();
 
-      expect(store.started('rehire'), isTrue);
-      expect(store.started('applications'), isFalse);
+        expect(store.started('setRehire'), isTrue);
+        expect(store.started('applications'), isFalse);
 
-      store.release('rehire');
-      await signIn;
-      expect(store.at('end:rehire'), lessThan(store.at('start:applications')));
-      expect(state.documents.map((d) => d.id), ['d1']);
-    });
+        store.release('setRehire');
+        await signIn;
+        expect(
+          store.at('end:setRehire'),
+          lessThan(store.at('start:applications')),
+        );
+        expect(store.savedRehire.single.applied, isTrue);
+        expect(state.rehireRecords.single.applied, isTrue);
+      },
+    );
+
+    test(
+      'the Head has a live query for every list the load no longer reads',
+      () async {
+        final (state, store) = await start();
+
+        await state.login(_head);
+
+        expect(
+          store._streams.keys,
+          containsAll([
+            'attendance',
+            'tasks',
+            'headForwards',
+            'reports',
+            'evaluations',
+            'documents',
+            'classSchedules',
+            'programs',
+            'screeningRecords',
+          ]),
+        );
+      },
+    );
 
     test('a failed read replaces what an earlier load left', () async {
       final (state, store) = await start();
-      store.studentRecords = [
-        Student(
-          id: 'rec1',
-          name: 'Sam Assistant',
-          email: 'sam@example.com',
-          department: 'Computing',
-        ),
-      ];
-      store.tasksOfUser = [_task('t1', 'Sort files')];
+      store.studentRecords = [_student1()];
       await state.login(_head);
       expect(state.students, isNotEmpty);
-      expect(state.tasks, isNotEmpty);
 
-      store.failing.addAll(['students', 'tasks']);
+      store.failing.add('students');
       await state.login(_head);
 
       expect(state.students, isEmpty);
-      expect(state.tasks, isEmpty);
     });
 
     test(
-      'signing out while the skills are saved keeps the files out',
+      'signing out while the skills are saved keeps the applications out',
       () async {
         final (state, store) = await start();
-        store.documentRecords = [_document()];
         store.applicationRecords = [
           Application(
             id: 'app1',
@@ -492,7 +519,6 @@ void main() {
         store.release('setSkill');
         await signIn;
 
-        expect(state.documents, isEmpty);
         expect(state.applications, isEmpty);
       },
     );
@@ -629,7 +655,7 @@ void main() {
 
     test('a role change drops what the new role does not read', () async {
       final (state, store) = await start();
-      store.documentRecords = [_document()];
+      store.studentRecords = [_student1()];
       store.applicationRecords = [
         Application(
           id: 'app1',
@@ -642,7 +668,7 @@ void main() {
       ];
       await state.login(_head);
       expect(state.applications, isNotEmpty);
-      expect(state.documents, isNotEmpty);
+      expect(state.students, isNotEmpty);
 
       store
           .docController('users/head1')
@@ -651,7 +677,7 @@ void main() {
 
       expect(state.currentUser?.role, 'Supervisor');
       expect(state.applications, isEmpty);
-      expect(state.documents, isEmpty);
+      expect(state.students, isEmpty);
       expect(state.users.map((u) => u.id), contains('head1'));
     });
   });
