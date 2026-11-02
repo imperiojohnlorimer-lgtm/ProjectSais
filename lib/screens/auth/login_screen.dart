@@ -66,7 +66,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _notice = null;
       _unverified = false;
     });
-    await Future.delayed(const Duration(milliseconds: 800));
 
     final appState = context.read<AppState>();
 

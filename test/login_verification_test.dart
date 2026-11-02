@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -13,6 +15,9 @@ class _FakeAuthState extends AppState {
     message: 'A new verification link was sent to juan@gmail.com.',
   );
   int signIns = 0;
+
+  /// When set, a sign-in waits for it, as a real one waits for Firebase.
+  Completer<void>? hold;
   int linksSent = 0;
 
   /// What the last sign-in asked for ("Remember me" ticked or not).
@@ -26,6 +31,7 @@ class _FakeAuthState extends AppState {
   }) async {
     signIns++;
     lastRemember = remember;
+    await hold?.future;
     return signInAnswer;
   }
 
@@ -139,10 +145,13 @@ void main() {
     tester,
   ) async {
     final state = await pumpLogin(tester);
+    state.hold = Completer<void>();
     await tester.tap(find.text('Log In'));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.showKeyboard(find.byType(TextField).at(1));
     await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump(const Duration(milliseconds: 100));
+    state.hold!.complete();
     await tester.pumpAndSettle();
 
     expect(state.signIns, 1);

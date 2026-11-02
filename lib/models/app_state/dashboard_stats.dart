@@ -121,19 +121,32 @@ extension AppStateDashboardStats on AppState {
     }
   }
 
-  Future<void> checkSystemStatus() async {
+  /// Checks the services behind the dashboard's health indicators. When it
+  /// runs for a sign-in load ([forUserId]), an answer that arrives after that
+  /// account signed out is dropped.
+  Future<void> checkSystemStatus({String? forUserId}) async {
     _firestoreService ??= FirestoreService();
+    final service = _firestoreService!;
+    // Both pings go out together.
+    final dbPing = service
+        .pingAnnouncements()
+        .then<int?>((ping) => ping)
+        .catchError((_) => null);
+    final reportsPing = service
+        .pingReports()
+        .then<int?>((ping) => ping)
+        .catchError((_) => null);
+    final ping = await dbPing;
+    final pingR = await reportsPing;
+    if (_disposed || (forUserId != null && currentUser?.id != forUserId)) {
+      return;
+    }
+
     // Check Firestore latency
-    try {
-      final ping = await _firestoreService!.pingAnnouncements();
-      if (ping >= 0) {
-        dbHealthy = true;
-        responseTimeMs = ping;
-      } else {
-        dbHealthy = false;
-        responseTimeMs = 0;
-      }
-    } catch (_) {
+    if (ping != null && ping >= 0) {
+      dbHealthy = true;
+      responseTimeMs = ping;
+    } else {
       dbHealthy = false;
       responseTimeMs = 0;
     }
@@ -147,12 +160,7 @@ extension AppStateDashboardStats on AppState {
     }
 
     // Reports collection check
-    try {
-      final pingR = await _firestoreService!.pingReports();
-      reportsHealthy = pingR >= 0;
-    } catch (_) {
-      reportsHealthy = false;
-    }
+    reportsHealthy = pingR != null && pingR >= 0;
 
     _notify();
   }

@@ -47,6 +47,26 @@ class QrClockResult {
 }
 
 /// The pages a signed-out visitor can see: `/`, `/login` and `/register`.
+/// One read's answer, or the error it ended in, so reads can run together and
+/// each still fall back on its own.
+class _Fetched<T> {
+  _Fetched._(this._value, this.error);
+  final T? _value;
+  final Object? error;
+  bool get ok => error == null;
+
+  /// The answer; only for a read that [ok].
+  T get data => _value as T;
+}
+
+Future<_Fetched<T>> _fetch<T>(Future<T> Function() read) async {
+  try {
+    return _Fetched<T>._(await read(), null);
+  } catch (error) {
+    return _Fetched<T>._(null, error);
+  }
+}
+
 enum PublicPage { landing, login, register, privacy }
 
 class AppState extends ChangeNotifier {
@@ -1942,6 +1962,11 @@ class AppState extends ChangeNotifier {
   bool _loadIsStale(int generation) =>
       _disposed || currentUser == null || generation != _liveGeneration;
 
+  /// Loads the signed-in account's data. Reads that don't depend on each other
+  /// run together, so a phone pays the network round trip once per step
+  /// instead of once per collection; every answer is then applied in the order
+  /// it always was. Steps that rewrite records (closing an academic year,
+  /// rehiring) still run before the reads that could see their changes.
   Future<void> _loadAllFromFirestore() async {
     _firestoreService ??= FirestoreService();
     final service = _firestoreService!;
@@ -1950,210 +1975,223 @@ class AppState extends ChangeNotifier {
     // another session began meanwhile, this load's answers belong to nobody
     // (a private list must not reappear for the next person), so it stops.
     bool overtaken() => _loadIsStale(generation);
+    // Nobody is signed in (a visitor on the landing page): every private read
+    // would be refused, so there is nothing to load.
+    if (overtaken()) return;
     try {
+      final isStaff = role == 'Head' || role == 'Supervisor' || role == 'Admin';
+      final isHeadOrSupervisor = role == 'Head' || role == 'Supervisor';
+      final isHead = role == 'Head';
+
+      // Step 1: everything that nothing below rewrites.
+      final usersRead = _fetch(() => service.getAllUserProfiles());
+      final settingsRead = _fetch(() => service.getAcademicYearSettings());
+      final archivesRead = _fetch(() => service.getAcademicYearArchives());
+      final officesRead = _fetch(() => service.getAllOffices());
+      final departmentsRead = _fetch(() => service.getAllDepartments());
+      final codesRead = _fetch(() => service.getDepartmentCodes());
+      final programsRead = _fetch(() => service.getAllPrograms());
+      final skillsRead = _fetch(() => service.getAllSkills());
+      final screeningRead = _fetch(() => service.getAllScreeningRecords());
+      final studentsRead = _fetch(() => service.getAllStudents());
+      final attendanceRead = _fetch(() async {
+        final raw = isStaff
+            ? await service.getAllAttendance()
+            : await service.getAttendanceForStudent(currentUser!.id);
+        return raw.map((m) => AttendanceRecord.fromJson(m)).toList();
+      });
+      final schedulesRead = _fetch(
+        () => isHeadOrSupervisor
+            ? service.getAllClassSchedules()
+            : service.getClassSchedulesForStudent(currentUser!.id),
+      );
+      final rehireRead = isHead
+          ? _fetch(() => service.getAllRehireRecords())
+          : null;
+      final forwardsRead = isHeadOrSupervisor
+          ? _fetch(() => service.getAllHeadForwards())
+          : null;
+      final documentsRead = _fetch(() => service.getAllDocuments());
+      await Future.wait<Object?>([
+        usersRead,
+        settingsRead,
+        archivesRead,
+        officesRead,
+        departmentsRead,
+        codesRead,
+        programsRead,
+        skillsRead,
+        screeningRead,
+        studentsRead,
+        attendanceRead,
+        schedulesRead,
+        ?rehireRead,
+        ?forwardsRead,
+        documentsRead,
+      ]);
+      if (overtaken()) return;
+
       // Users: prefer Firestore as source-of-truth, but keep currentUser if not present.
-      List<User> firestoreUsers = [];
-      try {
-        final fetched = await service.getAllUserProfiles();
-        if (overtaken()) return;
-        firestoreUsers = fetched;
-      } catch (error) {
-        debugPrint('Failed to load user profiles: $error');
+      final usersAnswer = await usersRead;
+      final firestoreUsers = usersAnswer.ok ? usersAnswer.data : <User>[];
+      if (!usersAnswer.ok) {
+        debugPrint('Failed to load user profiles: ${usersAnswer.error}');
       }
 
-      Map<String, dynamic>? academicSettings;
-      try {
-        academicSettings = await service.getAcademicYearSettings();
-      } catch (error) {
-        debugPrint('Failed to load academic settings: $error');
+      final settingsAnswer = await settingsRead;
+      final academicSettings = settingsAnswer.ok ? settingsAnswer.data : null;
+      if (!settingsAnswer.ok) {
+        debugPrint('Failed to load academic settings: ${settingsAnswer.error}');
       }
-      if (overtaken()) return;
       if (academicSettings != null) _applyAcademicSettings(academicSettings);
-      try {
-        final fetched = await service.getAcademicYearArchives();
-        if (overtaken()) return;
-        academicYearArchives = fetched;
-      } catch (_) {
-        if (overtaken()) return;
-        academicYearArchives = [];
+      final archivesAnswer = await archivesRead;
+      academicYearArchives = archivesAnswer.ok ? archivesAnswer.data : [];
+      final officesAnswer = await officesRead;
+      offices = officesAnswer.ok ? officesAnswer.data : [];
+      final departmentsAnswer = await departmentsRead;
+      final codesAnswer = await codesRead;
+      if (departmentsAnswer.ok && codesAnswer.ok) {
+        departments = departmentsAnswer.data;
+        departmentCodes = codesAnswer.data;
       }
-      try {
-        final fetched = await service.getAllOffices();
-        if (overtaken()) return;
-        offices = fetched;
-      } catch (_) {
-        if (overtaken()) return;
-        offices = [];
+      final programsAnswer = await programsRead;
+      if (programsAnswer.ok) {
+        try {
+          programs = _sortedPrograms(programsAnswer.data);
+        } catch (_) {}
       }
-      try {
-        final storedDepartments = await service.getAllDepartments();
-        final codes = await service.getDepartmentCodes();
-        if (overtaken()) return;
-        departments = storedDepartments;
-        departmentCodes = codes;
-      } catch (_) {}
-      try {
-        final fetched = await service.getAllPrograms();
-        if (overtaken()) return;
-        programs = _sortedPrograms(fetched);
-      } catch (_) {}
-      try {
-        final fetched = await service.getAllSkills();
-        if (overtaken()) return;
-        _setSkills(fetched);
-      } catch (_) {}
-      try {
-        final fetched = await service.getAllScreeningRecords();
-        if (overtaken()) return;
-        screeningRecords = _dedupeScreeningRecords(fetched);
-      } catch (_) {}
+      final skillsAnswer = await skillsRead;
+      if (skillsAnswer.ok) {
+        try {
+          _setSkills(skillsAnswer.data);
+        } catch (_) {}
+      }
+      final screeningAnswer = await screeningRead;
+      if (screeningAnswer.ok) {
+        try {
+          screeningRecords = _dedupeScreeningRecords(screeningAnswer.data);
+        } catch (_) {}
+      }
 
       // Students
-      try {
-        final fsStudents = await service.getAllStudents();
-        if (overtaken()) return;
-        students = fsStudents;
-      } catch (_) {
-        if (overtaken()) return;
-        students = [];
-      }
+      final studentsAnswer = await studentsRead;
+      students = studentsAnswer.ok ? studentsAnswer.data : [];
 
-      if (overtaken()) return;
       _setAllUsers(firestoreUsers);
 
       // Attendance
-      try {
-        final rawAttendance =
-            (role == 'Head' || role == 'Supervisor' || role == 'Admin')
-            ? await service.getAllAttendance()
-            : await service.getAttendanceForStudent(currentUser!.id);
-        if (overtaken()) return;
-        attendance = rawAttendance
-            .map((m) => AttendanceRecord.fromJson(m))
-            .toList();
-      } catch (_) {
-        if (overtaken()) return;
-        attendance = [];
-      }
+      final attendanceAnswer = await attendanceRead;
+      attendance = attendanceAnswer.ok ? attendanceAnswer.data : [];
 
       // Class Schedules (weekly, used to auto-fill DTR/Accomplishment
       // Report's Class Schedule grid)
-      try {
-        final fetched = (role == 'Head' || role == 'Supervisor')
-            ? await service.getAllClassSchedules()
-            : await service.getClassSchedulesForStudent(currentUser!.id);
-        if (overtaken()) return;
-        classSchedules = fetched;
-      } catch (_) {
-        if (overtaken()) return;
-        classSchedules = [];
-      }
-      if (overtaken()) return;
+      final schedulesAnswer = await schedulesRead;
+      classSchedules = schedulesAnswer.ok ? schedulesAnswer.data : [];
       await _archiveFinishedAcademicYears(academicSettings);
+      if (overtaken()) return;
       await _restampUndoneAcademicYear();
       if (overtaken()) return;
 
+      // Step 2: the records closing or undoing a year rewrites.
+      final tasksRead = _fetch<List<Task>>(() async {
+        if (isHeadOrSupervisor) return service.getAllTasks();
+        final uid = currentUser!.id;
+        final direct = _fetch(() => service.getTasksForUser(uid));
+        final assigned = _fetch(() async {
+          final studentIds = await service.getStudentIdsForUser(uid);
+          return service.getTasksForAssigneeIds(studentIds);
+        });
+        // No lookup by name: the Firestore rules only share a task with
+        // the account it is assigned to, since anyone can register under
+        // a classmate's name.
+        final byUser = await direct;
+        final byAssignee = await assigned;
+        return [
+          if (byUser.ok) ...byUser.data,
+          if (byAssignee.ok) ...byAssignee.data,
+        ];
+      });
+      final reportsRead = _fetch(
+        // By account only, never by name — see Tasks above.
+        () => isStaff
+            ? service.getAllReports()
+            : service.getReportsForApplicant(currentUser!.id),
+      );
+      final evaluationsRead = _fetch(() => service.getAllEvaluations());
+      // The Head's rehire steps below come before this read; for the others
+      // nothing does, so it goes now.
+      final earlyApplicationsRead = isHead
+          ? null
+          : _fetch(() => service.getAllApplications());
+      await Future.wait<Object?>([
+        tasksRead,
+        reportsRead,
+        evaluationsRead,
+        ?earlyApplicationsRead,
+      ]);
+      if (overtaken()) return;
+
       // Tasks
-      try {
-        final fsTasks = <Task>[];
-        if (role == 'Head' || role == 'Supervisor') {
-          fsTasks.addAll(await service.getAllTasks());
-        } else {
-          try {
-            fsTasks.addAll(await service.getTasksForUser(currentUser!.id));
-          } catch (_) {}
-          try {
-            final studentIds = await service.getStudentIdsForUser(
-              currentUser!.id,
-            );
-            fsTasks.addAll(await service.getTasksForAssigneeIds(studentIds));
-          } catch (_) {}
-          // No lookup by name: the Firestore rules only share a task with
-          // the account it is assigned to, since anyone can register under
-          // a classmate's name.
-        }
-        if (overtaken()) return;
+      final tasksAnswer = await tasksRead;
+      if (tasksAnswer.ok) {
         final taskById = <String, Task>{
-          for (final task in fsTasks) task.id: task,
+          for (final task in tasksAnswer.data) task.id: task,
         };
         tasks = taskById.values.toList();
-      } catch (_) {
-        if (overtaken()) return;
+      } else {
         tasks = [];
       }
 
       // Reports
-      try {
-        final fsReports =
-            (role == 'Head' || role == 'Supervisor' || role == 'Admin')
-            ? await service.getAllReports()
-            // By account only, never by name — see Tasks above.
-            : await service.getReportsForApplicant(currentUser!.id);
-        if (overtaken()) return;
-        reports = fsReports;
-      } catch (_) {
-        if (overtaken()) return;
-        reports = [];
-      }
+      final reportsAnswer = await reportsRead;
+      reports = reportsAnswer.ok ? reportsAnswer.data : [];
 
       // Performance Evaluations
-      try {
-        final fsEvaluations = await service.getAllEvaluations();
-        if (overtaken()) return;
-        evaluations = fsEvaluations;
-      } catch (_) {
-        if (overtaken()) return;
-        evaluations = [];
-      }
+      final evaluationsAnswer = await evaluationsRead;
+      evaluations = evaluationsAnswer.ok ? evaluationsAnswer.data : [];
 
       // Rehire decisions. Any whose term has started since they were made
       // are put into effect now — only a Head may change the roster records
       // involved, so this runs in the Head's session.
-      if (role == 'Head') {
+      if (isHead) {
+        final rehireAnswer = await rehireRead!;
         try {
-          final fetched = await service.getAllRehireRecords();
-          if (overtaken()) return;
-          rehireRecords = fetched;
+          if (!rehireAnswer.ok) throw rehireAnswer.error!;
+          rehireRecords = rehireAnswer.data;
           await _applyDueRehireDecisions();
         } catch (_) {
           if (overtaken()) return;
           rehireRecords = [];
         }
+        if (overtaken()) return;
         await _syncOfficeAssignments();
+        if (overtaken()) return;
         await _moveSchedulesToAccounts(firestoreUsers);
+        if (overtaken()) return;
       }
 
       // Items supervisors have forwarded to the Head.
-      if (role == 'Head' || role == 'Supervisor') {
-        try {
-          final fetched = await service.getAllHeadForwards();
-          if (overtaken()) return;
-          headForwards = fetched;
-        } catch (_) {
-          if (overtaken()) return;
-          headForwards = [];
-        }
+      if (forwardsRead != null) {
+        final forwardsAnswer = await forwardsRead;
+        headForwards = forwardsAnswer.ok ? forwardsAnswer.data : [];
       }
 
       // Applications
+      final applicationsAnswer = await (earlyApplicationsRead ??
+          _fetch(() => service.getAllApplications()));
+      if (overtaken()) return;
       try {
-        final fsApps = await service.getAllApplications();
-        if (overtaken()) return;
-        applications = fsApps;
+        if (!applicationsAnswer.ok) throw applicationsAnswer.error!;
+        applications = applicationsAnswer.data;
         await _syncApprovedApplicationSkills();
       } catch (_) {
         if (overtaken()) return;
         applications = [];
       }
       // Documents
-      try {
-        final fsDocs = await service.getAllDocuments();
-        if (overtaken()) return;
-        documents = fsDocs;
-      } catch (_) {
-        if (overtaken()) return;
-        documents = [];
-      }
+      final documentsAnswer = await documentsRead;
+      if (overtaken()) return;
+      documents = documentsAnswer.ok ? documentsAnswer.data : [];
       if (overtaken()) return;
       notifications = [];
 
@@ -2164,8 +2202,8 @@ class AppState extends ChangeNotifier {
           )) {
         users = [currentUser!, ...users];
       }
-      // Check system health after loading data
-      await checkSystemStatus();
+      // Health indicators for the dashboard: nothing waits on them.
+      unawaited(checkSystemStatus(forUserId: currentUser?.id));
     } catch (error) {
       // If Firestore isn't available, keep lists empty to avoid showing mock data
       debugPrint('Failed to load data from Firestore: $error');

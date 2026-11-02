@@ -24,6 +24,18 @@
           },
           { "key": "X-Frame-Options", "value": "DENY" }
         ]
+      },
+      {
+        "source": "/assets/assets/images/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
+      },
+      {
+        "source": "/assets/assets/fonts/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
+      },
+      {
+        "source": "/icons/**",
+        "headers": [{ "key": "Cache-Control", "value": "public, max-age=86400" }]
       }
     ],
     "rewrites": [
