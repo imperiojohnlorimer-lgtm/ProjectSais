@@ -1046,10 +1046,18 @@ class _PayrollScreenState extends State<PayrollScreen> {
           ),
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _busyAction != null ? null : () => _openSheet(state),
+            // The sheet copies in what is loaded now: not before it has all
+            // arrived, or it would hold part of the pay.
+            onPressed: _busyAction != null || !state.payrollSheetsLoaded
+                ? null
+                : () => _openSheet(state),
             icon: const Icon(Icons.edit_document, size: 16),
             label: Text(
-              hasSavedSheet ? 'Edit Payroll Sheet' : 'Prepare Payroll Sheet',
+              !state.payrollSheetsLoaded
+                  ? 'Loading payroll data…'
+                  : hasSavedSheet
+                  ? 'Edit Payroll Sheet'
+                  : 'Prepare Payroll Sheet',
             ),
             style: OutlinedButton.styleFrom(
               foregroundColor: AppTheme.maroon,

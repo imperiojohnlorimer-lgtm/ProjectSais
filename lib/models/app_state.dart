@@ -120,6 +120,11 @@ class AppState extends ChangeNotifier {
   /// True from the moment a signed-in user is known until their listeners
   /// start (the initial fetches in between can be slow): pages show loading.
   bool _loadPending = false;
+
+  /// The first answers of this sign-in's live queries have all come in (or
+  /// failed, or timed out), so pages may show what they hold. Stays true for
+  /// the rest of the session, so a "Try again" doesn't blank the page.
+  bool _initialDataSeen = false;
   Timer? _loadTimeout;
 
   /// Set by [dispose], so work that finishes afterwards does nothing.
@@ -447,6 +452,7 @@ class AppState extends ChangeNotifier {
     if (_disposed) return;
     _loadTimeout?.cancel();
     _loadPending = true;
+    _initialDataSeen = false;
     _loadTimeout = Timer(loadTimeout, () {
       _loadPending = false;
       notifyListeners();
@@ -483,6 +489,7 @@ class AppState extends ChangeNotifier {
     _loadOk.clear();
     _loadFailures.clear();
     _loadTracking = false;
+    _initialDataSeen = false;
   }
 
   /// What the members in the `part` files call to tell listeners: the
@@ -537,6 +544,16 @@ class AppState extends ChangeNotifier {
       }
     }
     return true;
+  }
+
+  /// Whether the signed-in account's live queries have each answered once
+  /// since sign-in, so the shell can open the page instead of a loading
+  /// state. A failed or timed-out query counts as answered (the problem
+  /// banner says so), so this never waits forever. Once true it stays true
+  /// until the next sign-in or role change.
+  bool get initialDataReady {
+    if (!_initialDataSeen && isLoaded('')) _initialDataSeen = true;
+    return _initialDataSeen;
   }
 
   /// (Re)starts the Firestore listeners. Called on app start and again after
@@ -1092,6 +1109,11 @@ class AppState extends ChangeNotifier {
       // The old role's listeners go first; a sign-out (or another change)
       // while the data loads makes this reload stale.
       _stopRealtimeListeners();
+      // What the old role could read must not outlive it: the lists the new
+      // role's queries don't cover would keep it (a Supervisor would keep the
+      // Head's applications).
+      _forgetAccountData();
+      _listCurrentUser();
       _beginLoadPending();
       final generation = _liveGeneration;
       _loadAllFromFirestore().then((_) {
@@ -1328,6 +1350,7 @@ class AppState extends ChangeNotifier {
 
     // Load role-scoped data after the authenticated profile is established.
     // Without this, login can briefly show empty lists until a browser refresh.
+    _beginLoadPending();
     await _loadAllFromFirestore();
     await _loadNotificationsForCurrentUser();
     _startRealtimeListeners();
@@ -1962,6 +1985,73 @@ class AppState extends ChangeNotifier {
   bool _loadIsStale(int generation) =>
       _disposed || currentUser == null || generation != _liveGeneration;
 
+  /// Puts the signed-in account in [users] when it isn't there (people who
+  /// can't list accounts have no Users query to bring it).
+  void _listCurrentUser() {
+    final me = currentUser;
+    if (me == null) return;
+    final listed = users.any(
+      (u) =>
+          u.id == me.id || u.email.toLowerCase() == me.email.toLowerCase(),
+    );
+    if (!listed) users = [me, ...users];
+  }
+
+  /// The sign-in load for a role whose live queries (started right after)
+  /// already deliver its lists: only the academic year settings, so the year
+  /// is right from the first frame, and the archive list, which has no live
+  /// query. The Admin also reads the accounts: the year-end notices to the
+  /// Heads are worked out right after the live queries start, before their
+  /// first answers.
+  Future<void> _loadWhatListenersDont(
+    FirestoreService service,
+    bool Function() overtaken,
+  ) async {
+    try {
+      final settingsRead = _fetch(() => service.getAcademicYearSettings());
+      final archivesRead = _fetch(() => service.getAcademicYearArchives());
+      final usersRead = role == 'Admin'
+          ? _fetch(() => service.getAllUserProfiles())
+          : null;
+      await Future.wait<Object?>([settingsRead, archivesRead, ?usersRead]);
+      if (overtaken()) return;
+      final settingsAnswer = await settingsRead;
+      if (settingsAnswer.ok) {
+        final settings = settingsAnswer.data;
+        if (settings != null) _applyAcademicSettings(settings);
+      } else {
+        debugPrint('Failed to load academic settings: ${settingsAnswer.error}');
+      }
+      final archivesAnswer = await archivesRead;
+      academicYearArchives = archivesAnswer.ok ? archivesAnswer.data : [];
+      if (usersRead != null) {
+        final usersAnswer = await usersRead;
+        _setAllUsers(usersAnswer.ok ? usersAnswer.data : <User>[]);
+      }
+      notifications = [];
+      _listCurrentUser();
+      // Health indicators for the dashboard: nothing waits on them.
+      unawaited(checkSystemStatus(forUserId: currentUser?.id));
+    } catch (error) {
+      debugPrint('Failed to load data from Firestore: $error');
+    }
+  }
+
+  /// Reads the archive list again ("Try again" after it failed). Only for the
+  /// roles whose sign-in load is [_loadWhatListenersDont]; the Head's full load
+  /// handles the archives itself.
+  Future<void> _refreshArchives() async {
+    if (_disposed || currentUser == null || role == 'Head') return;
+    final generation = _liveGeneration;
+    _firestoreService ??= FirestoreService();
+    final answer = await _fetch(
+      () => _firestoreService!.getAcademicYearArchives(),
+    );
+    if (_loadIsStale(generation) || !answer.ok) return;
+    academicYearArchives = answer.data;
+    _notify();
+  }
+
   /// Loads the signed-in account's data. Reads that don't depend on each other
   /// run together, so a phone pays the network round trip once per step
   /// instead of once per collection; every answer is then applied in the order
@@ -1978,6 +2068,12 @@ class AppState extends ChangeNotifier {
     // Nobody is signed in (a visitor on the landing page): every private read
     // would be refused, so there is nothing to load.
     if (overtaken()) return;
+    // The live queries of every role but the Head's deliver what the full load
+    // below would read again, so only what they don't cover is read here.
+    if (role != 'Head') {
+      await _loadWhatListenersDont(service, overtaken);
+      return;
+    }
     try {
       final isStaff = role == 'Head' || role == 'Supervisor' || role == 'Admin';
       final isHeadOrSupervisor = role == 'Head' || role == 'Supervisor';

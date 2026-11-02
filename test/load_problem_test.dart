@@ -9,6 +9,7 @@ import 'package:provider/provider.dart';
 import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
+import 'package:projectsais/screens/accounts/payroll_screen.dart';
 import 'package:projectsais/screens/app_shell.dart';
 import 'package:projectsais/screens/student_portal/student_portal_shell.dart';
 import 'package:projectsais/theme/app_theme.dart';
@@ -18,7 +19,8 @@ import 'package:projectsais/widgets/load_problem_banner.dart';
 /// does), so a test can answer or fail each, and count how often one was
 /// opened again.
 class _Fake extends FirestoreService {
-  final streams = <String, List<StreamController<List<Map<String, dynamic>>>>>{};
+  final streams =
+      <String, List<StreamController<List<Map<String, dynamic>>>>>{};
   final docs = <String, List<StreamController<Map<String, dynamic>?>>>{};
 
   Stream<List<Map<String, dynamic>>> _open(String key) {
@@ -178,20 +180,26 @@ void main() {
     expect(state.hasLoadProblem, isFalse);
   });
 
-  test('a student\'s by-name fallbacks are refused without a warning', () async {
-    final (state, fake) = await _signedIn(_student);
+  test(
+    'a student\'s by-name fallbacks are refused without a warning',
+    () async {
+      final (state, fake) = await _signedIn(_student);
 
-    fake.fail('reports.studentName=Sam Student', 'permission-denied');
-    fake.fail('tasks.assignedToName=Sam Student', 'permission-denied');
-    await _settle();
+      fake.fail('reports.studentName=Sam Student', 'permission-denied');
+      fake.fail('tasks.assignedToName=Sam Student', 'permission-denied');
+      await _settle();
 
-    expect(state.hasLoadProblem, isFalse);
-    // They count as answered, so nothing waits on them.
-    expect(state.isLoaded('Reports'), isFalse); // 'Reports: own' still to come
-    fake.push('reports.applicantId=stu1');
-    await _settle();
-    expect(state.isLoaded('Reports'), isTrue);
-  });
+      expect(state.hasLoadProblem, isFalse);
+      // They count as answered, so nothing waits on them.
+      expect(
+        state.isLoaded('Reports'),
+        isFalse,
+      ); // 'Reports: own' still to come
+      fake.push('reports.applicantId=stu1');
+      await _settle();
+      expect(state.isLoaded('Reports'), isTrue);
+    },
+  );
 
   test('a list the student does need failing is reported', () async {
     final (state, fake) = await _signedIn(_student);
@@ -249,6 +257,40 @@ void main() {
 
     expect(fake.opened('applications'), 0);
     expect(state.isLoaded('Applications'), isTrue);
+  });
+
+  test('a report is worked out only from records that all arrived', () async {
+    final sup = User(
+      id: 's1',
+      name: 'Sol Sup',
+      email: 's@e.com',
+      role: 'Supervisor',
+    );
+    final (state, fake) = await _signedIn(sup);
+    await _settle();
+    expect(state.reportDataLoaded, isFalse);
+
+    fake.answerAll(profile: sup.toJson(), profileId: sup.id);
+    await _settle();
+    expect(state.reportDataLoaded, isTrue);
+
+    fake.fail('attendance', 'unavailable');
+    await _settle();
+    expect(state.reportDataLoaded, isFalse);
+  });
+
+  test('the saved payroll sheets count for opening a sheet', () async {
+    final (state, fake) = await _signedIn(_admin);
+    fake.answerAll(profile: _admin.toJson(), profileId: _admin.id);
+    await _settle();
+    expect(state.payrollSheetsLoaded, isTrue);
+
+    fake.fail('payrollSheets', 'unavailable');
+    await _settle();
+
+    // Approving does not need them; opening a sheet does.
+    expect(state.payrollDataLoaded, isTrue);
+    expect(state.payrollSheetsLoaded, isFalse);
   });
 
   test('signing out clears the problem', () async {
@@ -414,15 +456,9 @@ void main() {
   });
 
   group('the shell of each role', () {
-
     // (role, who signs in, the query to fail, the shell)
     final cases = <(String, User, String, Widget)>[
-      (
-        'Admin',
-        _admin,
-        'attendance',
-        const AppShell(),
-      ),
+      ('Admin', _admin, 'attendance', const AppShell()),
       (
         'Head',
         User(id: 'h1', name: 'Hana Head', email: 'h@e.com', role: 'Head'),
@@ -446,7 +482,12 @@ void main() {
         'attendance.sa1',
         const AppShell(),
       ),
-      ('Student', _student, 'tasks.assignedTo=stu1', const StudentPortalShell()),
+      (
+        'Student',
+        _student,
+        'tasks.assignedTo=stu1',
+        const StudentPortalShell(),
+      ),
     ];
 
     for (final (role, user, key, shell) in cases) {
@@ -486,4 +527,37 @@ void main() {
       });
     }
   });
+
+  testWidgets(
+    'Prepare Payroll Sheet waits until the payroll data has arrived',
+    (tester) async {
+      tester.view.physicalSize = const Size(1400, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      late AppState state;
+      late _Fake fake;
+      await tester.runAsync(() async {
+        (state, fake) = await _signedIn(_admin);
+      });
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: AppTheme.theme,
+            home: const Scaffold(body: PayrollScreen()),
+          ),
+        ),
+      );
+
+      expect(find.text('Loading payroll data…'), findsOneWidget);
+      expect(find.text('Prepare Payroll Sheet'), findsNothing);
+
+      fake.answerAll(profile: _admin.toJson(), profileId: _admin.id);
+      await tester.pump();
+      await tester.pump();
+
+      expect(find.text('Prepare Payroll Sheet'), findsOneWidget);
+      state.logout();
+    },
+  );
 }

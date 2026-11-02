@@ -1,5 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../models/app_state.dart';
 import '../theme/app_snackbar.dart';
 import '../theme/app_theme.dart';
 
@@ -407,6 +409,23 @@ class _TapTargetState extends State<TapTarget> {
         ),
       ),
     );
+  }
+}
+
+// ─── Initial data gate ──────────────────────────────
+/// Shows [child] once the signed-in account's live queries have each
+/// answered for the first time ([AppState.initialDataReady]), and a loading
+/// state before that, so a page never builds its first frame, or copies a
+/// list into something it keeps, from half-loaded data.
+class InitialDataGate extends StatelessWidget {
+  final Widget child;
+
+  const InitialDataGate({super.key, required this.child});
+
+  @override
+  Widget build(BuildContext context) {
+    final ready = context.select<AppState, bool>((s) => s.initialDataReady);
+    return ready ? child : const LoadingState();
   }
 }
 

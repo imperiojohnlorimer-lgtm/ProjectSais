@@ -41,6 +41,34 @@ extension AppStateLoadProblems on AppState {
     );
   }
 
+  /// Whether the saved payroll sheets have arrived too: opening a sheet
+  /// starts a new one when none is found, and saving that would replace the
+  /// one that is only missing from the screen.
+  bool get payrollSheetsLoaded =>
+      payrollDataLoaded &&
+      (!_loadTracking ||
+          !_loadExpected.contains('Payroll sheets') ||
+          _loadOk.contains('Payroll sheets'));
+
+  /// Whether what a DTR/Accomplishment Report is worked out from has arrived
+  /// without error: the attendance, tasks, accounts, students and class
+  /// schedules, wherever this role reads them. The report builder copies them
+  /// into fields the person then edits, so it must not start on part of them.
+  /// True when no listeners are running.
+  bool get reportDataLoaded {
+    if (!_loadTracking) return true;
+    const needed = [
+      'Attendance',
+      'Tasks',
+      'Users',
+      'Students',
+      'Class schedules',
+    ];
+    return needed.every(
+      (label) => !_loadExpected.contains(label) || _loadOk.contains(label),
+    );
+  }
+
   /// Opens the live queries afresh (a query that failed does not come back
   /// by itself) and completes once they have all answered, or after
   /// [AppState.loadTimeout]. Does nothing while the first load is under way,
@@ -65,6 +93,7 @@ extension AppStateLoadProblems on AppState {
 
   Future<void> _retryLoading() async {
     _startRealtimeListeners();
+    unawaited(_refreshArchives());
     final answered = Completer<void>();
     void check() {
       if (_loadReady.containsAll(_loadExpected) && !answered.isCompleted) {

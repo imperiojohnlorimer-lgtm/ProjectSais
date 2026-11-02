@@ -377,11 +377,16 @@ class _DtrAccomplishmentReportScreenState
                         ],
                       ),
                       ElevatedButton.icon(
-                        onPressed: () =>
-                            _openReportBuilder(context, state, student),
+                        // The builder copies the month's records into fields
+                        // to edit: not before they have all arrived.
+                        onPressed: state.reportDataLoaded
+                            ? () => _openReportBuilder(context, state, student)
+                            : null,
                         icon: const Icon(Icons.description_rounded, size: 16),
-                        label: const Text(
-                          'Generate Report',
+                        label: Text(
+                          state.reportDataLoaded
+                              ? 'Generate Report'
+                              : 'Loading records…',
                           style: TextStyle(
                             fontWeight: FontWeight.w700,
                             fontSize: 13,

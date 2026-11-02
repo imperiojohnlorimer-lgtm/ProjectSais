@@ -1,9 +1,12 @@
 import 'dart:async';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart' hide Evaluation;
+import 'package:provider/provider.dart';
 import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
+import 'package:projectsais/widgets/shared_widgets.dart';
 
 /// Answers the sign-in reads by hand: records when each starts and ends, can
 /// hold any of them until released, and can make any of them fail.
@@ -18,6 +21,7 @@ class _LoadStore extends FirestoreService {
   List<Task> tasksOfAssignee = [];
   List<Application> applicationRecords = [];
   List<Document> documentRecords = [];
+  List<Map<String, dynamic>> archiveRecords = [];
 
   void hold(String name) => _holds[name] = Completer<void>();
   void release(String name) => _holds[name]?.complete();
@@ -45,7 +49,7 @@ class _LoadStore extends FirestoreService {
       _read<Map<String, dynamic>?>('settings', null);
   @override
   Future<List<Map<String, dynamic>>> getAcademicYearArchives() =>
-      _read('archives', <Map<String, dynamic>>[]);
+      _read('archives', archiveRecords);
   @override
   Future<List<Office>> getAllOffices() => _read('offices', <Office>[]);
   @override
@@ -118,10 +122,68 @@ class _LoadStore extends FirestoreService {
     String userId,
   ) async => const [];
 
-  // The live listeners never answer here; these tests are about the load.
+  // The live listeners answer only when a test says so.
   final _streams = <String, StreamController<List<Map<String, dynamic>>>>{};
+  final _docs = <String, StreamController<Map<String, dynamic>?>>{};
+
+  StreamController<Map<String, dynamic>?> docController(String key) =>
+      _docs.putIfAbsent(key, StreamController.broadcast);
+
+  /// Every live query answers once, with nothing.
+  void pushAll() {
+    for (final c in _streams.values) {
+      c.add(<Map<String, dynamic>>[]);
+    }
+    for (final c in _docs.values) {
+      c.add(null);
+    }
+  }
+
+  /// Every live query answers once except [failing], which is refused.
+  void pushAllExcept(String failing) {
+    for (final e in _streams.entries) {
+      if (e.key == failing) {
+        e.value.addError(Exception('permission-denied'));
+      } else {
+        e.value.add(<Map<String, dynamic>>[]);
+      }
+    }
+    for (final c in _docs.values) {
+      c.add(null);
+    }
+  }
+
   StreamController<List<Map<String, dynamic>>> _stream(String key) =>
       _streams.putIfAbsent(key, StreamController.broadcast);
+
+  // The hand-written queries of the service, one stream each.
+  @override
+  Stream<List<Map<String, dynamic>>> announcementsStream() =>
+      _stream('announcements').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> attendanceStream() =>
+      _stream('attendance').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> attendanceStreamForStudent(String uid) =>
+      _stream('attendance.studentId=$uid').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> tasksStream() => _stream('tasks').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> applicationsStream() =>
+      _stream('applications').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> applicationsStreamForApplicant(
+    String uid,
+  ) => _stream('applications.applicantId=$uid').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> headForwardsStream() =>
+      _stream('headForwards').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> payrollRecordsStream() =>
+      _stream('payrollRecords').stream;
+  @override
+  Stream<List<Map<String, dynamic>>> payrollSheetsStream() =>
+      _stream('payrollSheets').stream;
 
   @override
   Stream<List<Map<String, dynamic>>> collectionStream(
@@ -146,10 +208,11 @@ class _LoadStore extends FirestoreService {
 
   @override
   Stream<Map<String, dynamic>?> docStream(String collection, String id) =>
-      StreamController<Map<String, dynamic>?>.broadcast().stream;
+      docController('$collection/$id').stream;
 }
 
 const _wave1 = [
+  'rehire',
   'users',
   'settings',
   'archives',
@@ -177,6 +240,18 @@ final _head = User(
   name: 'Hana Head',
   email: 'hana@example.com',
   role: 'Head',
+);
+final _admin = User(
+  id: 'ad1',
+  name: 'Ada Admin',
+  email: 'ada@example.com',
+  role: 'Admin',
+);
+final _student = User(
+  id: 'st1',
+  name: 'Stu Student',
+  email: 'stu@example.com',
+  role: 'Student',
 );
 final _assistant = User(
   id: 'sa1',
@@ -229,7 +304,7 @@ void main() {
         store.hold(name);
       }
 
-      final signIn = state.login(_supervisor);
+      final signIn = state.login(_head);
       await _settle();
 
       for (final name in _wave1) {
@@ -254,7 +329,7 @@ void main() {
       final (state, store) = await start();
       store.hold('schedules');
 
-      final signIn = state.login(_supervisor);
+      final signIn = state.login(_head);
       await _settle();
 
       expect(store.started('schedules'), isTrue);
@@ -274,7 +349,7 @@ void main() {
 
     test('everything is loaded and applied as before', () async {
       final (state, store) = await start();
-      store.userProfiles = [_supervisor];
+      store.userProfiles = [_head];
       store.studentRecords = [
         Student(
           id: 'rec1',
@@ -285,10 +360,10 @@ void main() {
       ];
       store.tasksOfUser = [_task('t1', 'Sort files')];
 
-      await state.login(_supervisor);
+      await state.login(_head);
 
       expect(state.students.map((s) => s.id), ['rec1']);
-      expect(state.users.map((u) => u.id), contains('sv1'));
+      expect(state.users.map((u) => u.id), contains('head1'));
       expect(state.tasks.map((t) => t.id), ['t1']);
       expect(state.departments, ['Computing']);
     });
@@ -306,7 +381,7 @@ void main() {
       store.tasksOfUser = [_task('t1', 'Sort files')];
       store.failing.addAll(['attendance', 'reports', 'codes']);
 
-      await state.login(_supervisor);
+      await state.login(_head);
 
       expect(state.attendance, isEmpty);
       expect(state.reports, isEmpty);
@@ -314,31 +389,6 @@ void main() {
       expect(state.tasks.map((t) => t.id), ['t1']);
       // The departments are taken only when both of their reads answered.
       expect(state.departments, isNot(contains('Computing')));
-    });
-
-    test('a student assistant\'s two task lookups run together', () async {
-      final (state, store) = await start();
-      store.tasksOfUser = [_task('t1', 'Own title'), _task('t2', 'Mine')];
-      store.tasksOfAssignee = [_task('t1', 'Assigned title')];
-      store.hold('tasksByUser');
-      store.hold('studentIds');
-
-      final signIn = state.login(_assistant);
-      await _settle();
-
-      expect(store.started('tasksByUser'), isTrue);
-      expect(store.started('studentIds'), isTrue);
-      expect(store.started('tasksByAssignee'), isFalse);
-
-      store.release('studentIds');
-      await _settle();
-      expect(store.started('tasksByAssignee'), isTrue);
-
-      store.release('tasksByUser');
-      await signIn;
-      // The same task found both ways is kept once, as the assignee's copy.
-      final byId = {for (final t in state.tasks) t.id: t.title};
-      expect(byId, {'t1': 'Assigned title', 't2': 'Mine'});
     });
 
     test('signing out mid-load leaves none of the answers behind', () async {
@@ -354,7 +404,7 @@ void main() {
       store.tasksOfUser = [_task('t1', 'Sort files')];
       store.hold('students');
 
-      final signIn = state.login(_supervisor);
+      final signIn = state.login(_head);
       await _settle();
       state.logout();
       store.release('students');
@@ -393,23 +443,6 @@ void main() {
       expect(state.documents.map((d) => d.id), ['d1']);
     });
 
-    test(
-      'a student assistant reads applications with the other records',
-      () async {
-        final (state, store) = await start();
-        store.hold('schedules');
-
-        final signIn = state.login(_assistant);
-        await _settle();
-        store.release('schedules');
-        await signIn;
-
-        expect(store.started('applications'), isTrue);
-        expect(store.started('rehire'), isFalse);
-        expect(store.started('forwards'), isFalse);
-      },
-    );
-
     test('a failed read replaces what an earlier load left', () async {
       final (state, store) = await start();
       store.studentRecords = [
@@ -421,12 +454,12 @@ void main() {
         ),
       ];
       store.tasksOfUser = [_task('t1', 'Sort files')];
-      await state.login(_supervisor);
+      await state.login(_head);
       expect(state.students, isNotEmpty);
       expect(state.tasks, isNotEmpty);
 
       store.failing.addAll(['students', 'tasks']);
-      await state.login(_supervisor);
+      await state.login(_head);
 
       expect(state.students, isEmpty);
       expect(state.tasks, isEmpty);
@@ -451,7 +484,7 @@ void main() {
         ];
         store.hold('setSkill');
 
-        final signIn = state.login(_supervisor);
+        final signIn = state.login(_head);
         await _settle();
         expect(store.started('setSkill'), isTrue);
 
@@ -463,6 +496,193 @@ void main() {
         expect(state.applications, isEmpty);
       },
     );
+  });
+
+  group('Sign-in without the duplicate reads', () {
+    const bulk = [
+      'students',
+      'attendance',
+      'schedules',
+      'tasks',
+      'tasksByUser',
+      'reports',
+      'evaluations',
+      'applications',
+      'documents',
+      'forwards',
+      'rehire',
+      'offices',
+      'programs',
+      'skills',
+      'departments',
+      'codes',
+      'screening',
+    ];
+
+    for (final user in [_supervisor, _admin, _assistant, _student]) {
+      test(
+        '${user.role}: only the settings and archives are read first',
+        () async {
+          final (state, store) = await start();
+          store.archiveRecords = [
+            {'id': '2025-2026'},
+          ];
+
+          await state.login(user);
+
+          expect(store.started('settings'), isTrue);
+          expect(store.started('archives'), isTrue);
+          for (final name in bulk) {
+            expect(
+              store.started(name),
+              isFalse,
+              reason: '$name is a live query',
+            );
+          }
+          // The Admin's year-end notices need the accounts at once.
+          expect(store.started('users'), user.role == 'Admin');
+          expect(state.currentUser?.role, user.role);
+          expect(state.users.map((u) => u.id), contains(user.id));
+          expect(state.academicYearArchives, hasLength(1));
+        },
+      );
+    }
+
+    test('a restored session lists the account', () async {
+      final store = _LoadStore();
+      final state = AppState(firestoreService: store)..currentUser = _assistant;
+      await state.init();
+
+      expect(state.users.map((u) => u.id), contains('sa1'));
+      expect(state.currentUser?.role, 'Student Assistant');
+    });
+
+    test(
+      'a student assistant keeps the role while the live queries are slow',
+      () async {
+        final (state, store) = await start();
+
+        await state.login(_assistant);
+        await _settle();
+
+        expect(state.currentUser?.role, 'Student Assistant');
+        expect(state.initialDataReady, isFalse);
+
+        store.pushAll();
+        await _settle();
+
+        expect(state.initialDataReady, isTrue);
+        expect(state.currentUser?.role, 'Student Assistant');
+        expect(state.currentUser?.id, 'sa1');
+      },
+    );
+
+    test(
+      'a live query that is refused still opens the page, with the banner',
+      () async {
+        final (state, store) = await start();
+        await state.login(_assistant);
+        await _settle();
+        expect(state.initialDataReady, isFalse);
+
+        store.pushAllExcept('attendance.studentId=sa1');
+        await _settle();
+
+        expect(state.initialDataReady, isTrue);
+        expect(state.hasLoadProblem, isTrue);
+      },
+    );
+
+    test('the page stays open when the queries are started again', () async {
+      final (state, store) = await start();
+      await state.login(_assistant);
+      await _settle();
+      store.pushAll();
+      await _settle();
+      expect(state.initialDataReady, isTrue);
+
+      final retry = state.retryLoading();
+      expect(state.initialDataReady, isTrue);
+      await _settle();
+      store.pushAll();
+      await retry;
+    });
+
+    test('Try again reads the archive list again', () async {
+      final (state, store) = await start();
+      store.archiveRecords = [
+        {'id': '2025-2026'},
+      ];
+      store.failing.add('archives');
+      await state.login(_assistant);
+      expect(state.academicYearArchives, isEmpty);
+
+      store.failing.clear();
+      final retry = state.retryLoading();
+      await _settle();
+      store.pushAll();
+      await retry;
+      await _settle();
+
+      expect(state.academicYearArchives, hasLength(1));
+    });
+
+    test('a role change drops what the new role does not read', () async {
+      final (state, store) = await start();
+      store.documentRecords = [_document()];
+      store.applicationRecords = [
+        Application(
+          id: 'app1',
+          announcementId: 'a1',
+          announcementTitle: Application.generalTitle,
+          applicantId: 'stu9',
+          applicantName: 'Stu Nine',
+          appliedAt: 'Oct 1, 2026',
+        ),
+      ];
+      await state.login(_head);
+      expect(state.applications, isNotEmpty);
+      expect(state.documents, isNotEmpty);
+
+      store
+          .docController('users/head1')
+          .add(_head.copyWith(role: 'Supervisor').toJson());
+      await _settle();
+
+      expect(state.currentUser?.role, 'Supervisor');
+      expect(state.applications, isEmpty);
+      expect(state.documents, isEmpty);
+      expect(state.users.map((u) => u.id), contains('head1'));
+    });
+  });
+
+  testWidgets('the page waits for the first answers', (tester) async {
+    final store = _LoadStore();
+    final state = AppState(firestoreService: store);
+    await tester.runAsync(() async {
+      await state.init();
+      await state.login(_assistant);
+    });
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppState>.value(
+        value: state,
+        child: const MaterialApp(
+          home: Scaffold(body: InitialDataGate(child: Text('the page'))),
+        ),
+      ),
+    );
+
+    expect(find.byType(LoadingState), findsOneWidget);
+    expect(find.text('the page'), findsNothing);
+
+    store.pushAll();
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('the page'), findsOneWidget);
+    expect(find.byType(LoadingState), findsNothing);
+    state.logout();
+    state.dispose();
   });
 
   group('Health check after sign-in', () {

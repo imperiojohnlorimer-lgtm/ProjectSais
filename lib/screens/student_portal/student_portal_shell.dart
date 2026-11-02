@@ -307,7 +307,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                     duration: const Duration(milliseconds: 200),
                     child: KeyedSubtree(
                       key: ValueKey(_tab),
-                      child: _body(),
+                      child: InitialDataGate(child: _body()),
                     ),
                   ),
                 ),

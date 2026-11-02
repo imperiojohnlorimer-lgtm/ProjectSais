@@ -1,6 +1,6 @@
 # Keeping SAIS inside Firestore's free read quota: a design
 
-**Status: proposal. Nothing here is built.** For the project owner to approve
+**Status: proposal. Step 0 is built for every role except the Head (2026-11-02):** their sign-in reads only the academic year settings and the archive list (the Admin also the accounts), and the live queries deliver the rest; the pages wait for the first answers (`AppState.initialDataReady`). The Head still runs the full load, because its start-up jobs need it. **Nothing else here is built.** For the project owner to approve
 before any code is written, because payroll and the DTR depend on the full
 attendance history and a mistake here shows up as wrong pay, not as a slow page.
 
