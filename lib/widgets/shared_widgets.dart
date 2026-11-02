@@ -360,6 +360,9 @@ class TapTarget extends StatefulWidget {
   final BorderRadius borderRadius;
   final Widget child;
 
+  /// The outline shown while it has keyboard focus.
+  final Color focusColor;
+
   const TapTarget({
     super.key,
     required this.onTap,
@@ -367,6 +370,7 @@ class TapTarget extends StatefulWidget {
     required this.child,
     this.selected = false,
     this.borderRadius = const BorderRadius.all(Radius.circular(12)),
+    this.focusColor = AppTheme.gold400,
   });
 
   @override
@@ -401,7 +405,7 @@ class _TapTargetState extends State<TapTarget> {
             foregroundDecoration: _focused
                 ? BoxDecoration(
                     borderRadius: widget.borderRadius,
-                    border: Border.all(color: AppTheme.gold400, width: 2),
+                    border: Border.all(color: widget.focusColor, width: 2),
                   )
                 : null,
             child: widget.child,

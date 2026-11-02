@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../utils/password_validator.dart';
+import '../../widgets/shared_widgets.dart';
+import '../landing/landing_widgets.dart' show LandingColors;
 import '../privacy/privacy_notice.dart';
 import 'auth_scaffold.dart';
 
@@ -68,6 +71,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
   }
 
   void _handleRegister() async {
+    // Enter and the button can both get here while one is under way.
+    if (_isLoading) return;
     final nameParts = PersonName(
       first: _firstNameCtrl.text,
       middle: _middleNameCtrl.text,
@@ -138,9 +143,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       _error = null;
       _passwordValidation = null;
     });
-    await Future.delayed(const Duration(milliseconds: 800));
 
-    if (!mounted) return;
     final user = User(
       id: 'u_${DateTime.now().millisecondsSinceEpoch}',
       name: nameParts.display,
@@ -175,6 +178,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
 
     setState(() => _isLoading = false);
+    // Registered: now the browser may offer to save the password.
+    TextInput.finishAutofillContext();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -217,22 +222,29 @@ class _RegisterScreenState extends State<RegisterScreen> {
       onBack: widget.onBack,
       brandPoints: const [
         AuthBrandPoint(
-          Icons.how_to_reg_outlined,
           'Apply once',
           'Submit your requirements online and follow where your application stands.',
         ),
         AuthBrandPoint(
-          Icons.school_outlined,
           'Built around your duty',
           'Your schedule, tasks, and accomplishment reports in one place.',
         ),
         AuthBrandPoint(
-          Icons.verified_user_outlined,
           'Verified accounts',
           'We email a verification link before your first login.',
         ),
       ],
-      children: _buildFormFields(),
+      children: [
+        // Lets the browser and password managers fill the fields and offer
+        // to save the new password. Leaving the page saves nothing.
+        AutofillGroup(
+          onDisposeAction: AutofillContextAction.cancel,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: _buildFormFields(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -253,25 +265,34 @@ class _RegisterScreenState extends State<RegisterScreen> {
       const SizedBox(height: 18),
 
       AuthFieldPair(
-        left: _nameField('First name', _firstNameCtrl, 'Juan'),
-        right: _nameField('Middle name', _middleNameCtrl, 'Optional'),
+        left: _nameField(
+          'First name',
+          _firstNameCtrl,
+          'Juan',
+          AutofillHints.givenName,
+        ),
+        right: _nameField(
+          'Middle name',
+          _middleNameCtrl,
+          'Optional',
+          AutofillHints.middleName,
+        ),
       ),
       const SizedBox(height: 18),
 
       AuthFieldPair(
-        left: _nameField('Last name', _lastNameCtrl, 'Dela Cruz'),
+        left: _nameField(
+          'Last name',
+          _lastNameCtrl,
+          'Dela Cruz',
+          AutofillHints.familyName,
+        ),
         right: AuthField(
           label: 'Suffix',
           child: DropdownButtonFormField<String>(
             initialValue: _suffix,
             isExpanded: true,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(
-                Icons.person_add_alt_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(),
             items: [
               const DropdownMenuItem(value: '', child: Text('None')),
               for (final s in PersonName.suffixes)
@@ -288,14 +309,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
         child: TextFormField(
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.email],
           onChanged: _clearError,
           decoration: const InputDecoration(
             hintText: 'juan@gmail.com or juan@marsu.edu.ph',
-            prefixIcon: Icon(
-              Icons.mail_outline_rounded,
-              color: AppTheme.maroon,
-              size: 20,
-            ),
           ),
         ),
       ),
@@ -303,9 +321,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       AuthField(
         label: 'Password',
+        merge: false,
         child: TextFormField(
           controller: _passwordCtrl,
           obscureText: _obscurePassword,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.newPassword],
           onChanged: (value) {
             if (_error != null) setState(() => _error = null);
             setState(
@@ -314,18 +335,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
           },
           decoration: InputDecoration(
             hintText: '••••••••',
-            prefixIcon: const Icon(
-              Icons.lock_outline_rounded,
-              color: AppTheme.maroon,
-              size: 20,
-            ),
             suffixIcon: IconButton(
               tooltip: 'Show or hide password',
               icon: Icon(
                 _obscurePassword
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
-                color: AppTheme.slate400,
+                color: LandingColors.muted,
                 size: 20,
               ),
               onPressed: () =>
@@ -350,16 +366,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: TextFormField(
             controller: _phoneCtrl,
             keyboardType: TextInputType.phone,
+            textInputAction: TextInputAction.next,
+            autofillHints: const [AutofillHints.telephoneNumber],
             inputFormatters: [PhoneNumberFormatter()],
             onChanged: _clearError,
-            decoration: const InputDecoration(
-              hintText: '09XX XXX XXXX',
-              prefixIcon: Icon(
-                Icons.phone_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(hintText: '09XX XXX XXXX'),
           ),
         ),
         right: AuthField(
@@ -367,16 +378,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: TextFormField(
             controller: _studentIdCtrl,
             textCapitalization: TextCapitalization.characters,
+            // Moves on to the dropdowns; it never submits the form.
+            textInputAction: TextInputAction.next,
             inputFormatters: [StudentIdFormatter()],
             onChanged: _clearError,
-            decoration: const InputDecoration(
-              hintText: 'e.g. 23B0626',
-              prefixIcon: Icon(
-                Icons.badge_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(hintText: 'e.g. 23B0626'),
           ),
         ),
       ),
@@ -393,13 +399,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
             menuMaxHeight: 360,
             // Two-line options, like Course/Program: code over full name.
             itemHeight: null,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(
-                Icons.business_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(),
             // The closed field shows the code, or the name if there's none.
             selectedItemBuilder: (_) => [
               for (final d in state.departments)
@@ -431,13 +431,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: DropdownButtonFormField<String>(
             initialValue: _campus,
             isExpanded: true,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(
-                Icons.location_city_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(),
             items: state.campuses
                 .map(
                   (c) => DropdownMenuItem(
@@ -471,13 +465,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   : 'Choose your program',
               overflow: TextOverflow.ellipsis,
             ),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(
-                Icons.school_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(),
             // The closed field shows just the code; the menu the full name.
             selectedItemBuilder: (_) => [
               for (final p in programs)
@@ -503,13 +491,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           child: DropdownButtonFormField<String>(
             initialValue: _yearLevel,
             isExpanded: true,
-            decoration: const InputDecoration(
-              prefixIcon: Icon(
-                Icons.timeline_outlined,
-                color: AppTheme.maroon,
-                size: 20,
-              ),
-            ),
+            decoration: const InputDecoration(),
             items: const [
               DropdownMenuItem(value: '1st Year', child: Text('1st Year')),
               DropdownMenuItem(value: '2nd Year', child: Text('2nd Year')),
@@ -527,7 +509,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       AuthPrimaryButton(
         label: 'Create Account',
-        icon: Icons.arrow_forward_rounded,
+        loadingLabel: 'Creating account',
         isLoading: _isLoading,
         onPressed: _handleRegister,
       ),
@@ -543,56 +525,57 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   /// The Privacy Notice, to be accepted before an account is made.
   Widget _privacyConsent() {
-    return Row(
+    const sentence =
+        'I have read how SAIS collects and uses my personal information, '
+        'and I agree to it.';
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: 24,
-          height: 24,
-          child: Checkbox(
-            value: _acceptedPrivacy,
-            activeColor: AppTheme.maroon,
-            onChanged: (value) => setState(() {
-              _acceptedPrivacy = value ?? false;
-              _error = null;
-            }),
+        AuthCheckRow(
+          value: _acceptedPrivacy,
+          onChanged: (value) => setState(() {
+            _acceptedPrivacy = value;
+            _error = null;
+          }),
+          semanticsLabel: sentence,
+          label: const Padding(
+            padding: EdgeInsets.symmetric(vertical: 6),
+            child: Text(
+              sentence,
+              style: TextStyle(
+                fontSize: 13.5,
+                height: 1.45,
+                color: LandingColors.body,
+              ),
+            ),
           ),
         ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text.rich(
-              TextSpan(
-                style: const TextStyle(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: AppTheme.slate700,
-                ),
-                children: [
-                  const TextSpan(
-                    text:
-                        'I have read how SAIS collects and uses my personal '
-                        'information, and I agree to it. ',
-                  ),
-                  WidgetSpan(
-                    alignment: PlaceholderAlignment.baseline,
-                    baseline: TextBaseline.alphabetic,
-                    child: InkWell(
-                      onTap: () => showPrivacyNoticeDialog(context),
-                      child: const Text(
-                        'Read the Privacy Notice',
-                        style: TextStyle(
-                          fontSize: 13,
-                          height: 1.4,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.maroon,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
+        // On its own line so it wraps cleanly and is a proper target.
+        Padding(
+          padding: const EdgeInsets.only(left: 44),
+          child: TapTarget(
+            onTap: () => showPrivacyNoticeDialog(context),
+            label: 'Read the Privacy Notice',
+            focusColor: LandingColors.maroon,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: const Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: 1,
+                child: Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 2),
+                  child: Text(
+                    'Read the Privacy Notice',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      height: 1.4,
+                      fontWeight: FontWeight.w700,
+                      color: LandingColors.maroon,
+                      decoration: TextDecoration.underline,
                     ),
                   ),
-                ],
+                ),
               ),
             ),
           ),
@@ -605,22 +588,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     String label,
     TextEditingController controller,
     String hint,
+    String autofillHint,
   ) {
     return AuthField(
       label: label,
       child: TextFormField(
         controller: controller,
         textCapitalization: TextCapitalization.words,
+        textInputAction: TextInputAction.next,
+        autofillHints: [autofillHint],
         inputFormatters: [nameFormatter],
         onChanged: _clearError,
-        decoration: InputDecoration(
-          hintText: hint,
-          prefixIcon: const Icon(
-            Icons.person_outline_rounded,
-            color: AppTheme.maroon,
-            size: 20,
-          ),
-        ),
+        decoration: InputDecoration(hintText: hint),
       ),
     );
   }
@@ -678,9 +657,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.slate50,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.slate200),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: LandingColors.rule),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -691,20 +670,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 child: Text(
                   'Password requirements',
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: AppTheme.slate700,
+                    color: LandingColors.ink,
                   ),
                 ),
               ),
               Text(
                 '$metCount of ${rules.length}',
                 style: TextStyle(
-                  fontSize: 11.5,
+                  fontSize: 12,
                   fontWeight: FontWeight.w700,
                   color: metCount == rules.length
-                      ? AppTheme.emerald500
-                      : AppTheme.slate500,
+                      ? AuthColors.successText
+                      : LandingColors.muted,
                 ),
               ),
             ],
@@ -734,19 +713,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                                 : Icons.circle_outlined,
                             size: 15,
                             color: rule.met
-                                ? AppTheme.emerald500
-                                : AppTheme.slate300,
+                                ? AuthColors.successText
+                                : AuthColors.outline,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               rule.label,
                               style: TextStyle(
-                                fontSize: 12,
+                                fontSize: 12.5,
                                 height: 1.35,
                                 color: rule.met
-                                    ? AppTheme.slate600
-                                    : AppTheme.slate500,
+                                    ? LandingColors.ink
+                                    : LandingColors.muted,
                               ),
                             ),
                           ),
@@ -786,7 +765,7 @@ class _CodeNameOption extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w700,
-                color: AppTheme.slate900,
+                color: LandingColors.ink,
               ),
             ),
           Text(
@@ -797,11 +776,11 @@ class _CodeNameOption extends StatelessWidget {
                 ? const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    color: AppTheme.slate900,
+                    color: LandingColors.ink,
                   )
                 : const TextStyle(
                     fontSize: 12,
-                    color: AppTheme.slate500,
+                    color: LandingColors.muted,
                     height: 1.3,
                   ),
           ),

@@ -156,4 +156,18 @@ void main() {
 
     expect(state.signIns, 1);
   });
+  testWidgets(
+    'the unverified-email banner fits a small phone with large text',
+    (tester) async {
+      tester.platformDispatcher.textScaleFactorTestValue = 1.5;
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final state = await pumpLogin(tester);
+      expect(state.signInAnswer, AppState.unverifiedEmailMessage);
+      tester.view.physicalSize = const Size(320, 568);
+      await logIn(tester);
+
+      expect(find.text('Send a new link'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

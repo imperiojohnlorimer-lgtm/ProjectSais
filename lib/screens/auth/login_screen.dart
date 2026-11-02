@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/shared_widgets.dart';
+import '../landing/landing_widgets.dart' show LandingColors;
 import 'auth_scaffold.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -33,10 +36,22 @@ class _LoginScreenState extends State<LoginScreen> {
   /// out when it wasn't their doing (idle too long).
   String? _notice;
 
+  late final AppState _appState;
+
   @override
   void initState() {
     super.initState();
-    _notice = context.read<AppState>().takeSignOutNotice();
+    _appState = context.read<AppState>();
+    _notice = _appState.takeSignOutNotice();
+    _appState.addListener(_commitAutofillOnSignIn);
+  }
+
+  /// The moment the account is signed in, before this page is replaced by the
+  /// app: the browser may then offer to save the password. (Waiting for the
+  /// sign-in call to return can be too late: the page may be gone by then,
+  /// and leaving the page cancels the save.)
+  void _commitAutofillOnSignIn() {
+    if (_appState.currentUser != null) TextInput.finishAutofillContext();
   }
 
   void _clearMessages() {
@@ -267,6 +282,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _appState.removeListener(_commitAutofillOnSignIn);
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     super.dispose();
@@ -280,22 +296,29 @@ class _LoginScreenState extends State<LoginScreen> {
       onBack: widget.onBack,
       brandPoints: const [
         AuthBrandPoint(
-          Icons.access_time_filled,
           'Duty hours that add up',
           'Time in and out, and your monthly DTR fills itself.',
         ),
         AuthBrandPoint(
-          Icons.calendar_today_outlined,
           'Know where you are posted',
           'Duty schedules per office, set by academic year.',
         ),
         AuthBrandPoint(
-          Icons.description_outlined,
           'Paperwork, generated',
           'Contracts, endorsements, and evaluations from official templates.',
         ),
       ],
-      children: _buildFormFields(),
+      children: [
+        // Lets the browser and password managers fill the fields and offer
+        // to save them. Leaving the page without signing in saves nothing.
+        AutofillGroup(
+          onDisposeAction: AutofillContextAction.cancel,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: _buildFormFields(),
+          ),
+        ),
+      ],
     );
   }
 
@@ -318,40 +341,33 @@ class _LoginScreenState extends State<LoginScreen> {
         child: TextField(
           controller: _emailCtrl,
           keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.next,
+          autofillHints: const [AutofillHints.username, AutofillHints.email],
           onChanged: (_) => _clearMessages(),
-          decoration: const InputDecoration(
-            hintText: 'name@univ.edu',
-            prefixIcon: Icon(
-              Icons.mail_outline_rounded,
-              color: AppTheme.maroon,
-              size: 20,
-            ),
-          ),
+          decoration: const InputDecoration(hintText: 'name@univ.edu'),
         ),
       ),
       const SizedBox(height: 18),
 
       AuthField(
         label: 'Password',
+        merge: false,
         child: TextField(
           controller: _passwordCtrl,
           obscureText: _obscurePassword,
+          textInputAction: TextInputAction.done,
+          autofillHints: const [AutofillHints.password],
           onSubmitted: (_) => _handleLogin(),
           onChanged: (_) => _clearMessages(),
           decoration: InputDecoration(
             hintText: '••••••••',
-            prefixIcon: const Icon(
-              Icons.lock_outline_rounded,
-              color: AppTheme.maroon,
-              size: 20,
-            ),
             suffixIcon: IconButton(
               tooltip: 'Show or hide password',
               icon: Icon(
                 _obscurePassword
                     ? Icons.visibility_outlined
                     : Icons.visibility_off_outlined,
-                color: AppTheme.slate400,
+                color: LandingColors.muted,
                 size: 20,
               ),
               onPressed: () =>
@@ -360,7 +376,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-      const SizedBox(height: 16),
+      const SizedBox(height: 12),
 
       // Wrapped so the two controls stack instead of overflowing on the
       // narrowest phones.
@@ -368,57 +384,51 @@ class _LoginScreenState extends State<LoginScreen> {
         alignment: WrapAlignment.spaceBetween,
         crossAxisAlignment: WrapCrossAlignment.center,
         spacing: 12,
-        runSpacing: 8,
+        runSpacing: 4,
         children: [
-          GestureDetector(
-            onTap: () => setState(() => _rememberMe = !_rememberMe),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: Checkbox(
-                    value: _rememberMe,
-                    onChanged: (value) =>
-                        setState(() => _rememberMe = value ?? false),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(5),
-                    ),
-                    activeColor: AppTheme.maroon,
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                const Text(
-                  'Remember me',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.slate600,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
+          AuthCheckRow(
+            value: _rememberMe,
+            onChanged: (value) => setState(() => _rememberMe = value),
+            semanticsLabel: 'Remember me',
+            label: const Text(
+              'Remember me',
+              style: TextStyle(
+                fontSize: 14,
+                color: LandingColors.body,
+                fontWeight: FontWeight.w500,
+              ),
             ),
           ),
-          GestureDetector(
+          TapTarget(
             onTap: _handleForgotPassword,
-            child: const Text(
-              'Forgot password?',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.maroon,
-                fontWeight: FontWeight.w700,
+            label: 'Forgot password?',
+            focusColor: LandingColors.maroon,
+            borderRadius: BorderRadius.circular(8),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 44),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Center(
+                  widthFactor: 1,
+                  child: Text(
+                    'Forgot password?',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: LandingColors.maroon,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
         ],
       ),
-      const SizedBox(height: 28),
+      const SizedBox(height: 20),
 
       AuthPrimaryButton(
         label: 'Log In',
-        icon: Icons.arrow_forward_rounded,
+        loadingLabel: 'Signing in',
         isLoading: _isLoading,
         onPressed: _handleLogin,
       ),
@@ -428,7 +438,7 @@ class _LoginScreenState extends State<LoginScreen> {
       const SizedBox(height: 20),
 
       _buildGoogleButton(),
-      const SizedBox(height: 24),
+      const SizedBox(height: 20),
 
       AuthFooterLink(
         prompt: "Don't have an account?",
@@ -446,82 +456,67 @@ class _LoginScreenState extends State<LoginScreen> {
               width: 14,
               height: 14,
               child: CircularProgressIndicator(
-                color: AppTheme.maroon,
+                color: LandingColors.maroon,
                 strokeWidth: 2,
               ),
             )
           : const Icon(Icons.forward_to_inbox_rounded, size: 18),
       label: Text(_sendingLink ? 'Sending…' : 'Send a new link'),
       style: OutlinedButton.styleFrom(
-        foregroundColor: AppTheme.maroon,
+        foregroundColor: LandingColors.maroon,
         backgroundColor: Colors.white,
-        side: const BorderSide(color: AppTheme.maroon200),
-        minimumSize: const Size(0, 36),
+        side: const BorderSide(color: LandingColors.maroon),
+        minimumSize: const Size(0, 44),
         padding: const EdgeInsets.symmetric(horizontal: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        textStyle: const TextStyle(
+          fontFamily: 'Inter',
+          fontSize: 14,
+          fontWeight: FontWeight.w600,
+        ),
       ),
     );
   }
 
   Widget _buildDivider() {
-    return const Row(
+    return Row(
       children: [
-        Expanded(child: Divider(color: AppTheme.slate200, height: 1)),
-        Padding(
+        Expanded(child: Divider(color: LandingColors.rule, height: 1)),
+        const Padding(
           padding: EdgeInsets.symmetric(horizontal: 14),
           child: Text(
             'or',
             style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.slate500,
-              letterSpacing: 0.5,
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: LandingColors.muted,
             ),
           ),
         ),
-        Expanded(child: Divider(color: AppTheme.slate200, height: 1)),
+        Expanded(child: Divider(color: LandingColors.rule, height: 1)),
       ],
     );
   }
 
   Widget _buildGoogleButton() {
-    return SizedBox(
-      width: double.infinity,
-      height: 54,
-      child: OutlinedButton(
-        onPressed: _isLoading ? null : _handleGoogleSignIn,
-        style: OutlinedButton.styleFrom(
-          side: const BorderSide(color: AppTheme.slate300),
-          backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+    return OutlinedButton(
+      onPressed: _isLoading ? null : _handleGoogleSignIn,
+      style: authSecondaryButtonStyle(),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Image.asset(
+            'assets/images/google_logo.png',
+            width: 20,
+            height: 20,
+            // The button's own text says it.
+            excludeFromSemantics: true,
           ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Image.asset(
-              'assets/images/google_logo.png',
-              width: 20,
-              height: 20,
-              // The button's own text says it.
-              excludeFromSemantics: true,
-            ),
-            const SizedBox(width: 12),
-            const Flexible(
-              child: Text(
-                'Log in with Google',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.slate700,
-                ),
-              ),
-            ),
-          ],
-        ),
+          const SizedBox(width: 12),
+          const Flexible(
+            child: Text('Log in with Google', textAlign: TextAlign.center),
+          ),
+        ],
       ),
     );
   }
