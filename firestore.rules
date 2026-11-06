@@ -17,13 +17,17 @@ service cloud.firestore {
     // A verified account that hasn't been deactivated. The app already
     // refuses both at login, but that alone doesn't stop anyone calling
     // Firestore directly — this does. Every role check below builds on it.
+    //
+    // A staff sign-up waiting for the Head ('Pending'), or one the Head
+    // turned down ('Declined'), has no access either: until it is approved it
+    // is a powerless Student profile with a `requestedRole` and nothing more.
     function signedIn() {
       return authed()
         && request.auth.token.email_verified == true
         && (
           !exists(userPath(request.auth.uid))
-          || get(userPath(request.auth.uid)).data.get('status', 'Active')
-            != 'Archived'
+          || !(get(userPath(request.auth.uid)).data.get('status', 'Active')
+            in ['Archived', 'Pending', 'Declined'])
         );
     }
 
@@ -211,14 +215,26 @@ service cloud.firestore {
 
       // The Admin creates accounts of any role (Accounts screen). Anyone
       // else only registers themselves, and a self-made profile is always
-      // an active Student with no SA ID, under the email the account
-      // actually signed up with.
+      // a Student with no SA ID, under the email the account actually signed
+      // up with. It is Active, or — for a staff sign-up — Pending with the
+      // Supervisor or Head role it asks for in `requestedRole`; the Head
+      // then approves it (below). It never carries the staff role itself.
       allow create: if isAdmin()
         || (
           authed()
           && request.auth.uid == uid
           && request.resource.data.role == 'Student'
-          && request.resource.data.get('status', 'Active') == 'Active'
+          && (
+            (
+              request.resource.data.get('status', 'Active') == 'Active'
+              && request.resource.data.get('requestedRole', null) == null
+            )
+            || (
+              request.resource.data.get('status', 'Active') == 'Pending'
+              && request.resource.data.get('requestedRole', '')
+                in ['Supervisor', 'Head']
+            )
+          )
           && request.resource.data.get('saId', null) == null
           && request.resource.data.get('deleted', false) == false
           && request.resource.data.email.lower()
@@ -269,8 +285,32 @@ service cloud.firestore {
           && sameOr('deleted', false)
           && validEmailPref(request.resource.data)
         )
+        // A Head decides a staff sign-up: approving gives the role it asked
+        // for and activates it, declining only marks it. Nothing else about
+        // the profile may change.
         || (
           isHead()
+          && resource.data.get('status', 'Active') == 'Pending'
+          && resource.data.get('requestedRole', '') in ['Supervisor', 'Head']
+          && resource.data.get('deleted', false) == false
+          && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['role', 'status', 'requestedRole'])
+          && (
+            (
+              request.resource.data.role == resource.data.requestedRole
+              && request.resource.data.get('status', 'Active') == 'Active'
+              && !('requestedRole' in request.resource.data)
+            )
+            || (
+              request.resource.data.role == resource.data.role
+              && request.resource.data.get('status', 'Active') == 'Declined'
+              && unchanged('requestedRole')
+            )
+          )
+        )
+        || (
+          isHead()
+          && resource.data.get('status', 'Active') != 'Pending'
           && resource.data.role in ['Student', 'Student Assistant']
           && request.resource.data.role in ['Student', 'Student Assistant']
           && request.resource.data.get('status', 'Active')

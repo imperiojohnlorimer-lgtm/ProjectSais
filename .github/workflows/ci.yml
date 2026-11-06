@@ -36,6 +36,9 @@ jobs:
       - name: upload-document
         working-directory: supabase/functions/upload-document
         run: node --test paths.test.ts
+      - name: backup-status
+        working-directory: supabase/functions/backup-status
+        run: node --test backup.test.ts
       - name: clockout-reminders
         working-directory: supabase/functions/clockout-reminders
         run: node --test reminders.test.ts pushtext.test.ts email.test.ts email-core.test.ts

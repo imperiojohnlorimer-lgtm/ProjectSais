@@ -10,6 +10,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:projectsais/services/appointment_document_service.dart';
+import 'package:projectsais/services/backup_service.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/services/performance_evaluation_document_service.dart';
 import 'package:projectsais/services/push_service.dart';
@@ -18,7 +19,9 @@ import 'package:projectsais/utils/auth_errors.dart';
 import 'package:projectsais/utils/file_names.dart';
 import '../firebase_options.dart';
 import 'assistant_attendance.dart';
+import 'backup_info.dart';
 import 'models.dart';
+import 'program_batch.dart';
 import 'task_duty.dart';
 import 'task_template.dart';
 
@@ -31,6 +34,8 @@ part 'app_state/payroll_requirements.dart';
 part 'app_state/my_pay.dart';
 part 'app_state/rehiring.dart';
 part 'app_state/load_problems.dart';
+part 'app_state/backups.dart';
+part 'app_state/staff_requests.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
@@ -70,11 +75,15 @@ Future<_Fetched<T>> _fetch<T>(Future<T> Function() read) async {
 enum PublicPage { landing, login, register, privacy }
 
 class AppState extends ChangeNotifier {
-  /// [firestoreService] and [pushService] are for tests; the app lets them
+  /// [firestoreService], [pushService] and [backupService] are for tests; the app lets them
   /// default.
-  AppState({FirestoreService? firestoreService, PushService? pushService})
-    : _firestoreService = firestoreService,
-      _push = pushService ?? PushService();
+  AppState({
+    FirestoreService? firestoreService,
+    PushService? pushService,
+    BackupService? backupService,
+  }) : _firestoreService = firestoreService,
+       _push = pushService ?? PushService(),
+       _backups = backupService ?? BackupService();
 
   User? currentUser;
   String activeTab = 'dashboard';
@@ -759,6 +768,8 @@ class AppState extends ChangeNotifier {
       debugPrint('Live data unavailable: $error');
     }
     if (role != 'Admin') registerForPush();
+    // The Admin's banner when the weekly backup has failed or is overdue.
+    if (role == 'Admin') checkBackupHealth();
     // After the notifications have loaded, so a Head's session can see one
     // it already has.
     _noticeAcademicYearEnding();
@@ -1095,7 +1106,7 @@ class AppState extends ChangeNotifier {
     final current = currentUser;
     if (data == null || current == null) return;
     final fresh = User.fromJson(data).copyWith(id: current.id);
-    if (fresh.status == 'Archived') {
+    if (blocksSignIn(fresh.status)) {
       signOut();
       return;
     }
@@ -1161,7 +1172,7 @@ class AppState extends ChangeNotifier {
         users = [existing, ...users];
       }
 
-      if (existing.status == 'Archived') {
+      if (blocksSignIn(existing.status)) {
         await fb_auth.FirebaseAuth.instance.signOut();
         return;
       }
@@ -1274,7 +1285,7 @@ class AppState extends ChangeNotifier {
     final lowerEmail = email.toLowerCase();
     final profile = await _loadUserProfile(email: lowerEmail);
     if (profile == null) return null;
-    if (profile.status == 'Archived') return null;
+    if (blocksSignIn(profile.status)) return null;
     // Firebase Authentication verifies password, so only allow login if the
     // email/password sign in succeeds.
     try {
@@ -1323,7 +1334,7 @@ class AppState extends ChangeNotifier {
         authenticatedUser = authenticatedUser.copyWith(id: firebaseUser.uid);
       }
     }
-    if (authenticatedUser.status == 'Archived') {
+    if (blocksSignIn(authenticatedUser.status)) {
       currentUser = null;
       try {
         await fb_auth.FirebaseAuth.instance.signOut();
@@ -1393,6 +1404,21 @@ class AppState extends ChangeNotifier {
   /// What [signInWithEmailAndPassword] returns when the password is right
   /// but the email isn't verified yet. The Login page shows a "Send a new
   /// link" button with it.
+  /// Whether an account with this [status] may not sign in: deactivated, or
+  /// a staff sign-up the Head has not approved (or has turned down).
+  static bool blocksSignIn(String status) =>
+      status == 'Archived' || status == 'Pending' || status == 'Declined';
+
+  /// What the Login page says to someone whose [status] blocks sign-in.
+  static String signInBlockedMessage(String status) => switch (status) {
+    'Pending' =>
+      "Your staff account is waiting for the Head's approval. You can log in "
+          "once it's approved.",
+    'Declined' => 'Your staff account request was not approved.',
+    _ =>
+      'This account has been deactivated. Please contact an administrator.',
+  };
+
   static const unverifiedEmailMessage =
       'Your email address isn\'t verified yet. Open the link in the newest '
       'verification email we sent (check Spam too), then log in again. If '
@@ -1490,9 +1516,9 @@ class AppState extends ChangeNotifier {
         users = [existing, ...users];
       }
 
-      if (existing.status == 'Archived') {
+      if (blocksSignIn(existing.status)) {
         await fb_auth.FirebaseAuth.instance.signOut();
-        return 'This account has been deactivated. Please contact an administrator.';
+        return signInBlockedMessage(existing.status);
       }
 
       await login(existing.copyWith(id: authUser.uid));
@@ -1658,9 +1684,9 @@ class AppState extends ChangeNotifier {
               'Please register first, then log in.';
         }
 
-        if (existing.status == 'Archived') {
+        if (blocksSignIn(existing.status)) {
           await fb_auth.FirebaseAuth.instance.signOut();
-          return 'This account has been deactivated. Please contact an administrator.';
+          return signInBlockedMessage(existing.status);
         }
 
         await login(existing.copyWith(id: authUser.uid));
@@ -1903,6 +1929,7 @@ class AppState extends ChangeNotifier {
     activeTab = 'dashboard';
     _academicYearShown = null;
     academicYearOpenedFrom = null;
+    _forgetBackups();
     _forgetAccountData();
     notifyListeners();
   }
@@ -2807,7 +2834,9 @@ class AppState extends ChangeNotifier {
 
       // Update local state and notify users now that Firestore write succeeded.
       announcements = _withAdded(announcements, created, (a) => a.id);
-      final studentUsers = users.where((u) => u.role == 'Student');
+      final studentUsers = users.where(
+        (u) => u.role == 'Student' && u.requestedRole == null,
+      );
       for (final u in studentUsers) {
         _addNotification(
           AppNotification(
@@ -3071,7 +3100,9 @@ class AppState extends ChangeNotifier {
     // see it, they apply to be a Student Assistant. Only the Head's own
     // announcements, re-opened here, are news to them.
     if (!approved.isSupervisorRequest) {
-      final studentUsers = users.where((u) => u.role == 'Student');
+      final studentUsers = users.where(
+        (u) => u.role == 'Student' && u.requestedRole == null,
+      );
       for (final u in studentUsers) {
         _addNotification(
           AppNotification(
@@ -4291,6 +4322,65 @@ class AppState extends ChangeNotifier {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Adds several programs under [department] in one go. Nothing is saved
+  /// unless every filled row is fine: a half-filled row, a code used twice in
+  /// the list, or a code another program already has is reported against its
+  /// row. Rows with nothing typed in are skipped. At most [maxProgramRows].
+  /// (Two Admins adding the same code at the same moment can still both
+  /// succeed, as with one program at a time: the rules do not enforce it.)
+  Future<ProgramBatchResult> saveProgramsBatch(
+    String department,
+    List<ProgramRow> rows,
+  ) async {
+    final dept = department.trim();
+    if (dept.isEmpty || !departments.contains(dept)) {
+      return const ProgramBatchResult(
+        message: 'Choose a department that is on the list.',
+      );
+    }
+    final filled = [
+      for (final row in rows)
+        if (!programRowIsEmpty(row)) row,
+    ];
+    if (filled.isEmpty) {
+      return const ProgramBatchResult(message: 'Fill in at least one program.');
+    }
+    if (filled.length > maxProgramRows) {
+      return ProgramBatchResult(
+        message: 'Add at most $maxProgramRows programs at a time.',
+      );
+    }
+    final errors = planProgramBatch(rows, programs);
+    if (errors.any((e) => e != null)) {
+      return ProgramBatchResult(rowErrors: errors);
+    }
+    try {
+      _firestoreService ??= FirestoreService();
+      final created = await _firestoreService!.saveProgramsBatch([
+        for (final row in filled)
+          Program(
+            id: '',
+            code: row.code.trim(),
+            name: row.name.trim(),
+            department: dept,
+          ),
+      ]);
+      // The live listener may have delivered some already: merge by id.
+      final ids = created.map((p) => p.id).toSet();
+      programs = _sortedPrograms([
+        for (final p in programs)
+          if (!ids.contains(p.id)) p,
+        ...created,
+      ]);
+      notifyListeners();
+      return ProgramBatchResult(saved: created.length);
+    } catch (_) {
+      return const ProgramBatchResult(
+        message: 'Could not save the programs. Nothing was added. Try again.',
+      );
     }
   }
 
@@ -7129,6 +7219,20 @@ class AppState extends ChangeNotifier {
   // function sends the clock-out reminder on a schedule, and every other
   // notification as soon as it's saved (_queuePush).
   final PushService _push;
+
+  // ─── Backups (Admin) ───────────────────────────────
+  final BackupService _backups;
+
+  /// What the Backups page and the Admin's banner show; see backups.dart.
+  BackupOverview? backupOverview;
+
+  /// Why the last backup check failed, or null.
+  String? backupError;
+  bool backupChecking = false;
+
+  /// Bumped at sign-out, so an answer that arrives afterwards is dropped.
+  int _backupGeneration = 0;
+  Future<void>? _backupCheckInFlight;
   StreamSubscription<Map<String, dynamic>>? _pushMessagesSub;
 
   /// The token saved for this browser. Deleted at sign-out, so the next

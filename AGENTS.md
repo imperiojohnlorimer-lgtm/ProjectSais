@@ -33,7 +33,10 @@ DTR/Accomplishment Reports, rehiring, documents and payroll.
   `clock-attendance` (QR clock-in/out, decided on the server's clock in
   Philippine time), `upload-document`, `clockout-reminders` (push through
   Firebase Cloud Messaging, and the same notifications by email through
-  Gmail's SMTP server, run by `pg_cron`).
+  Gmail's SMTP server, run by `pg_cron`), and `backup-status` (the Admin's
+  Backups page: lists, downloads and deletes the weekly encrypted backups
+  that a GitHub Actions workflow keeps in a private repository; the GitHub
+  token is a Supabase secret and never reaches the browser).
 - **Security** lives in `firestore.rules`: every role's access is enforced
   on the server. A new write path needs a rules change, and a case in
   `test_rules/firestore.rules.test.mjs` (run with `npm test` there; it starts
@@ -124,6 +127,41 @@ The Head checks each Student Assistant's payroll requirements
 everyone in it is Ready. A Student Assistant reads only their own
 `payrollChecks` document and own `payrollRecords` (live listeners in
 `_startLiveData`); `AppState.myPay` feeds the dashboard's My Pay card.
+
+### Backups (Admin)
+
+The weekly encrypted backup is made outside this repo. The Admin's Backups
+page (`lib/screens/backups/`, tab `backups`, `/backups`) shows it through
+`BackupService` -> the `backup-status` function (Verify JWT off; it checks the
+Firebase token itself and lets only an active Admin through). Download opens a
+short-lived GitHub link; Delete never removes the newest backup from a
+successful run. `AppState.checkBackupHealth` runs at an Admin's sign-in and
+feeds `BackupHealthBanner` (`backupHealth()` in `lib/models/backup_info.dart`).
+Admins have no notification bell, push or email, so the warning is a banner,
+not a notification document. Restoring is deliberately not in the app (it
+needs the backup passphrase and a full-access key).
+
+### Staff sign-up (approved by a Head)
+
+The Register page has a Student | Staff switch. A staff sign-up (Supervisor or
+Head) is saved as a **Student** profile with status `Pending` and
+`requestedRole`; it cannot sign in (`AppState.blocksSignIn`) and the rules
+(`signedIn()`) give it no access until a Head approves it on **Staff Requests**
+(`lib/screens/accounts/staff_requests_screen.dart`, `AppState.approveStaffRequest`
+/ `declineStaffRequest`): approving sets the role and Active and clears
+`requestedRole`, declining sets `Declined`. The rules let a Head change only those
+fields, and only on a Pending request. Admin accounts are never self-registered.
+Admin, Head and Supervisor profiles do not show Student ID, SA ID, program or
+year level.
+
+### Programs (Admin)
+
+The Add Program dialog adds one program or several at once under one
+department (rows plus a paste box: `lib/models/program_batch.dart` holds the row
+checks and the pasted-list parser). `AppState.saveProgramsBatch` saves them with
+one atomic write (`FirestoreService.saveProgramsBatch`), at most 50, and nothing
+is saved if any row is wrong. Code uniqueness is checked in the app only, as
+for one program; the rules do not enforce it.
 
 ### Exports
 

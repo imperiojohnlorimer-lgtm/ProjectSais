@@ -80,7 +80,84 @@ void main() {
       expect(find.text('SUPERVISOR'), findsOneWidget);
       // Values from the user land in the read-only grid.
       expect(find.text('juan@marsu.edu.ph'), findsWidgets);
-      expect(find.text('23B0626'), findsOneWidget);
+      expect(find.text('0917 123 4567'), findsWidgets);
+    });
+
+    group('student-only rows', () {
+      const studentRows = [
+        'STUDENT ID',
+        'COURSE/PROGRAM',
+        'YEAR LEVEL',
+        'SA ID',
+      ];
+
+      for (final role in ['Admin', 'Head', 'Supervisor']) {
+        testWidgets('are left off the $role profile', (tester) async {
+          await pumpScreen(
+            tester,
+            const ProfileScreen(),
+            const Size(1280, 1400),
+            user: _user(role: role),
+          );
+          for (final label in studentRows) {
+            expect(find.text(label), findsNothing, reason: '$role: $label');
+          }
+          // Their stored values are not shown either.
+          expect(find.text('23B0626'), findsNothing);
+          // The rest of the grid is still there.
+          expect(find.text('FULL NAME'), findsOneWidget);
+          expect(find.text('PHONE NUMBER'), findsOneWidget);
+          expect(find.text('CAMPUS'), findsOneWidget);
+        });
+      }
+
+      testWidgets('stay on a Student Assistant profile', (tester) async {
+        await pumpScreen(
+          tester,
+          const ProfileScreen(),
+          const Size(1280, 1400),
+          user: _user(role: 'Student Assistant'),
+        );
+        for (final label in studentRows) {
+          expect(find.text(label), findsOneWidget, reason: label);
+        }
+        expect(find.text('23B0626'), findsOneWidget);
+      });
+
+      for (final (role, shown) in [
+        ('Admin', false),
+        ('Head', false),
+        ('Supervisor', true),
+        ('Student Assistant', true),
+      ]) {
+        testWidgets(
+          'the Office row is ${shown ? 'on' : 'not on'} the $role profile',
+          (tester) async {
+            await pumpScreen(
+              tester,
+              const ProfileScreen(),
+              const Size(1280, 1400),
+              user: _user(role: role),
+            );
+            expect(find.text('OFFICE'), shown ? findsOneWidget : findsNothing);
+          },
+        );
+      }
+
+      testWidgets('staff can still edit and save their profile', (
+        tester,
+      ) async {
+        await pumpScreen(
+          tester,
+          const ProfileScreen(),
+          const Size(1280, 1400),
+          user: _user(role: 'Head'),
+        );
+        await tester.tap(find.text('Edit profile'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('STUDENT ID'), findsNothing);
+      });
     });
 
     testWidgets('fields go one per row on a phone, two when wide', (

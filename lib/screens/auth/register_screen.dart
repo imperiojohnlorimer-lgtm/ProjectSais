@@ -37,6 +37,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   // The chosen program's code, from the programs under [_department].
   String? _program;
   final String _role = 'Student';
+
+  /// Whether the form is the Staff registration: a Supervisor or Head
+  /// asking for an account the current Head must approve.
+  bool _staff = false;
+  String _staffRole = 'Supervisor';
   String _department = 'College of Information and Computing Sciences';
   String _campus = 'Boac Campus';
   String _yearLevel = '1st Year';
@@ -103,8 +108,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Optional, but it must be a whole ID when given.
-    final studentId = _studentIdCtrl.text.trim().toUpperCase();
+    // Optional, but it must be a whole ID when given. Staff have none.
+    final studentId = _staff ? '' : _studentIdCtrl.text.trim().toUpperCase();
     if (studentId.isNotEmpty && !isValidStudentId(studentId)) {
       setState(() => _error = 'Enter a valid Student ID, e.g. 23B0626.');
       return;
@@ -114,7 +119,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final department = _departmentIn(appState);
     final offered = appState.programsForDepartment(department);
     final program = offered.any((p) => p.code == _program) ? _program : null;
-    if (offered.isNotEmpty && program == null) {
+    if (!_staff && offered.isNotEmpty && program == null) {
       setState(() => _error = 'Choose your course/program.');
       return;
     }
@@ -152,13 +157,17 @@ class _RegisterScreenState extends State<RegisterScreen> {
       lastName: nameParts.last,
       suffix: nameParts.suffix,
       email: email,
+      // A staff sign-up is a powerless Student profile until a Head
+      // approves it; the role it asks for is kept in requestedRole.
       role: _role,
+      status: _staff ? 'Pending' : 'Active',
+      requestedRole: _staff ? _staffRole : null,
       department: department,
       campus: _campus,
       phone: _phoneCtrl.text.trim(),
       studentId: studentId.isEmpty ? null : studentId,
-      courseProgram: program,
-      yearLevel: _yearLevel,
+      courseProgram: _staff ? null : program,
+      yearLevel: _staff ? null : _yearLevel,
       consentAt: DateTime.now().toUtc().toIso8601String(),
       consentVersion: PrivacyNotice.version,
     );
@@ -183,15 +192,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: const Text(
-          'Account created! We sent a verification link to your email — '
-          'please verify it before logging in.',
+        content: Text(
+          _staff
+              ? 'Request sent! Verify your email with the link we sent. You '
+                    'can log in once the Head approves your account.'
+              : 'Account created! We sent a verification link to your email — '
+                    'please verify it before logging in.',
         ),
         backgroundColor: AppTheme.emerald500,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         margin: const EdgeInsets.all(16),
-        duration: const Duration(seconds: 4),
+        duration: Duration(seconds: _staff ? 6 : 4),
       ),
     );
 
@@ -215,25 +227,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
   @override
   Widget build(BuildContext context) {
     return AuthScaffold(
-      title: 'Create your account',
-      subtitle: 'Register to apply as a student assistant',
+      title: _staff ? 'Staff registration' : 'Create your account',
+      subtitle: _staff
+          ? 'For Supervisors and Heads. The current Head approves your '
+                'account before you can log in.'
+          : 'Register to apply as a student assistant',
       // Wider than login: the student details below pair up two per row.
       maxFormWidth: 560,
       onBack: widget.onBack,
-      brandPoints: const [
-        AuthBrandPoint(
-          'Apply once',
-          'Submit your requirements online and follow where your application stands.',
-        ),
-        AuthBrandPoint(
-          'Built around your duty',
-          'Your schedule, tasks, and accomplishment reports in one place.',
-        ),
-        AuthBrandPoint(
-          'Verified accounts',
-          'We email a verification link before your first login.',
-        ),
-      ],
+      brandPoints: _staff ? _staffBrandPoints : _studentBrandPoints,
       children: [
         // Lets the browser and password managers fill the fields and offer
         // to save the new password. Leaving the page saves nothing.
@@ -248,6 +250,36 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  static const _staffBrandPoints = [
+    AuthBrandPoint(
+      'Approved by the Head',
+      'A Head of Student Assistantship approves every staff account.',
+    ),
+    AuthBrandPoint(
+      'Your assistants in one place',
+      'Requests, tasks, attendance, and reports for the students you guide.',
+    ),
+    AuthBrandPoint(
+      'Verified accounts',
+      'We email a verification link before your first login.',
+    ),
+  ];
+
+  static const _studentBrandPoints = [
+    AuthBrandPoint(
+      'Apply once',
+      'Submit your requirements online and follow where your application stands.',
+    ),
+    AuthBrandPoint(
+      'Built around your duty',
+      'Your schedule, tasks, and accomplishment reports in one place.',
+    ),
+    AuthBrandPoint(
+      'Verified accounts',
+      'We email a verification link before your first login.',
+    ),
+  ];
+
   List<Widget> _buildFormFields() {
     final state = context.watch<AppState>();
     final department = _departmentIn(state);
@@ -255,6 +287,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final program = programs.any((p) => p.code == _program) ? _program : null;
 
     return [
+      _modeSwitch(),
+      const SizedBox(height: 22),
+
       if (_error != null) ...[
         AuthErrorBanner(message: _error!),
         const SizedBox(height: 22),
@@ -357,151 +392,91 @@ class _RegisterScreenState extends State<RegisterScreen> {
       const SizedBox(height: 32),
 
       // ── Student details ───────────────────────────────────────────────
-      const AuthSectionHeading(label: 'Student details'),
-      const SizedBox(height: 18),
+      if (!_staff) ...[
+        const AuthSectionHeading(label: 'Student details'),
+        const SizedBox(height: 18),
 
-      AuthFieldPair(
-        left: AuthField(
-          label: 'Phone number',
-          child: TextFormField(
-            controller: _phoneCtrl,
-            keyboardType: TextInputType.phone,
-            textInputAction: TextInputAction.next,
-            autofillHints: const [AutofillHints.telephoneNumber],
-            inputFormatters: [PhoneNumberFormatter()],
-            onChanged: _clearError,
-            decoration: const InputDecoration(hintText: '09XX XXX XXXX'),
-          ),
-        ),
-        right: AuthField(
-          label: 'Student ID',
-          child: TextFormField(
-            controller: _studentIdCtrl,
-            textCapitalization: TextCapitalization.characters,
-            // Moves on to the dropdowns; it never submits the form.
-            textInputAction: TextInputAction.next,
-            inputFormatters: [StudentIdFormatter()],
-            onChanged: _clearError,
-            decoration: const InputDecoration(hintText: 'e.g. 23B0626'),
-          ),
-        ),
-      ),
-      const SizedBox(height: 18),
-
-      AuthFieldPair(
-        left: AuthField(
-          label: 'Department',
-          child: DropdownButtonFormField<String>(
-            // Rebuilt when the stored department list arrives.
-            key: ValueKey('department-${state.departments.join('|')}'),
-            initialValue: department,
-            isExpanded: true,
-            menuMaxHeight: 360,
-            // Two-line options, like Course/Program: code over full name.
-            itemHeight: null,
-            decoration: const InputDecoration(),
-            // The closed field shows the code, or the name if there's none.
-            selectedItemBuilder: (_) => [
-              for (final d in state.departments)
-                Text(
-                  _departmentCode(state, d).isEmpty
-                      ? d
-                      : _departmentCode(state, d),
-                  overflow: TextOverflow.ellipsis,
-                ),
-            ],
-            items: [
-              for (final d in state.departments)
-                DropdownMenuItem(
-                  value: d,
-                  child: _CodeNameOption(
-                    code: _departmentCode(state, d),
-                    name: d,
-                  ),
-                ),
-            ],
-            onChanged: (v) => setState(() {
-              _department = v!;
-              _program = null;
-            }),
-          ),
-        ),
-        right: AuthField(
-          label: 'Campus',
-          child: DropdownButtonFormField<String>(
-            initialValue: _campus,
-            isExpanded: true,
-            decoration: const InputDecoration(),
-            items: state.campuses
-                .map(
-                  (c) => DropdownMenuItem(
-                    value: c,
-                    child: Text(c, overflow: TextOverflow.ellipsis),
-                  ),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => _campus = v!),
-          ),
-        ),
-      ),
-      const SizedBox(height: 18),
-
-      AuthFieldPair(
-        left: AuthField(
-          label: 'Course/Program',
-          // Keyed on the department so it starts over when that changes;
-          // the old choice isn't one of the new department's programs.
-          child: DropdownButtonFormField<String>(
-            key: ValueKey('program-$department-${programs.length}'),
-            initialValue: program,
-            isExpanded: true,
-            menuMaxHeight: 360,
-            // Lets each option take two lines: the field is half the form
-            // wide, too narrow for a full program name on one.
-            itemHeight: null,
-            hint: Text(
-              programs.isEmpty
-                  ? 'No programs listed for this department'
-                  : 'Choose your program',
-              overflow: TextOverflow.ellipsis,
+        AuthFieldPair(
+          left: _phoneField(),
+          right: AuthField(
+            label: 'Student ID',
+            child: TextFormField(
+              controller: _studentIdCtrl,
+              textCapitalization: TextCapitalization.characters,
+              // Moves on to the dropdowns; it never submits the form.
+              textInputAction: TextInputAction.next,
+              inputFormatters: [StudentIdFormatter()],
+              onChanged: _clearError,
+              decoration: const InputDecoration(hintText: 'e.g. 23B0626'),
             ),
-            decoration: const InputDecoration(),
-            // The closed field shows just the code; the menu the full name.
-            selectedItemBuilder: (_) => [
-              for (final p in programs)
-                Text(p.code, overflow: TextOverflow.ellipsis),
-            ],
-            items: [
-              for (final p in programs)
-                DropdownMenuItem(
-                  value: p.code,
-                  child: _CodeNameOption(code: p.code, name: p.name),
-                ),
-            ],
-            onChanged: programs.isEmpty
-                ? null
-                : (v) => setState(() {
-                    _program = v;
-                    _error = null;
-                  }),
           ),
         ),
-        right: AuthField(
-          label: 'Year level',
-          child: DropdownButtonFormField<String>(
-            initialValue: _yearLevel,
-            isExpanded: true,
-            decoration: const InputDecoration(),
-            items: const [
-              DropdownMenuItem(value: '1st Year', child: Text('1st Year')),
-              DropdownMenuItem(value: '2nd Year', child: Text('2nd Year')),
-              DropdownMenuItem(value: '3rd Year', child: Text('3rd Year')),
-              DropdownMenuItem(value: '4th Year', child: Text('4th Year')),
-            ],
-            onChanged: (v) => setState(() => _yearLevel = v ?? _yearLevel),
+        const SizedBox(height: 18),
+
+        AuthFieldPair(
+          left: _departmentField(state, department),
+          right: _campusField(state),
+        ),
+        const SizedBox(height: 18),
+
+        AuthFieldPair(
+          left: AuthField(
+            label: 'Course/Program',
+            // Keyed on the department so it starts over when that changes;
+            // the old choice isn't one of the new department's programs.
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('program-$department-${programs.length}'),
+              initialValue: program,
+              isExpanded: true,
+              menuMaxHeight: 360,
+              // Lets each option take two lines: the field is half the form
+              // wide, too narrow for a full program name on one.
+              itemHeight: null,
+              hint: Text(
+                programs.isEmpty
+                    ? 'No programs listed for this department'
+                    : 'Choose your program',
+                overflow: TextOverflow.ellipsis,
+              ),
+              decoration: const InputDecoration(),
+              // The closed field shows just the code; the menu the full name.
+              selectedItemBuilder: (_) => [
+                for (final p in programs)
+                  Text(p.code, overflow: TextOverflow.ellipsis),
+              ],
+              items: [
+                for (final p in programs)
+                  DropdownMenuItem(
+                    value: p.code,
+                    child: _CodeNameOption(code: p.code, name: p.name),
+                  ),
+              ],
+              onChanged: programs.isEmpty
+                  ? null
+                  : (v) => setState(() {
+                      _program = v;
+                      _error = null;
+                    }),
+            ),
+          ),
+          right: AuthField(
+            label: 'Year level',
+            child: DropdownButtonFormField<String>(
+              initialValue: _yearLevel,
+              isExpanded: true,
+              decoration: const InputDecoration(),
+              items: const [
+                DropdownMenuItem(value: '1st Year', child: Text('1st Year')),
+                DropdownMenuItem(value: '2nd Year', child: Text('2nd Year')),
+                DropdownMenuItem(value: '3rd Year', child: Text('3rd Year')),
+                DropdownMenuItem(value: '4th Year', child: Text('4th Year')),
+              ],
+              onChanged: (v) => setState(() => _yearLevel = v ?? _yearLevel),
+            ),
           ),
         ),
-      ),
+      ],
+      if (_staff) ..._staffDetails(state, department),
       const SizedBox(height: 24),
 
       _privacyConsent(),
@@ -521,6 +496,171 @@ class _RegisterScreenState extends State<RegisterScreen> {
         onTap: widget.onBackToLogin,
       ),
     ];
+  }
+
+  /// Student or Staff registration. The fields already typed stay when the
+  /// form is switched.
+  Widget _modeSwitch() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SegmentedButton<bool>(
+          showSelectedIcon: false,
+          expandedInsets: EdgeInsets.zero,
+          segments: const [
+            ButtonSegment(
+              value: false,
+              label: Text('Student'),
+              icon: Icon(Icons.school_outlined, size: 18),
+            ),
+            ButtonSegment(
+              value: true,
+              label: Text('Staff'),
+              icon: Icon(Icons.badge_outlined, size: 18),
+            ),
+          ],
+          selected: {_staff},
+          onSelectionChanged: _isLoading
+              ? null
+              : (selection) => setState(() {
+                  _staff = selection.first;
+                  _error = null;
+                }),
+          style: ButtonStyle(
+            minimumSize: const WidgetStatePropertyAll(Size(0, 46)),
+            textStyle: const WidgetStatePropertyAll(
+              TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
+            ),
+            backgroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? LandingColors.maroon
+                  : Colors.white,
+            ),
+            foregroundColor: WidgetStateProperty.resolveWith(
+              (states) => states.contains(WidgetState.selected)
+                  ? Colors.white
+                  : LandingColors.ink,
+            ),
+          ),
+        ),
+        if (_staff) ...[
+          const SizedBox(height: 10),
+          const Text(
+            'A Head of Student Assistantship has to approve a staff account '
+            'before it can be used.',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: LandingColors.muted,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  /// What Supervisors and Heads give at sign-up: their contact, the role
+  /// they ask for, and where they work. No Student ID, program or year.
+  List<Widget> _staffDetails(AppState state, String department) => [
+    const AuthSectionHeading(label: 'Staff details'),
+    const SizedBox(height: 18),
+    AuthFieldPair(
+      left: _phoneField(),
+      right: AuthField(
+        label: 'Role',
+        child: DropdownButtonFormField<String>(
+          initialValue: _staffRole,
+          isExpanded: true,
+          decoration: const InputDecoration(),
+          items: const [
+            DropdownMenuItem(value: 'Supervisor', child: Text('Supervisor')),
+            DropdownMenuItem(
+              value: 'Head',
+              child: Text(
+                'Head, Student Assistantship',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+          onChanged: (v) => setState(() => _staffRole = v ?? _staffRole),
+        ),
+      ),
+    ),
+    const SizedBox(height: 18),
+    AuthFieldPair(
+      left: _departmentField(state, department),
+      right: _campusField(state),
+    ),
+  ];
+
+  Widget _phoneField() {
+    return AuthField(
+      label: 'Phone number',
+      child: TextFormField(
+        controller: _phoneCtrl,
+        keyboardType: TextInputType.phone,
+        textInputAction: TextInputAction.next,
+        autofillHints: const [AutofillHints.telephoneNumber],
+        inputFormatters: [PhoneNumberFormatter()],
+        onChanged: _clearError,
+        decoration: const InputDecoration(hintText: '09XX XXX XXXX'),
+      ),
+    );
+  }
+
+  Widget _departmentField(AppState state, String department) {
+    return AuthField(
+      label: 'Department',
+      child: DropdownButtonFormField<String>(
+        // Rebuilt when the stored department list arrives.
+        key: ValueKey('department-${state.departments.join('|')}'),
+        initialValue: department,
+        isExpanded: true,
+        menuMaxHeight: 360,
+        // Two-line options, like Course/Program: code over full name.
+        itemHeight: null,
+        decoration: const InputDecoration(),
+        // The closed field shows the code, or the name if there's none.
+        selectedItemBuilder: (_) => [
+          for (final d in state.departments)
+            Text(
+              _departmentCode(state, d).isEmpty ? d : _departmentCode(state, d),
+              overflow: TextOverflow.ellipsis,
+            ),
+        ],
+        items: [
+          for (final d in state.departments)
+            DropdownMenuItem(
+              value: d,
+              child: _CodeNameOption(code: _departmentCode(state, d), name: d),
+            ),
+        ],
+        onChanged: (v) => setState(() {
+          _department = v!;
+          _program = null;
+        }),
+      ),
+    );
+  }
+
+  Widget _campusField(AppState state) {
+    return AuthField(
+      label: 'Campus',
+      child: DropdownButtonFormField<String>(
+        initialValue: _campus,
+        isExpanded: true,
+        decoration: const InputDecoration(),
+        items: state.campuses
+            .map(
+              (c) => DropdownMenuItem(
+                value: c,
+                child: Text(c, overflow: TextOverflow.ellipsis),
+              ),
+            )
+            .toList(),
+        onChanged: (v) => setState(() => _campus = v!),
+      ),
+    );
   }
 
   /// The Privacy Notice, to be accepted before an account is made.

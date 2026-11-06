@@ -91,7 +91,12 @@ class _AccountsScreenState extends State<AccountsScreen>
         .where((u) => u.role == 'Student Assistant' && u.status != 'Archived')
         .length;
     final studentCount = state.users
-        .where((u) => u.role == 'Student' && u.status != 'Archived')
+        .where(
+          (u) =>
+              u.role == 'Student' &&
+              u.status != 'Archived' &&
+              u.requestedRole == null,
+        )
         .length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -618,46 +623,49 @@ class _AccountsScreenState extends State<AccountsScreen>
             runSpacing: 10,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-          GestureDetector(
-            onTap: () => setState(() => _showArchived = !_showArchived),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: _showArchived ? AppTheme.amber50 : Colors.white,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: _showArchived
-                      ? AppTheme.amber500.withValues(alpha: 0.4)
-                      : AppTheme.slate200,
-                ),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    Icons.archive_outlined,
-                    size: 15,
-                    color: _showArchived
-                        ? AppTheme.amber500
-                        : AppTheme.slate400,
+              GestureDetector(
+                onTap: () => setState(() => _showArchived = !_showArchived),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
                   ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _showArchived
-                        ? 'Showing archived accounts'
-                        : 'Show archived accounts',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                  decoration: BoxDecoration(
+                    color: _showArchived ? AppTheme.amber50 : Colors.white,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
                       color: _showArchived
-                          ? AppTheme.amber500
-                          : AppTheme.slate500,
+                          ? AppTheme.amber500.withValues(alpha: 0.4)
+                          : AppTheme.slate200,
                     ),
                   ),
-                ],
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.archive_outlined,
+                        size: 15,
+                        color: _showArchived
+                            ? AppTheme.amber500
+                            : AppTheme.slate400,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        _showArchived
+                            ? 'Showing archived accounts'
+                            : 'Show archived accounts',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: _showArchived
+                              ? AppTheme.amber500
+                              : AppTheme.slate500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ),
               ExportCsvButton(
                 onPressed: users.isEmpty ? null : () => _exportAccounts(users),
               ),
@@ -1571,28 +1579,32 @@ class _AccountsScreenState extends State<AccountsScreen>
                     type: TextInputType.phone,
                     formatter: PhoneNumberFormatter(),
                   ),
-                  const SizedBox(height: 12),
-                  _dialogField(
-                    'Student ID (optional)',
-                    studentIdCtrl,
-                    Icons.badge_outlined,
-                    formatter: StudentIdFormatter(),
-                  ),
-                  const SizedBox(height: 12),
-                  _programDropdown(
-                    state,
-                    department,
-                    courseProgram,
-                    (value) => setDialogState(() => courseProgram = value),
-                  ),
-                  const SizedBox(height: 12),
-                  _accountDropdown(
-                    'Year level',
-                    yearLevel,
-                    const ['1st Year', '2nd Year', '3rd Year', '4th Year'],
-                    (value) => setDialogState(() => yearLevel = value),
-                    Icons.timeline_outlined,
-                  ),
+                  // The Admin, Head and Supervisor have no Student ID,
+                  // program or year level.
+                  if (role == 'Student Assistant' || role == 'Student') ...[
+                    const SizedBox(height: 12),
+                    _dialogField(
+                      'Student ID (optional)',
+                      studentIdCtrl,
+                      Icons.badge_outlined,
+                      formatter: StudentIdFormatter(),
+                    ),
+                    const SizedBox(height: 12),
+                    _programDropdown(
+                      state,
+                      department,
+                      courseProgram,
+                      (value) => setDialogState(() => courseProgram = value),
+                    ),
+                    const SizedBox(height: 12),
+                    _accountDropdown(
+                      'Year level',
+                      yearLevel,
+                      const ['1st Year', '2nd Year', '3rd Year', '4th Year'],
+                      (value) => setDialogState(() => yearLevel = value),
+                      Icons.timeline_outlined,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1620,7 +1632,9 @@ class _AccountsScreenState extends State<AccountsScreen>
                     ? 'The temporary password needs at least 6 characters.'
                     : phone.isNotEmpty && !isValidPhoneNumber(phone)
                     ? 'Enter a valid phone number, e.g. 09XX XXX XXXX.'
-                    : studentId.isNotEmpty && !isValidStudentId(studentId)
+                    : (role == 'Student Assistant' || role == 'Student') &&
+                          studentId.isNotEmpty &&
+                          !isValidStudentId(studentId)
                     ? 'Enter a valid Student ID, e.g. 23B0626.'
                     : null;
                 if (problem != null) {
@@ -1771,33 +1785,39 @@ class _AccountsScreenState extends State<AccountsScreen>
                 user.campus ?? '—',
                 Icons.location_city_outlined,
               ),
-              _profileDetail(
-                'Office',
-                offices.isEmpty
-                    ? 'Unassigned'
-                    : offices.map((office) => office.name).join(', '),
-                Icons.business_center_outlined,
-              ),
+              if (user.role == 'Supervisor' || user.role == 'Student Assistant')
+                _profileDetail(
+                  'Office',
+                  offices.isEmpty
+                      ? 'Unassigned'
+                      : offices.map((office) => office.name).join(', '),
+                  Icons.business_center_outlined,
+                ),
               _profileDetail(
                 'Phone',
                 user.phone?.isEmpty ?? true ? '—' : user.phone!,
                 Icons.phone_outlined,
               ),
-              _profileDetail(
-                'Student ID',
-                user.studentId?.isEmpty ?? true ? '—' : user.studentId!,
-                Icons.badge_outlined,
-              ),
-              _profileDetail(
-                'Course/Program',
-                user.courseProgram?.isEmpty ?? true ? '—' : user.courseProgram!,
-                Icons.school_outlined,
-              ),
-              _profileDetail(
-                'Year level',
-                user.yearLevel?.isEmpty ?? true ? '—' : user.yearLevel!,
-                Icons.timeline_outlined,
-              ),
+              if (user.role == 'Student Assistant' ||
+                  user.role == 'Student') ...[
+                _profileDetail(
+                  'Student ID',
+                  user.studentId?.isEmpty ?? true ? '—' : user.studentId!,
+                  Icons.badge_outlined,
+                ),
+                _profileDetail(
+                  'Course/Program',
+                  user.courseProgram?.isEmpty ?? true
+                      ? '—'
+                      : user.courseProgram!,
+                  Icons.school_outlined,
+                ),
+                _profileDetail(
+                  'Year level',
+                  user.yearLevel?.isEmpty ?? true ? '—' : user.yearLevel!,
+                  Icons.timeline_outlined,
+                ),
+              ],
             ],
           ),
         ),

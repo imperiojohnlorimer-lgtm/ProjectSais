@@ -40,6 +40,10 @@ class SupabaseStorageService {
   /// Supabase cron job), every other notification once the app saves it,
   /// and the test notification the Turn on cards offer.
   static const clockOutRemindersUrl = '$_functionsRoot/clockout-reminders';
+
+  /// The Admin's Backups page: lists, downloads and deletes the weekly
+  /// backups kept in the private GitHub repository.
+  static const backupStatusUrl = '$_functionsRoot/backup-status';
   static const _allowedExtensions = {
     'pdf',
     'doc',

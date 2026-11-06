@@ -24,13 +24,17 @@ import './accounts/skills_screen.dart';
 import './profile/profile_screen.dart';
 import './settings/academic_year_archive_screen.dart';
 import './settings/academic_year_settings_screen.dart';
+import './backups/backups_screen.dart';
 import './accounts/offices_screen.dart';
 import './calendar/calendar_screen.dart';
 import './student_portal/announcements_screen.dart';
 import './accounts/admin_notifications_screen.dart';
 import './accounts/head_forwards_screen.dart';
+import './accounts/staff_requests_screen.dart';
 import './accounts/student_documents_screen.dart';
 import './student_portal/sp_notifications_screen.dart';
+import '../widgets/backup_health_banner.dart';
+import '../widgets/staff_request_banner.dart';
 import '../widgets/load_problem_banner.dart';
 import './supervisor/sv_announcements_screen.dart';
 import './supervisor/performance_evaluation_screen.dart';
@@ -210,6 +214,13 @@ class _AppShellState extends State<AppShell> {
       roles: ['Head'],
     ),
     (
+      id: 'backups',
+      label: 'Backups',
+      icon: Icons.backup_outlined,
+      activeIcon: Icons.backup,
+      roles: ['Admin'],
+    ),
+    (
       id: 'settings',
       label: 'Settings',
       icon: Icons.settings_outlined,
@@ -310,6 +321,13 @@ class _AppShellState extends State<AppShell> {
       roles: ['Supervisor'],
     ),
     (
+      id: 'staff_requests',
+      label: 'Staff Requests',
+      icon: Icons.how_to_reg_outlined,
+      activeIcon: Icons.how_to_reg,
+      roles: ['Head'],
+    ),
+    (
       id: 'head_forwards',
       label: 'Sent to Head',
       icon: Icons.forward_to_inbox_outlined,
@@ -394,6 +412,8 @@ class _AppShellState extends State<AppShell> {
         return const OfficesScreen();
       case 'settings':
         return const AcademicYearSettingsScreen();
+      case 'backups':
+        return const BackupsScreen();
       case 'announcements_admin':
         return const AdminAnnouncementsScreen();
       // One page for applications and their screening; the old Applicant
@@ -429,6 +449,8 @@ class _AppShellState extends State<AppShell> {
         return const SpNotificationsScreen();
       case 'admin_notifications':
         return const AdminNotificationsScreen();
+      case 'staff_requests':
+        return const StaffRequestsScreen();
       case 'head_forwards':
         return const HeadForwardsScreen();
       case 'student_documents':
@@ -465,6 +487,8 @@ class _AppShellState extends State<AppShell> {
         return 'Offices';
       case 'settings':
         return 'Settings';
+      case 'backups':
+        return 'Backups';
       case 'students':
         return 'Students';
       case 'calendar':
@@ -485,6 +509,8 @@ class _AppShellState extends State<AppShell> {
         return 'Notifications';
       case 'admin_notifications':
         return 'Notifications';
+      case 'staff_requests':
+        return 'Staff Requests';
       case 'head_forwards':
         return 'Sent to Head';
       case 'student_documents':
@@ -1040,6 +1066,10 @@ class _AppShellState extends State<AppShell> {
                     !(onAcademicYear &&
                         state.academicYearShown == archiveNoticeYear))
                   _archiveBanner(state),
+                // Warns the Admin when the weekly backup failed or is late.
+                if (role == 'Admin') const BackupHealthBanner(),
+                // Tells a Head that staff sign-ups are waiting to be approved.
+                if (role == 'Head') const StaffRequestBanner(),
                 const LoadProblemBanner(),
                 // Main content
                 Expanded(

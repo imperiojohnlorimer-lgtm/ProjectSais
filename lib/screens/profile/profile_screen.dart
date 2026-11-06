@@ -309,6 +309,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final offices = state.currentUserOffices.map((o) => o.name).join(', ');
     String orDash(String? value) =>
         (value == null || value.isEmpty) ? '—' : value;
+    // The Admin, a Head and a Supervisor have no Student ID, SA ID, program
+    // or year level, and the Admin and Head no office: those rows are only
+    // for students and the Student Assistants who share this page.
+    final isStudentRole = user.role == 'Student Assistant';
+    final hasOffice = user.role == 'Supervisor' || isStudentRole;
 
     return ProfileFieldGrid(
       fields: [
@@ -319,11 +324,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
           orDash(user.department),
           Icons.business_outlined,
         ),
-        ProfileFieldData(
-          'Office',
-          offices.isEmpty ? 'Unassigned' : offices,
-          Icons.business_center_outlined,
-        ),
+        if (hasOffice)
+          ProfileFieldData(
+            'Office',
+            offices.isEmpty ? 'Unassigned' : offices,
+            Icons.business_center_outlined,
+          ),
         ProfileFieldData(
           'Phone number',
           orDash(user.phone),
@@ -334,27 +340,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
           orDash(user.campus),
           Icons.location_city_outlined,
         ),
-        ProfileFieldData(
-          'Student ID',
-          orDash(user.studentId),
-          Icons.badge_outlined,
-        ),
-        ProfileFieldData(
-          'Course/Program',
-          orDash(user.courseProgram),
-          Icons.school_outlined,
-        ),
-        ProfileFieldData(
-          'Year level',
-          orDash(user.yearLevel),
-          Icons.timeline_outlined,
-        ),
+        if (isStudentRole) ...[
+          ProfileFieldData(
+            'Student ID',
+            orDash(user.studentId),
+            Icons.badge_outlined,
+          ),
+          ProfileFieldData(
+            'Course/Program',
+            orDash(user.courseProgram),
+            Icons.school_outlined,
+          ),
+          ProfileFieldData(
+            'Year level',
+            orDash(user.yearLevel),
+            Icons.timeline_outlined,
+          ),
+        ],
         ProfileFieldData(
           'Home address',
           orDash(user.address),
           Icons.location_on_outlined,
         ),
-        ProfileFieldData('SA ID', orDash(user.saId), Icons.badge_outlined),
+        if (isStudentRole)
+          ProfileFieldData('SA ID', orDash(user.saId), Icons.badge_outlined),
       ],
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../models/program_batch.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -275,7 +276,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
     String? department,
   }) async {
     final state = context.read<AppState>();
-    final saved = await showDialog<String>(
+    final saved = await showDialog<_ProgramsSaved>(
       context: context,
       builder: (_) => ChangeNotifierProvider.value(
         value: state,
@@ -288,7 +289,11 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
     if (saved == null || !context.mounted) return;
     _snack(
       context,
-      program == null ? 'Program "$saved" added!' : 'Program updated!',
+      program != null
+          ? 'Program updated!'
+          : saved.count == 1
+          ? 'Program "${saved.code}" added!'
+          : '${saved.count} programs added to ${saved.department}',
       AppTheme.emerald500,
     );
   }
@@ -646,7 +651,32 @@ class _CardAction extends StatelessWidget {
   }
 }
 
-/// Add or edit one program. Pops with the saved code.
+/// What a closed [_ProgramDialog] hands back.
+typedef _ProgramsSaved = ({int count, String code, String department});
+
+/// One Code + Program name pair in the form.
+class _RowCtrl {
+  final TextEditingController code;
+  final TextEditingController name;
+
+  /// Keeps a row's text with the row when another one is removed.
+  final Key key = UniqueKey();
+
+  _RowCtrl({String? code, String? name})
+    : code = TextEditingController(text: code),
+      name = TextEditingController(text: name);
+
+  ProgramRow get row => (code: code.text.trim(), name: name.text.trim());
+  bool get isEmpty => programRowIsEmpty(row);
+
+  void dispose() {
+    code.dispose();
+    name.dispose();
+  }
+}
+
+/// Add programs (one or many under a department) or edit one. Pops with
+/// what was saved, or null when it is closed without saving.
 class _ProgramDialog extends StatefulWidget {
   final Program? program;
   final String? department;
@@ -658,10 +688,20 @@ class _ProgramDialog extends StatefulWidget {
 }
 
 class _ProgramDialogState extends State<_ProgramDialog> {
-  late final _codeCtrl = TextEditingController(text: widget.program?.code);
-  late final _nameCtrl = TextEditingController(text: widget.program?.name);
+  late final List<_RowCtrl> _rows = [
+    _RowCtrl(code: widget.program?.code, name: widget.program?.name),
+  ];
+  final _pasteCtrl = TextEditingController();
   String? _department;
+
+  /// A problem with the request as a whole.
   String? _error;
+
+  /// What is wrong with each row, in the rows' order, after a failed save.
+  List<String?> _rowErrors = const [];
+  bool _pasteOpen = false;
+  String? _pasteNote;
+  bool _pasteNoteIsProblem = false;
   bool _saving = false;
 
   bool get _isEditing => widget.program != null;
@@ -674,16 +714,121 @@ class _ProgramDialogState extends State<_ProgramDialog> {
 
   @override
   void dispose() {
-    _codeCtrl.dispose();
-    _nameCtrl.dispose();
+    for (final row in _rows) {
+      row.dispose();
+    }
+    _pasteCtrl.dispose();
     super.dispose();
+  }
+
+  void _edited() => setState(() {
+    _error = null;
+    _rowErrors = const [];
+  });
+
+  void _addRow() {
+    if (_rows.length >= maxProgramRows) return;
+    setState(() {
+      _rows.add(_RowCtrl());
+      _error = null;
+      _rowErrors = const [];
+    });
+  }
+
+  void _removeRow(int index) {
+    if (_rows.length < 2) return;
+    setState(() {
+      _rows.removeAt(index).dispose();
+      _error = null;
+      _rowErrors = const [];
+    });
+  }
+
+  /// Turns the pasted lines into rows: empty rows first, then new ones.
+  /// Lines that could not be read, or did not fit under the limit, stay in
+  /// the box so none is lost.
+  void _fillFromPaste() {
+    final parsed = parseProgramLines(_pasteCtrl.text);
+    final leftOver = <String>[...parsed.unreadable];
+    var added = 0;
+    var tooMany = 0;
+    setState(() {
+      for (final entry in parsed.rows) {
+        final empty = _rows.where((r) => r.isEmpty).firstOrNull;
+        if (empty != null) {
+          empty.code.text = entry.code;
+          empty.name.text = entry.name;
+          added++;
+        } else if (_rows.length < maxProgramRows) {
+          _rows.add(_RowCtrl(code: entry.code, name: entry.name));
+          added++;
+        } else {
+          tooMany++;
+          leftOver.add('${entry.code}, ${entry.name}');
+        }
+      }
+      _pasteCtrl.text = leftOver.join('\n');
+      final notes = <String>[
+        if (added > 0) '$added ${added == 1 ? 'row' : 'rows'} filled in.',
+        if (parsed.unreadable.isNotEmpty)
+          '${parsed.unreadable.length} '
+              '${parsed.unreadable.length == 1 ? 'line' : 'lines'} could not '
+              'be read (use "CODE, Program name"); they are still in the box.',
+        if (tooMany > 0)
+          '$tooMany not added: the limit is $maxProgramRows at a time; '
+              'they are still in the box.',
+        if (added == 0 && parsed.unreadable.isEmpty && tooMany == 0)
+          'Nothing to add yet. Paste one program per line.',
+      ];
+      _pasteNote = notes.join(' ');
+      _pasteNoteIsProblem = parsed.unreadable.isNotEmpty || tooMany > 0;
+      _error = null;
+      _rowErrors = const [];
+    });
   }
 
   Future<void> _save() async {
     final state = context.read<AppState>();
-    final code = _codeCtrl.text.trim();
-    final name = _nameCtrl.text.trim();
     final department = _department;
+    if (_isEditing) {
+      await _saveEdit(state, department);
+      return;
+    }
+    if (department == null) {
+      setState(() => _error = 'Choose a department.');
+      return;
+    }
+    setState(() {
+      _saving = true;
+      _error = null;
+      _rowErrors = const [];
+    });
+    final result = await state.saveProgramsBatch(department, [
+      for (final r in _rows) r.row,
+    ]);
+    if (!mounted) return;
+    if (!result.ok) {
+      setState(() {
+        _saving = false;
+        _error = result.message;
+        _rowErrors = result.rowErrors;
+      });
+      return;
+    }
+    // Dismissed while it saved: the programs are in, but this is no longer
+    // the page to close.
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    final first = _rows.firstWhere((r) => !r.isEmpty).row.code;
+    Navigator.pop<_ProgramsSaved>(context, (
+      count: result.saved,
+      code: first,
+      department: department,
+    ));
+  }
+
+  Future<void> _saveEdit(AppState state, String? department) async {
+    final code = _rows.first.code.text.trim();
+    final name = _rows.first.name.text.trim();
     if (department == null || code.isEmpty || name.isEmpty) {
       setState(() => _error = 'Choose a department and fill in both fields.');
       return;
@@ -715,7 +860,12 @@ class _ProgramDialogState extends State<_ProgramDialog> {
       });
       return;
     }
-    Navigator.pop(context, code);
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return;
+    Navigator.pop<_ProgramsSaved>(context, (
+      count: 1,
+      code: code,
+      department: department,
+    ));
   }
 
   @override
@@ -723,26 +873,20 @@ class _ProgramDialogState extends State<_ProgramDialog> {
     final state = context.watch<AppState>();
     final narrow = MediaQuery.of(context).size.width < 520;
     final departments = state.departments;
-
-    final codeField = _field(
-      label: 'Code',
-      controller: _codeCtrl,
-      hint: 'e.g. BSIT',
-      icon: Icons.tag_rounded,
-    );
-    final nameField = _field(
-      label: 'Program name',
-      controller: _nameCtrl,
-      hint: 'e.g. Bachelor of Science in Information Technology',
-      icon: Icons.school_outlined,
-    );
+    final filled = _rows.where((r) => !r.isEmpty).length;
+    final rowProblems = _rowErrors.where((e) => e != null).length;
+    final addLabel = _isEditing
+        ? 'Save Changes'
+        : filled > 1
+        ? 'Add $filled Programs'
+        : 'Add Program';
 
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       backgroundColor: Colors.white,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 480),
+        constraints: BoxConstraints(maxWidth: _isEditing ? 480 : 560),
         child: SingleChildScrollView(
           padding: const EdgeInsets.all(24),
           child: Column(
@@ -776,9 +920,12 @@ class _ProgramDialogState extends State<_ProgramDialog> {
                             color: AppTheme.slate900,
                           ),
                         ),
-                        const Text(
-                          'Students pick it under its department',
-                          style: TextStyle(
+                        Text(
+                          _isEditing
+                              ? 'Students pick it under its department'
+                              : 'Add one, or several at once under one '
+                                    'department',
+                          style: const TextStyle(
                             fontSize: 12,
                             color: AppTheme.slate500,
                           ),
@@ -787,7 +934,7 @@ class _ProgramDialogState extends State<_ProgramDialog> {
                     ),
                   ),
                   IconButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed: _saving ? null : () => Navigator.pop(context),
                     icon: const Icon(Icons.close_rounded, size: 20),
                     color: AppTheme.slate400,
                     tooltip: 'Close',
@@ -811,27 +958,47 @@ class _ProgramDialogState extends State<_ProgramDialog> {
                       child: Text(d, overflow: TextOverflow.ellipsis),
                     ),
                 ],
-                onChanged: (v) => setState(() {
-                  _department = v;
-                  _error = null;
-                }),
+                onChanged: _saving
+                    ? null
+                    : (v) => setState(() {
+                        _department = v;
+                        _error = null;
+                      }),
               ),
               const SizedBox(height: 16),
-              if (narrow) ...[
-                codeField,
-                const SizedBox(height: 16),
-                nameField,
-              ] else
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+              for (var i = 0; i < _rows.length; i++)
+                _rowWidget(i, narrow: narrow),
+              if (!_isEditing) ...[
+                Wrap(
+                  spacing: 8,
                   children: [
-                    Expanded(flex: 2, child: codeField),
-                    const SizedBox(width: 12),
-                    Expanded(flex: 5, child: nameField),
+                    TextButton.icon(
+                      onPressed: _saving || _rows.length >= maxProgramRows
+                          ? null
+                          : _addRow,
+                      icon: const Icon(Icons.add_rounded, size: 18),
+                      label: const Text('Add another row'),
+                    ),
+                    TextButton.icon(
+                      onPressed: _saving
+                          ? null
+                          : () => setState(() => _pasteOpen = !_pasteOpen),
+                      icon: Icon(
+                        _pasteOpen
+                            ? Icons.expand_less_rounded
+                            : Icons.content_paste_rounded,
+                        size: 18,
+                      ),
+                      label: Text(
+                        _pasteOpen ? 'Hide the paste box' : 'Paste a list',
+                      ),
+                    ),
                   ],
                 ),
-              if (_error != null) ...[
-                const SizedBox(height: 14),
+                if (_pasteOpen) _pasteBox(),
+              ],
+              if (_error != null || rowProblems > 0) ...[
+                const SizedBox(height: 10),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.symmetric(
@@ -843,7 +1010,11 @@ class _ProgramDialogState extends State<_ProgramDialog> {
                     borderRadius: BorderRadius.circular(10),
                   ),
                   child: Text(
-                    _error!,
+                    _error ??
+                        (rowProblems == 1
+                            ? 'Fix the highlighted row, then try again.'
+                            : 'Fix the $rowProblems highlighted rows, then '
+                                  'try again.'),
                     style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -853,14 +1024,18 @@ class _ProgramDialogState extends State<_ProgramDialog> {
                 ),
               ],
               const SizedBox(height: 22),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+              // A Wrap, so a long label ("Add 12 Programs") drops under Cancel
+              // on a phone instead of overflowing.
+              Wrap(
+                alignment: WrapAlignment.end,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   TextButton(
                     onPressed: _saving ? null : () => Navigator.pop(context),
                     child: const Text('Cancel'),
                   ),
-                  const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: _saving ? null : _save,
                     icon: _saving
@@ -873,7 +1048,7 @@ class _ProgramDialogState extends State<_ProgramDialog> {
                             ),
                           )
                         : const Icon(Icons.check_rounded, size: 16),
-                    label: Text(_isEditing ? 'Save Changes' : 'Add Program'),
+                    label: Text(_saving && !_isEditing ? 'Adding…' : addLabel),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: AppTheme.maroon,
                       foregroundColor: Colors.white,
@@ -896,6 +1071,147 @@ class _ProgramDialogState extends State<_ProgramDialog> {
     );
   }
 
+  /// One Code + Program name pair. Only the first row carries the field
+  /// labels; the rest save the height.
+  Widget _rowWidget(int index, {required bool narrow}) {
+    final ctrl = _rows[index];
+    final error = index < _rowErrors.length ? _rowErrors[index] : null;
+    final first = index == 0;
+    final codeField = _field(
+      label: first ? 'Code' : null,
+      controller: ctrl.code,
+      hint: 'e.g. BSIT',
+      icon: Icons.tag_rounded,
+      invalid: error != null,
+    );
+    final nameField = _field(
+      label: first ? 'Program name' : null,
+      controller: ctrl.name,
+      hint: 'e.g. Bachelor of Science in Information Technology',
+      icon: Icons.school_outlined,
+      invalid: error != null,
+    );
+    final canRemove = !_isEditing && _rows.length > 1;
+    final remove = IconButton(
+      onPressed: _saving ? null : () => _removeRow(index),
+      icon: const Icon(Icons.close_rounded, size: 18),
+      color: AppTheme.slate400,
+      tooltip: 'Remove this row',
+    );
+    return Padding(
+      key: ctrl.key,
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (narrow) ...[
+            if (canRemove)
+              Row(
+                children: [
+                  Text(
+                    'Program ${index + 1}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: AppTheme.slate600,
+                    ),
+                  ),
+                  const Spacer(),
+                  remove,
+                ],
+              ),
+            codeField,
+            const SizedBox(height: 10),
+            nameField,
+          ] else
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(flex: 2, child: codeField),
+                const SizedBox(width: 12),
+                Expanded(flex: 5, child: nameField),
+                if (canRemove)
+                  Padding(
+                    padding: EdgeInsets.only(top: first ? 22 : 0),
+                    child: remove,
+                  ),
+              ],
+            ),
+          if (error != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 2),
+              child: Text(
+                error,
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.red500,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _pasteBox() {
+    return Container(
+      margin: const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: AppTheme.slate50,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'One program per line: the code, then the name, separated by a '
+            'comma, a tab or " - ". A table copied from Word or Excel works.',
+            style: TextStyle(fontSize: 12, color: AppTheme.slate600),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _pasteCtrl,
+            minLines: 4,
+            maxLines: 8,
+            style: const TextStyle(fontSize: 13, color: AppTheme.slate900),
+            decoration: _decoration(
+              icon: Icons.content_paste_rounded,
+              hint:
+                  'BSIT, Bachelor of Science in Information Technology\n'
+                  'BSCS, Bachelor of Science in Computer Science',
+            ),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              onPressed: _saving ? null : _fillFromPaste,
+              icon: const Icon(Icons.playlist_add_rounded, size: 18),
+              label: const Text('Fill rows'),
+            ),
+          ),
+          if (_pasteNote != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                _pasteNote!,
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _pasteNoteIsProblem
+                      ? AppTheme.amber500
+                      : AppTheme.slate600,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _label(String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
     child: Text(
@@ -909,48 +1225,54 @@ class _ProgramDialogState extends State<_ProgramDialog> {
   );
 
   Widget _field({
-    required String label,
+    required String? label,
     required TextEditingController controller,
     required String hint,
     required IconData icon,
+    bool invalid = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        _label(label),
+        if (label != null) _label(label),
         TextField(
           controller: controller,
-          onChanged: (_) {
-            if (_error != null) setState(() => _error = null);
-          },
+          enabled: !_saving,
+          onChanged: (_) => _edited(),
           style: const TextStyle(fontSize: 13, color: AppTheme.slate900),
-          decoration: _decoration(icon: icon, hint: hint),
+          decoration: _decoration(icon: icon, hint: hint, invalid: invalid),
         ),
       ],
     );
   }
 
-  InputDecoration _decoration({required IconData icon, String? hint}) =>
-      InputDecoration(
-        prefixIcon: Icon(icon, color: AppTheme.slate400, size: 18),
-        hintText: hint,
-        hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate500),
-        isDense: true,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 14,
-          vertical: 12,
+  InputDecoration _decoration({
+    required IconData icon,
+    String? hint,
+    bool invalid = false,
+  }) {
+    final base = invalid ? AppTheme.red500 : AppTheme.slate200;
+    return InputDecoration(
+      prefixIcon: Icon(icon, color: AppTheme.slate400, size: 18),
+      hintText: hint,
+      hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate500),
+      isDense: true,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: base),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: base),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(
+          color: invalid ? AppTheme.red500 : AppTheme.maroon,
+          width: 1.5,
         ),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.slate200),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.slate200),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
-        ),
-      );
+      ),
+    );
+  }
 }

@@ -24,6 +24,9 @@ import {
   query,
   where,
   runTransaction,
+  writeBatch,
+  serverTimestamp,
+  deleteField,
   setLogLevel,
 } from 'firebase/firestore';
 
@@ -731,4 +734,195 @@ test('the Admin and the Head still edit a profile that holds the setting', async
 
 test('an older profile without the setting saves as before (Admin)', async () => {
   await assertSucceeds(updateDoc(doc(as('admin'), 'users', 'sa'), { department: 'Education' }));
+});
+
+// ── programs: adding several at once (one atomic batch) ─────────────────
+
+const programDoc = (code, over = {}) => ({
+  code,
+  name: 'Program ' + code,
+  department: 'College of Engineering',
+  createdAt: serverTimestamp(),
+  updatedAt: serverTimestamp(),
+  ...over,
+});
+
+function programBatch(db, docs) {
+  const batch = writeBatch(db);
+  docs.forEach((data, i) => batch.set(doc(db, 'programs', 'new' + i), data));
+  return batch;
+}
+
+test('the Admin adds several programs in one batch', async () => {
+  const batch = programBatch(as('admin'), [
+    programDoc('BSCS'), programDoc('BSEE'), programDoc('BSIS'),
+  ]);
+  await assertSucceeds(batch.commit());
+  const all = await getDocs(collection(as('admin'), 'programs'));
+  assert.equal(all.size, 3);
+});
+
+test('a batch of fifty programs is allowed', async () => {
+  const batch = programBatch(
+    as('admin'),
+    Array.from({ length: 50 }, (_, i) => programDoc('C' + i)),
+  );
+  await assertSucceeds(batch.commit());
+});
+
+test('nobody else adds programs, in a batch or one at a time', async () => {
+  for (const uid of ['head', 'sup', 'sa', 'stu']) {
+    await assertFails(programBatch(as(uid), [programDoc('BSCS')]).commit());
+  }
+  const signedOut = env.unauthenticatedContext().firestore();
+  await assertFails(programBatch(signedOut, [programDoc('BSCS')]).commit());
+  await assertFails(setDoc(doc(as('head'), 'programs', 'solo'), programDoc('BSCS')));
+});
+
+test('one program with an extra field refuses the whole batch', async () => {
+  const batch = programBatch(as('admin'), [
+    programDoc('BSCS'),
+    programDoc('BSEE', { isAdmin: true }),
+    programDoc('BSIS'),
+  ]);
+  await assertFails(batch.commit());
+  const all = await getDocs(collection(as('admin'), 'programs'));
+  assert.equal(all.size, 0, 'nothing from the refused batch may be saved');
+});
+
+// ── staff sign-ups that wait for the Head ────────────────────────────────
+
+const asUnverified = (uid) =>
+  env
+    .authenticatedContext(uid, { email: `${uid}@example.com`, email_verified: false })
+    .firestore();
+
+const staffRequest = (over = {}) => ({
+  name: 'Pat Pending',
+  email: 'pend@example.com',
+  role: 'Student',
+  status: 'Pending',
+  requestedRole: 'Supervisor',
+  department: 'College of Engineering',
+  consentAt: '2026-10-26T01:02:03.000Z',
+  consentVersion: '2026-10-draft',
+  ...over,
+});
+
+/** A staff request as registration saves it, ready to be decided. */
+async function seedPending(over = {}) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'users', 'pend'), staffRequest(over));
+  });
+}
+
+const approve = (requested) => ({
+  role: requested,
+  status: 'Active',
+  requestedRole: deleteField(),
+});
+
+test('someone registers a request for the Supervisor or Head role, Pending and powerless', async () => {
+  for (const requestedRole of ['Supervisor', 'Head']) {
+    await env.clearFirestore();
+    await assertSucceeds(
+      setDoc(doc(asUnverified('pend'), 'users', 'pend'), staffRequest({ requestedRole })),
+    );
+  }
+});
+
+test('a request cannot claim a staff role, Admin, or skip the waiting', async () => {
+  const db = asUnverified('pend');
+  for (const bad of [
+    { requestedRole: 'Admin' },
+    { requestedRole: 'Student Assistant' },
+    { requestedRole: 'Student' },
+    { requestedRole: undefined },
+    { role: 'Supervisor' },
+    { role: 'Admin' },
+    { status: 'Active' },
+    { status: 'Declined' },
+  ]) {
+    const data = staffRequest(bad);
+    for (const k of Object.keys(data)) if (data[k] === undefined) delete data[k];
+    await assertFails(setDoc(doc(db, 'users', 'pend'), data));
+  }
+  // An ordinary Active student may not carry a requested role either.
+  await assertFails(
+    setDoc(doc(db, 'users', 'pend'), staffRequest({ status: 'Active' })),
+  );
+});
+
+test('a waiting request has no access, but can read its own profile to be told why', async () => {
+  await seedPending();
+  const db = as('pend');
+  await assertSucceeds(getDoc(doc(db, 'users', 'pend')));
+  await assertFails(getDoc(doc(db, 'users', 'sa')));
+  await assertFails(getDocs(collection(db, 'tasks')));
+  await assertFails(updateDoc(doc(db, 'users', 'pend'), { phone: '0917 123 4567' }));
+  await assertFails(updateDoc(doc(db, 'users', 'pend'), { status: 'Active' }));
+  await assertFails(updateDoc(doc(db, 'users', 'pend'), { role: 'Supervisor' }));
+});
+
+test('the Head approves a request: it gets the role it asked for and becomes Active', async () => {
+  for (const requested of ['Supervisor', 'Head']) {
+    await env.clearFirestore();
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'users', 'head'), { name: 'Hana Head', role: 'Head', status: 'Active', email: 'head@example.com' });
+    });
+    await seedPending({ requestedRole: requested });
+    await assertSucceeds(updateDoc(doc(as('head'), 'users', 'pend'), approve(requested)));
+    // Now a working account of that role: staff may read profiles.
+    await assertSucceeds(getDoc(doc(as('pend'), 'users', 'stu')));
+  }
+});
+
+test('the Head declines a request, and a declined one stays locked out', async () => {
+  await seedPending();
+  await assertSucceeds(updateDoc(doc(as('head'), 'users', 'pend'), { status: 'Declined' }));
+  await assertFails(getDoc(doc(as('pend'), 'users', 'stu')));
+  // Nobody approves it afterwards through the Head's rule.
+  await assertFails(updateDoc(doc(as('head'), 'users', 'pend'), approve('Supervisor')));
+});
+
+test('the Head cannot approve to another role or change anything else', async () => {
+  await seedPending({ requestedRole: 'Supervisor' });
+  const head = as('head');
+  for (const bad of [
+    { ...approve('Supervisor'), role: 'Admin' },
+    { ...approve('Supervisor'), role: 'Head' },
+    { ...approve('Supervisor'), phone: '0917 123 4567' },
+    { ...approve('Supervisor'), email: 'other@example.com' },
+    { ...approve('Supervisor'), department: 'Anywhere' },
+    { ...approve('Supervisor'), consentAt: '2030-01-01T00:00:00.000Z' },
+    { role: 'Supervisor', status: 'Active' }, // leaves requestedRole behind
+    { status: 'Active' },
+    { status: 'Declined', phone: '0917 123 4567' },
+    { status: 'Declined', role: 'Supervisor' },
+    { status: 'Archived' },
+    { requestedRole: 'Head' },
+  ]) {
+    await assertFails(updateDoc(doc(head, 'users', 'pend'), bad));
+  }
+});
+
+test('only a Head (or the Admin) decides, and only on a waiting request', async () => {
+  await seedPending();
+  for (const who of ['sup', 'sa', 'stu', 'pend']) {
+    await assertFails(updateDoc(doc(as(who), 'users', 'pend'), approve('Supervisor')));
+    await assertFails(updateDoc(doc(as(who), 'users', 'pend'), { status: 'Declined' }));
+  }
+  // The Head cannot turn an ordinary account into staff this way.
+  await assertFails(updateDoc(doc(as('head'), 'users', 'stu'), approve('Supervisor')));
+  await assertFails(updateDoc(doc(as('head'), 'users', 'sa'), approve('Head')));
+  // The Admin still can.
+  await assertSucceeds(updateDoc(doc(as('admin'), 'users', 'pend'), approve('Supervisor')));
+});
+
+test('a Head still archives and restores students, but not a waiting request as a student', async () => {
+  await assertSucceeds(updateDoc(doc(as('head'), 'users', 'stu'), { status: 'Archived' }));
+  await assertSucceeds(updateDoc(doc(as('head'), 'users', 'stu'), { status: 'Active' }));
+  await seedPending();
+  await assertFails(updateDoc(doc(as('head'), 'users', 'pend'), { status: 'Active' }));
 });

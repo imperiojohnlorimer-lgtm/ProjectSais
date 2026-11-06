@@ -382,6 +382,12 @@ class User {
   final String? consentAt;
   final String? consentVersion;
 
+  /// For a staff sign-up waiting for the Head: the role it asks for
+  /// ('Supervisor' or 'Head'). Such a profile is a powerless Student with
+  /// status 'Pending' until a Head approves it, which gives it this role and
+  /// clears the field.
+  final String? requestedRole;
+
   /// Whether this person also gets their notifications by email (to the
   /// address they signed up with), for when they aren't signed in. Null on
   /// accounts that never chose: that counts as on. Only the person
@@ -418,6 +424,7 @@ class User {
     isDeleted: isDeleted,
     consentAt: consentAt,
     consentVersion: consentVersion,
+    requestedRole: requestedRole,
     emailNotifications: value,
   );
 
@@ -444,6 +451,7 @@ class User {
     this.isDeleted = false,
     this.consentAt,
     this.consentVersion,
+    this.requestedRole,
     this.emailNotifications,
   });
 
@@ -465,6 +473,7 @@ class User {
     String? saId,
     bool? isDeleted,
     bool? emailNotifications,
+    bool clearRequestedRole = false,
   }) => User(
     id: id ?? this.id,
     name: name ?? nameParts?.display ?? this.name,
@@ -488,6 +497,7 @@ class User {
     isDeleted: isDeleted ?? this.isDeleted,
     consentAt: consentAt,
     consentVersion: consentVersion,
+    requestedRole: clearRequestedRole ? null : requestedRole,
     emailNotifications: emailNotifications ?? this.emailNotifications,
   );
 
@@ -516,6 +526,7 @@ class User {
     isDeleted: json['deleted'] == true,
     consentAt: json['consentAt']?.toString(),
     consentVersion: json['consentVersion']?.toString(),
+    requestedRole: json['requestedRole']?.toString(),
     emailNotifications: json['emailNotifications'] is bool
         ? json['emailNotifications'] as bool
         : null,
@@ -548,6 +559,7 @@ class User {
     if (isDeleted) 'deleted': true,
     if (consentAt != null) 'consentAt': consentAt,
     if (consentVersion != null) 'consentVersion': consentVersion,
+    if (requestedRole != null) 'requestedRole': requestedRole,
     // Left off until the person chooses, so an older profile saves exactly
     // as it was (and an Admin's edit of it doesn't add the field).
     if (emailNotifications != null) 'emailNotifications': emailNotifications,

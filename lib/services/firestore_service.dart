@@ -795,6 +795,32 @@ class FirestoreService {
     return program.id;
   }
 
+  /// Creates all of [programs] in one write: every one is saved or none is.
+  /// Returns them with their new ids. (A batch holds up to 500 writes; the
+  /// app asks for at most 50.)
+  Future<List<Program>> saveProgramsBatch(List<Program> programs) async {
+    final batch = _db.batch();
+    final created = <Program>[];
+    for (final program in programs) {
+      final doc = _programs.doc();
+      batch.set(doc, {
+        ...program.toJson(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      created.add(
+        Program(
+          id: doc.id,
+          code: program.code,
+          name: program.name,
+          department: program.department,
+        ),
+      );
+    }
+    await batch.commit();
+    return created;
+  }
+
   Future<void> deleteProgram(String id) async {
     await _programs.doc(id).delete();
   }
