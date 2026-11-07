@@ -447,12 +447,19 @@ void main() {
       expect(find.text('Library Aide'), findsNothing);
       expect(find.text('Apply Now'), findsOneWidget);
 
+      await tester.ensureVisible(find.text('Apply Now'));
       await tester.tap(find.text('Apply Now'));
       await tester.pumpAndSettle();
 
       // The form asks for skills and the call's requirements, no office.
       expect(find.text('YOUR SKILLS'), findsOneWidget);
-      expect(find.text('Typing'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(ApplyDialog),
+          matching: find.text('Typing'),
+        ),
+        findsOneWidget,
+      );
       expect(find.text('Only PDF accepted'), findsOneWidget);
       expect(find.text('Upload Document'), findsOneWidget);
       expect(find.byType(DropdownButtonFormField<String>), findsNothing);

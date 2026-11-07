@@ -37,7 +37,7 @@ abstract final class AppRoutes {
 
   /// The page [role] opens on after signing in.
   static String homeTab(String role) =>
-      role == 'Student' ? 'announcements' : 'dashboard';
+      role == 'Student' ? 'home' : 'dashboard';
 
   /// The address of [role]'s page [tab].
   static String pathFor(String role, String tab) {

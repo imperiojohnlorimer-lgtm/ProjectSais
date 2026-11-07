@@ -1,5 +1,39 @@
 part of '../app_state.dart';
 
+/// One entry per office that [requests] ask a Student Assistant for, with
+/// the skills its requests name together, sorted by office name.
+///
+/// An office is named as it is now (looked up by id in [offices], so a
+/// renamed office isn't shown under its old name) and left out when the Head
+/// has deactivated it. A full office is still listed: the Head decides where
+/// students go. A request that names no office is skipped.
+List<({String office, List<String> skills})> officesNeedingHelp(
+  Iterable<Announcement> requests,
+  List<Office> offices,
+) {
+  final names = <String, String>{};
+  final skills = <String, List<String>>{};
+  for (final request in requests) {
+    final savedName = (request.officeName ?? '').trim();
+    if (savedName.isEmpty) continue;
+    final id = request.officeId;
+    final live = id == null || id.isEmpty
+        ? null
+        : offices.where((o) => o.id == id).firstOrNull;
+    if (live != null && !live.isActive) continue;
+    final name = live?.name.trim().isNotEmpty == true
+        ? live!.name.trim()
+        : savedName;
+    final key = live != null ? 'id:${live.id}' : 'name:${name.toLowerCase()}';
+    names.putIfAbsent(key, () => name);
+    skills.putIfAbsent(key, () => []).addAll(request.skills);
+  }
+  return [
+    for (final key in names.keys)
+      (office: names[key]!, skills: AppState.uniqueSkills(skills[key]!)),
+  ]..sort((a, b) => a.office.toLowerCase().compareTo(b.office.toLowerCase()));
+}
+
 extension AppStateApplicationsAndFolders on AppState {
   /// Uploads a document onto a student's own document list
   /// ([studentId]/[studentName]).
@@ -147,7 +181,8 @@ extension AppStateApplicationsAndFolders on AppState {
           id: 'n_${DateTime.now().millisecondsSinceEpoch}_$headId',
           userId: headId,
           title: 'New Application',
-          message: '${app.applicantName} applied$again ${AppState._appliedFor(app)}.',
+          message:
+              '${app.applicantName} applied$again ${AppState._appliedFor(app)}.',
           type: 'application',
           createdAt: _formattedToday(),
         ),
@@ -159,7 +194,8 @@ extension AppStateApplicationsAndFolders on AppState {
         id: 'n_${DateTime.now().millisecondsSinceEpoch}_${app.applicantId}',
         userId: app.applicantId,
         title: 'Application Submitted',
-        message: 'Your application ${AppState._appliedFor(app)} has been submitted.',
+        message:
+            'Your application ${AppState._appliedFor(app)} has been submitted.',
         type: 'application',
         createdAt: _formattedToday(),
       ),
@@ -584,6 +620,12 @@ extension AppStateApplicationsAndFolders on AppState {
       )
       .toList();
 
+  /// The offices with an open request for a Student Assistant, and the
+  /// skills they ask for: shown to students on the Apply page so they know
+  /// where they could be placed. The Head still decides the placement.
+  List<({String office, List<String> skills})> get officesNeedingAssistants =>
+      officesNeedingHelp(openOfficeRequests, offices);
+
   /// The skills [application]'s applicant brings: those they applied with
   /// and those already on their profile.
   List<String> applicantSkills(Application application) {
@@ -623,7 +665,9 @@ extension AppStateApplicationsAndFolders on AppState {
     // Once per skill, whatever its case, spelled as on the Head's list: a
     // student with "Communication skills" and "Communication Skills" has
     // the one skill.
-    return AppState.uniqueSkills([for (final name in names) findSkill(name) ?? name]);
+    return AppState.uniqueSkills([
+      for (final name in names) findSkill(name) ?? name,
+    ]);
   }
 
   /// Finds the most relevant completed screening/assessment record for

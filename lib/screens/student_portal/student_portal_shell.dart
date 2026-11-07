@@ -7,12 +7,14 @@ import '../../widgets/shared_widgets.dart';
 import 'announcements_screen.dart';
 import 'sp_notifications_screen.dart';
 import 'sp_profile_screen.dart';
+import 'student_home_screen.dart';
 
 class StudentPortalShell extends StatefulWidget {
   const StudentPortalShell({super.key});
 
   /// The portal's pages, in sidebar order (the order of [_navItems]' ids).
   static const pages = [
+    (id: 'home', label: 'Home'),
     (id: 'announcements', label: 'Apply'),
     (id: 'notifications', label: 'Notifications'),
     (id: 'profile', label: 'Profile'),
@@ -31,41 +33,43 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
     return index < 0 ? 0 : index;
   }
 
-  set _tab(int index) =>
-      context.read<AppState>().setTab(StudentPortalShell.pages[index].id);
+  /// The open page's id ('home', 'announcements', 'notifications',
+  /// 'profile'). Pages are found by id, never by position, so adding a
+  /// page can't send a button to the wrong one.
+  String get _tabId => StudentPortalShell.pages[_tab].id;
+
+  void _go(String id) => context.read<AppState>().setTab(id);
 
   static const _navItems = [
-    (id: 0, label: 'Apply',          icon: Icons.badge_outlined,          activeIcon: Icons.badge),
-    (id: 1, label: 'Notifications',  icon: Icons.notifications_outlined,  activeIcon: Icons.notifications),
-    (id: 2, label: 'Profile',        icon: Icons.person_outline,           activeIcon: Icons.person),
+    (id: 'home',          label: 'Home',           icon: Icons.home_outlined,           activeIcon: Icons.home),
+    (id: 'announcements', label: 'Apply',          icon: Icons.badge_outlined,          activeIcon: Icons.badge),
+    (id: 'notifications', label: 'Notifications',  icon: Icons.notifications_outlined,  activeIcon: Icons.notifications),
+    (id: 'profile',       label: 'Profile',        icon: Icons.person_outline,          activeIcon: Icons.person),
   ];
 
   /// Opens the tab a tapped notification is about (see
   /// [AppState.notificationTab]).
   void _openTab(String tab) {
-    final index = switch (tab) {
-      'announcements' => 0,
-      'profile' => 2,
-      _ => null,
-    };
-    if (index != null) setState(() => _tab = index);
+    if (tab == 'announcements' || tab == 'profile') {
+      setState(() => _go(tab));
+    }
   }
 
   Widget _body() {
-    switch (_tab) {
-      case 0: return const AnnouncementsScreen();
-      case 1: return SpNotificationsScreen(onOpen: _openTab);
-      case 2: return const SpProfileScreen();
-      default: return const AnnouncementsScreen();
+    switch (_tabId) {
+      case 'announcements': return const AnnouncementsScreen();
+      case 'notifications': return SpNotificationsScreen(onOpen: _openTab);
+      case 'profile': return const SpProfileScreen();
+      default: return const StudentHomeScreen();
     }
   }
 
   String _title() {
-    switch (_tab) {
-      case 0: return 'Apply';
-      case 1: return 'Notifications';
-      case 2: return 'Profile';
-      default: return 'Student Portal';
+    switch (_tabId) {
+      case 'announcements': return 'Apply';
+      case 'notifications': return 'Notifications';
+      case 'profile': return 'Profile';
+      default: return 'Home';
     }
   }
 
@@ -128,10 +132,10 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
               width: 280,
               child: _Sidebar(
                 navItems: _navItems,
-                activeTab: _tab,
+                activeTab: _tabId,
                 unread: unread,
                 state: state,
-                onTabChange: (i) => setState(() => _tab = i),
+                onTabChange: (id) => setState(() => _go(id)),
               ),
             ),
           Expanded(
@@ -184,7 +188,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                             // Notification bell
                             Stack(clipBehavior: Clip.none, children: [
                               GestureDetector(
-                                onTap: () => setState(() => _tab = 1),
+                                onTap: () => setState(() => _go('notifications')),
                                 child: Container(
                                   width: 36, height: 36,
                                   decoration: BoxDecoration(
@@ -205,7 +209,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                             Tooltip(
                               message: 'View Profile',
                               child: GestureDetector(
-                              onTap: () => setState(() => _tab = 2),
+                              onTap: () => setState(() => _go('profile')),
                               child: UserAvatar(
                                 avatarUrl: state.currentUser?.avatar,
                                 initials: state.currentUser?.initials ?? '?',
@@ -269,7 +273,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                               children: [
                                 IconButton(
                                   icon: const Icon(Icons.notifications_outlined, color: AppTheme.maroon),
-                                  onPressed: () => setState(() => _tab = 1),
+                                  onPressed: () => setState(() => _go('notifications')),
                                   tooltip: 'Notifications',
                                 ),
                                 if (unread > 0)
@@ -283,7 +287,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                             Tooltip(
                               message: 'View Profile',
                               child: GestureDetector(
-                              onTap: () => setState(() => _tab = 2),
+                              onTap: () => setState(() => _go('profile')),
                               child: UserAvatar(
                                 avatarUrl: state.currentUser?.avatar,
                                 initials: state.currentUser?.initials ?? '?',
@@ -326,12 +330,12 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
               top: false,
               child: Row(
                 children: _navItems.map((item) {
-                  final isActive = _tab == item.id;
+                  final isActive = _tabId == item.id;
                   return Expanded(
                     child: TapTarget(
-                      label: item.id == 1 && unread > 0 ? '${item.label}, $unread unread' : item.label,
+                      label: item.id == 'notifications' && unread > 0 ? '${item.label}, $unread unread' : item.label,
                       selected: isActive,
-                      onTap: () => setState(() => _tab = item.id),
+                      onTap: () => setState(() => _go(item.id)),
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                         color: Colors.transparent,
@@ -349,7 +353,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                                 Icon(isActive ? item.activeIcon : item.icon,
                                   size: 21,
                                   color: isActive ? AppTheme.maroon : AppTheme.slate400),
-                                if (item.id == 1 && unread > 0)
+                                if (item.id == 'notifications' && unread > 0)
                                   Positioned(
                                     top: -3, right: -6,
                                     child: Container(
@@ -386,11 +390,11 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
 
 // ── Sidebar — mirrors app_shell _Sidebar exactly ──────────────────────
 class _Sidebar extends StatelessWidget {
-  final List<({int id, String label, IconData icon, IconData activeIcon})> navItems;
-  final int activeTab;
+  final List<({String id, String label, IconData icon, IconData activeIcon})> navItems;
+  final String activeTab;
   final int unread;
   final AppState state;
-  final ValueChanged<int> onTabChange;
+  final ValueChanged<String> onTabChange;
 
   const _Sidebar({
     required this.navItems,
@@ -443,7 +447,7 @@ class _Sidebar extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: TapTarget(
-                      label: item.id == 1 && unread > 0 ? '${item.label}, $unread unread' : item.label,
+                      label: item.id == 'notifications' && unread > 0 ? '${item.label}, $unread unread' : item.label,
                       selected: isActive,
                       onTap: () => onTabChange(item.id),
                       child: AnimatedContainer(
@@ -474,7 +478,7 @@ class _Sidebar extends StatelessWidget {
                               Icon(isActive ? item.activeIcon : item.icon,
                                 size: 20,
                                 color: isActive ? Colors.white : AppTheme.slate700),
-                              if (item.id == 1 && unread > 0)
+                              if (item.id == 'notifications' && unread > 0)
                                 Positioned(
                                   top: -4, right: -4,
                                   child: UnreadBadge(count: unread),

@@ -10,6 +10,7 @@ import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/application_status.dart';
+import 'student_page_widgets.dart';
 
 /// The student's page: one application to be a Student Assistant, then
 /// the Head's announcements to read. A student doesn't apply to an office;
@@ -34,7 +35,7 @@ class AnnouncementsScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const _PageTitle(
+              const StudentPageTitle(
                 title: 'Become a Student Assistant',
                 subtitle:
                     'Apply once. The Head matches your skills to the offices '
@@ -47,7 +48,7 @@ class AnnouncementsScreen extends StatelessWidget {
                 _ApplyCard(state: state),
               if (notices.isNotEmpty) ...[
                 const SizedBox(height: 32),
-                const _SectionLabel('ANNOUNCEMENTS'),
+                const StudentSectionLabel('ANNOUNCEMENTS'),
                 const SizedBox(height: 12),
                 for (final notice in notices) _NoticeCard(notice: notice),
               ],
@@ -58,80 +59,6 @@ class AnnouncementsScreen extends StatelessWidget {
     );
   }
 }
-
-class _PageTitle extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  const _PageTitle({required this.title, required this.subtitle});
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Container(
-          width: 4,
-          height: 44,
-          decoration: BoxDecoration(
-            color: AppTheme.maroon,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w800,
-                  color: AppTheme.slate900,
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                subtitle,
-                style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _SectionLabel extends StatelessWidget {
-  final String text;
-  const _SectionLabel(this.text);
-
-  @override
-  Widget build(BuildContext context) => Text(
-    text,
-    style: const TextStyle(
-      fontSize: 10,
-      fontWeight: FontWeight.w800,
-      color: AppTheme.slate500,
-      letterSpacing: 1.0,
-    ),
-  );
-}
-
-BoxDecoration _cardDecoration() => BoxDecoration(
-  color: Colors.white,
-  borderRadius: BorderRadius.circular(18),
-  border: Border.all(color: AppTheme.slate200),
-  boxShadow: [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: 0.03),
-      blurRadius: 10,
-      offset: const Offset(0, 3),
-    ),
-  ],
-);
 
 /// Opens the application form for [call]; [previous] is a rejected
 /// application it starts from.
@@ -160,26 +87,15 @@ class _ApplyCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final call = state.currentHiringCall;
-    final isStudentAssistant = state.currentUser?.role == 'Student Assistant';
     final open = state.hiringCallTakesApplications(call);
-    final String? closedReason = isStudentAssistant
-        ? 'You are already a Student Assistant.'
-        : !state.allowAcademicApplications
-        ? 'Applications are closed for this academic year.'
-        : call == null
-        ? "Applications aren't open yet. The Head of Student Assistantship "
-              'will announce when they are.'
-        : call.isPastDeadline()
-        ? 'Applications closed on ${call.deadline}.'
-        : !call.isOpen
-        ? 'Applications are closed.'
-        : null;
+    final closedReason = applicationClosedReason(state);
     final canApply = open && closedReason == null;
+    final offices = state.officesNeedingAssistants;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: _cardDecoration(),
+      decoration: studentCardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -273,7 +189,7 @@ class _ApplyCard extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            const _SectionLabel("WHAT YOU'LL SUBMIT"),
+            const StudentSectionLabel("WHAT YOU'LL SUBMIT"),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8,
@@ -294,6 +210,13 @@ class _ApplyCard extends StatelessWidget {
               ],
             ),
           ],
+          // Shown even when applying is closed: where help is wanted.
+          if (offices.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const StudentSectionLabel('OFFICES THAT NEED STUDENT ASSISTANTS'),
+            const SizedBox(height: 8),
+            _OfficesNeedHelp(offices: offices),
+          ],
           const SizedBox(height: 14),
           Container(
             width: double.infinity,
@@ -302,18 +225,28 @@ class _ApplyCard extends StatelessWidget {
               color: AppTheme.slate50,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Row(
+            child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.info_outline, size: 15, color: AppTheme.slate500),
-                SizedBox(width: 8),
+                const Icon(
+                  Icons.info_outline,
+                  size: 15,
+                  color: AppTheme.slate500,
+                ),
+                const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    "You don't choose an office. The Head of Student "
-                    'Assistantship compares your skills with what the offices '
-                    'need, picks who goes to screening, and places those '
-                    'approved in an office.',
-                    style: TextStyle(
+                    offices.isEmpty
+                        ? "You don't choose an office. The Head of Student "
+                              'Assistantship compares your skills with what '
+                              'the offices need, picks who goes to screening, '
+                              'and places those approved in an office.'
+                        : "You don't choose an office. These offices have "
+                              'asked for help, but the Head of Student '
+                              'Assistantship compares your skills with what '
+                              'they need, picks who goes to screening, and '
+                              'decides where those approved are placed.',
+                    style: const TextStyle(
                       fontSize: 11.5,
                       color: AppTheme.slate600,
                       height: 1.5,
@@ -379,6 +312,143 @@ class _ApplyCard extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// The offices that asked for a Student Assistant and the skills each
+/// needs. Information only: the Head decides where students are placed.
+/// Past [_shownAtFirst] offices, the rest wait behind "Show more".
+class _OfficesNeedHelp extends StatefulWidget {
+  final List<({String office, List<String> skills})> offices;
+  const _OfficesNeedHelp({required this.offices});
+
+  static const _shownAtFirst = 4;
+  static const _skillsShown = 4;
+
+  @override
+  State<_OfficesNeedHelp> createState() => _OfficesNeedHelpState();
+}
+
+class _OfficesNeedHelpState extends State<_OfficesNeedHelp> {
+  bool _all = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final offices = widget.offices;
+    final hidden = offices.length - _OfficesNeedHelp._shownAtFirst;
+    final shown = _all || hidden <= 0
+        ? offices
+        : offices.take(_OfficesNeedHelp._shownAtFirst).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (final entry in shown)
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 8),
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: AppTheme.slate200),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: AppTheme.maroon50,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: const Icon(
+                    Icons.apartment_outlined,
+                    size: 16,
+                    color: AppTheme.maroon,
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.office,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                          color: AppTheme.slate900,
+                        ),
+                      ),
+                      if (entry.skills.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final skill in entry.skills.take(
+                              _OfficesNeedHelp._skillsShown,
+                            ))
+                              _SkillChip(skill),
+                            if (entry.skills.length >
+                                _OfficesNeedHelp._skillsShown)
+                              _SkillChip(
+                                '+${entry.skills.length - _OfficesNeedHelp._skillsShown}',
+                                muted: true,
+                              ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (hidden > 0)
+          TextButton(
+            onPressed: () => setState(() => _all = !_all),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.slate600,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              textStyle: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            child: Text(_all ? 'Show less' : 'Show $hidden more'),
+          ),
+      ],
+    );
+  }
+}
+
+class _SkillChip extends StatelessWidget {
+  final String label;
+  final bool muted;
+  const _SkillChip(this.label, {this.muted = false});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: muted ? AppTheme.slate100 : AppTheme.maroon50,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: muted ? AppTheme.slate600 : AppTheme.maroon,
+        ),
       ),
     );
   }
@@ -496,7 +566,7 @@ class _MyApplicationCard extends StatelessWidget {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(18),
-      decoration: _cardDecoration(),
+      decoration: studentCardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -527,20 +597,20 @@ class _MyApplicationCard extends StatelessWidget {
           const SizedBox(height: 18),
           Row(
             children: [
-              _TrackStep(label: 'Applied', done: true, color: color),
+              TrackStep(label: 'Applied', done: true, color: color),
               // A rejection comes before screening.
-              _TrackLine(
+              TrackLine(
                 done: status != Application.pending && !rejected,
                 color: color,
               ),
-              _TrackStep(
+              TrackStep(
                 label: 'Screening',
                 done: decided && !rejected,
                 current: status == Application.forScreening,
                 color: color,
               ),
-              _TrackLine(done: decided, color: color),
-              _TrackStep(
+              TrackLine(done: decided, color: color),
+              TrackStep(
                 label: decisionLabel,
                 done: decided,
                 failed: rejected,
@@ -618,7 +688,7 @@ class _MyApplicationCard extends StatelessWidget {
           ],
           if (application.skills.isNotEmpty) ...[
             const SizedBox(height: 14),
-            const _SectionLabel('YOUR SKILLS'),
+            const StudentSectionLabel('YOUR SKILLS'),
             const SizedBox(height: 8),
             Wrap(
               spacing: 6,
@@ -661,85 +731,6 @@ class _MyApplicationCard extends StatelessWidget {
   }
 }
 
-class _TrackStep extends StatelessWidget {
-  final String label;
-  final bool done;
-  final bool current;
-
-  /// Finished, but not the way they hoped: a cross instead of a tick.
-  final bool failed;
-  final Color color;
-  const _TrackStep({
-    required this.label,
-    required this.done,
-    required this.color,
-    this.current = false,
-    this.failed = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final on = done || current;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 22,
-          height: 22,
-          decoration: BoxDecoration(
-            color: on ? color : Colors.white,
-            shape: BoxShape.circle,
-            border: Border.all(color: on ? color : AppTheme.slate300, width: 2),
-          ),
-          // The step under way shows a dot; finished ones a tick.
-          child: done
-              ? Icon(
-                  failed ? Icons.close_rounded : Icons.check_rounded,
-                  size: 13,
-                  color: Colors.white,
-                )
-              : current
-              ? Center(
-                  child: Container(
-                    width: 7,
-                    height: 7,
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                )
-              : null,
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w700,
-            color: on ? AppTheme.slate800 : AppTheme.slate500,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TrackLine extends StatelessWidget {
-  final bool done;
-  final Color color;
-  const _TrackLine({required this.done, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Expanded(
-    child: Container(
-      height: 2,
-      margin: const EdgeInsets.only(bottom: 18, left: 4, right: 4),
-      color: done ? color : AppTheme.slate200,
-    ),
-  );
-}
-
 /// One of the Head's announcements, to read.
 class _NoticeCard extends StatelessWidget {
   final Announcement notice;
@@ -750,7 +741,7 @@ class _NoticeCard extends StatelessWidget {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-      decoration: _cardDecoration(),
+      decoration: studentCardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1149,7 +1140,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ),
         ),
         const SizedBox(height: 18),
-        const _SectionLabel('YOUR SKILLS'),
+        const StudentSectionLabel('YOUR SKILLS'),
         const SizedBox(height: 4),
         const Text(
           'Pick the ones you have, or add your own.',
@@ -1268,7 +1259,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ],
         ),
         const SizedBox(height: 22),
-        const _SectionLabel('REQUIREMENTS'),
+        const StudentSectionLabel('REQUIREMENTS'),
         const SizedBox(height: 10),
         if (call.requirements.isEmpty)
           const Text(
