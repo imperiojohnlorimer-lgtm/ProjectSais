@@ -3,6 +3,19 @@ import 'dart:math';
 final _random = Random.secure();
 const _letters = 'abcdefghijklmnopqrstuvwxyz0123456789';
 
+/// Where an office's location picture is stored. The upload function takes
+/// pictures under `announcements/uid/digits/name`, which any signed-in
+/// user can open: the Student Assistants need to see it. The name is random,
+/// so it says nothing about the file.
+String officePicturePath(
+  String uid,
+  String originalName, {
+  DateTime? now,
+  Random? random,
+}) =>
+    'announcements/$uid/${(now ?? DateTime.now()).millisecondsSinceEpoch}/'
+    '${randomObjectName(originalName, random: random)}';
+
 /// The name a file is stored under: random letters and digits, plus the
 /// file's own extension ("x7k2q9m4t1b8w3zc.pdf"). The person's own file name
 /// ("Juan-Dela-Cruz-contract.pdf") stays on their record for display and is

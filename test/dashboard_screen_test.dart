@@ -27,6 +27,7 @@ void main() {
     List<Map<String, dynamic>>? archives,
     List<PayrollCheck>? checks,
     List<PayrollRecord>? payments,
+    List<Office>? offices,
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -35,6 +36,7 @@ void main() {
       ChangeNotifierProvider<AppState>(
         create: (_) {
           final state = AppState()..currentUser = _user(role);
+          if (offices != null) state.offices = offices;
           if (users != null) state.users = users;
           if (attendance != null) state.attendance = attendance;
           if (students != null) state.students = students;
@@ -53,8 +55,18 @@ void main() {
   }
 
   // Every breakpoint the dashboards switch on, plus the extremes.
-  const widths = [320.0, 379.0, 380.0, 480.0, 640.0, 767.0, 768.0, 1024.0,
-      1440.0, 1920.0];
+  const widths = [
+    320.0,
+    379.0,
+    380.0,
+    480.0,
+    640.0,
+    767.0,
+    768.0,
+    1024.0,
+    1440.0,
+    1920.0,
+  ];
 
   const roles = ['Head', 'Admin', 'Supervisor', 'Student Assistant'];
 
@@ -107,6 +119,167 @@ void main() {
       expect(narrow, greaterThan(250));
       expect(wide, lessThan(narrow * 1.6));
     });
+  });
+
+  group('Student Assistant My Office card', () {
+    // _user's id and name: the assistant these offices list.
+    Office office({
+      String id = 'o1',
+      String name = 'Registrar',
+      String code = 'REG',
+      List<String> headIds = const ['h1'],
+      List<String> headNames = const ['Maria Santos'],
+      List<String> assistantIds = const ['u_1'],
+      List<String> assistantNames = const ['Juan dela Cruz'],
+      bool isActive = true,
+    }) => Office(
+      id: id,
+      name: name,
+      code: code,
+      headIds: headIds,
+      headNames: headNames,
+      assistantIds: assistantIds,
+      assistantNames: assistantNames,
+      isActive: isActive,
+    );
+
+    testWidgets('names the office, its code and its supervisor', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1000, 1800),
+        offices: [office()],
+      );
+
+      expect(find.text('My Office'), findsOneWidget);
+      expect(find.text('Registrar'), findsOneWidget);
+      expect(find.text('REG'), findsOneWidget);
+      expect(find.textContaining('Supervisor: Maria Santos'), findsOneWidget);
+      expect(find.textContaining('not placed'), findsNothing);
+    });
+
+    testWidgets('lists every office, with padded blank names left out', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1000, 1800),
+        offices: [
+          office(headIds: ['a', 'b'], headNames: ['', 'Maria Santos']),
+          office(
+            id: 'o2',
+            name: 'Library',
+            code: '',
+            headIds: ['x'],
+            headNames: [],
+          ),
+        ],
+      );
+
+      expect(find.text('Registrar'), findsOneWidget);
+      expect(find.text('Library'), findsOneWidget);
+      expect(find.textContaining('Supervisor: Maria Santos'), findsOneWidget);
+      expect(find.text('No supervisor assigned yet'), findsOneWidget);
+    });
+
+    testWidgets('explains an assistant with no office yet', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1000, 1800),
+        offices: [
+          office(assistantIds: ['someone_else'], assistantNames: ['']),
+        ],
+      );
+
+      expect(find.text('My Office'), findsOneWidget);
+      expect(
+        find.textContaining('not placed in an office yet'),
+        findsOneWidget,
+      );
+      expect(find.text('Registrar'), findsNothing);
+    });
+
+    testWidgets('says so when the only office is inactive', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1000, 1800),
+        offices: [office(isActive: false)],
+      );
+
+      expect(
+        find.textContaining('Registrar) is currently inactive'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('not placed'), findsNothing);
+    });
+
+    testWidgets('a name-only placement still counts', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1000, 1800),
+        offices: [
+          office(assistantIds: [''], assistantNames: ['Juan dela Cruz']),
+        ],
+      );
+      expect(find.text('Registrar'), findsOneWidget);
+    });
+
+    testWidgets('a different account id does not count, even by name', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1000, 1800),
+        offices: [
+          office(assistantIds: ['other'], assistantNames: ['Juan dela Cruz']),
+        ],
+      );
+      expect(find.text('Registrar'), findsNothing);
+      expect(find.textContaining('not placed'), findsOneWidget);
+    });
+
+    for (final width in [320.0, 380.0]) {
+      testWidgets('fits long names at ${width.toInt()}px', (
+        tester,
+      ) async {
+        await pumpDashboard(
+          tester,
+          'Student Assistant',
+          Size(width, 2600),
+          offices: [
+            office(
+              name: 'Office of the University Library and Information Services',
+              headIds: ['a', 'b'],
+              headNames: [
+                'Maria Concepcion Santos-Villanueva',
+                'Jose Protacio Rizal Mercado y Alonso',
+              ],
+            ),
+          ],
+        );
+        expect(tester.takeException(), isNull);
+        expect(find.text('My Office'), findsOneWidget);
+      });
+    }
+
+    for (final role in ['Head', 'Admin', 'Supervisor']) {
+      testWidgets('is not on the $role dashboard', (tester) async {
+        await pumpDashboard(
+          tester,
+          role,
+          const Size(1000, 1800),
+          offices: [office()],
+        );
+        expect(find.text('My Office'), findsNothing);
+      });
+    }
   });
 
   group('Student Assistant My Pay card', () {
@@ -250,8 +423,20 @@ void main() {
   });
 
   group('Student Assistant Today card', () {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
-        'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     String dateOf(DateTime d) => '${months[d.month - 1]} ${d.day}, ${d.year}';
     String clockOf(DateTime d) {
       final hour = d.hour % 12 == 0 ? 12 : d.hour % 12;
@@ -308,7 +493,9 @@ void main() {
       expect(find.text('13.5 hours left · resets Monday'), findsOneWidget);
       expect(find.text('6.5 hours credited today'), findsOneWidget);
       expect(
-        find.text('You missed a time-out today, so that session didn\'t count.'),
+        find.text(
+          'You missed a time-out today, so that session didn\'t count.',
+        ),
         findsOneWidget,
       );
     });
@@ -416,10 +603,7 @@ void main() {
       // not of the 5 accounts: the admin is not one of them.
       expect(find.text('50%'), findsOneWidget);
       expect(find.text('25%'), findsNWidgets(2));
-      expect(
-        find.text('4 of 5 accounts are staffed roles'),
-        findsOneWidget,
-      );
+      expect(find.text('4 of 5 accounts are staffed roles'), findsOneWidget);
     });
 
     testWidgets('draws a stacked bar with a segment per role', (tester) async {
@@ -500,10 +684,10 @@ void main() {
         ];
 
       final history = state.enrollmentHistory;
-      expect([for (final y in history) y.academicYear], [
-        '2026-2027',
-        '2027-2028',
-      ]);
+      expect(
+        [for (final y in history) y.academicYear],
+        ['2026-2027', '2027-2028'],
+      );
       expect(history.first.byCampus, {'Boac Campus': 5, 'Gasan Campus': 2});
       // The current year is counted live, every campus included.
       expect(history.last.byCampus['Boac Campus'], 3);
@@ -550,9 +734,7 @@ void main() {
       expect(find.byTooltip(RegExp('2027-2028')), findsNothing);
     });
 
-    testWidgets('draws the trend once a past year is recorded', (
-      tester,
-    ) async {
+    testWidgets('draws the trend once a past year is recorded', (tester) async {
       await pumpDashboard(
         tester,
         'Head',
@@ -630,4 +812,5 @@ void main() {
 
 /// The wall clock in the Philippines, which is how the app names "today"
 /// whatever zone the tests run in (CI runs in UTC).
-DateTime _philippineNow() => DateTime.now().toUtc().add(const Duration(hours: 8));
+DateTime _philippineNow() =>
+    DateTime.now().toUtc().add(const Duration(hours: 8));

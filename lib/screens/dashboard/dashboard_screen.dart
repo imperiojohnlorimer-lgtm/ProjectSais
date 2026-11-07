@@ -193,6 +193,7 @@ class _StudentAssistantDashboard extends StatelessWidget {
         ),
       ],
       sections: [
+        const _MyOfficeCard(),
         const _MyPayCard(),
         const SizedBox(height: 18),
         DashboardSectionCard(
@@ -244,6 +245,192 @@ class _StudentAssistantDashboard extends StatelessWidget {
                       .map((r) => _ReportTile(report: r))
                       .toList(),
                 ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Student Assistant: My office card ─────────────────
+/// Where the student is placed and who supervises it, or why they have no
+/// office yet. Names only: no contact details, and no list of the office's
+/// other assistants.
+class _MyOfficeCard extends StatelessWidget {
+  const _MyOfficeCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final state = context.watch<AppState>();
+    // Before the offices arrive, or when they couldn't be read, "not placed
+    // yet" could be wrong, so say nothing (the load-problem banner explains
+    // a failure).
+    if (!state.isLoaded('Offices') || state.failedLoads.contains('Offices')) {
+      return const SizedBox.shrink();
+    }
+    final user = state.currentUser;
+    final offices = state.currentUserOffices;
+    final inactive = user == null || offices.isNotEmpty
+        ? const <Office>[]
+        : state.offices
+              .where((o) => !o.isActive && o.hasAssistant(user.id, user.name))
+              .toList();
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: DashboardSectionCard(
+        title: 'My Office',
+        actionLabel: offices.isNotEmpty ? 'View details' : null,
+        onAction: () => state.setTab('my_office'),
+        child: offices.isNotEmpty
+            ? Column(
+                children: [
+                  for (var i = 0; i < offices.length; i++) ...[
+                    if (i > 0) const SizedBox(height: 10),
+                    _OfficeRow(office: offices[i]),
+                  ],
+                ],
+              )
+            : _OfficeNotice(
+                icon: inactive.isEmpty
+                    ? Icons.hourglass_empty_rounded
+                    : Icons.pause_circle_outline_rounded,
+                text: inactive.isEmpty
+                    ? "You're not placed in an office yet. The Head of "
+                          "Student Assistantship will assign you, and you'll "
+                          'get a notification when it is done.'
+                    : 'Your office (${inactive.first.name}) is currently '
+                          'inactive. Ask the Head of Student Assistantship.',
+              ),
+      ),
+    );
+  }
+}
+
+class _OfficeRow extends StatelessWidget {
+  final Office office;
+  const _OfficeRow({required this.office});
+
+  @override
+  Widget build(BuildContext context) {
+    final supervisors = office.supervisorNames;
+    final code = office.code.trim();
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppTheme.maroon50,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: const Icon(
+            Icons.apartment_outlined,
+            size: 20,
+            color: AppTheme.maroon,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      office.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate900,
+                      ),
+                    ),
+                  ),
+                  if (code.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 2,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppTheme.slate100,
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Text(
+                        code,
+                        style: const TextStyle(
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.slate600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text.rich(
+                TextSpan(
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: AppTheme.slate500,
+                    height: 1.4,
+                  ),
+                  children: supervisors.isEmpty
+                      ? const [TextSpan(text: 'No supervisor assigned yet')]
+                      : [
+                          const TextSpan(text: 'Supervisor: '),
+                          TextSpan(
+                            text: supervisors.join(', '),
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.slate700,
+                            ),
+                          ),
+                        ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OfficeNotice extends StatelessWidget {
+  final IconData icon;
+  final String text;
+  const _OfficeNotice({required this.icon, required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: AppTheme.slate100,
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(icon, size: 20, color: AppTheme.slate500),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 12.5,
+              color: AppTheme.slate600,
+              height: 1.5,
+            ),
+          ),
         ),
       ],
     );

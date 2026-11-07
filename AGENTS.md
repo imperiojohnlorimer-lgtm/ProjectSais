@@ -19,7 +19,7 @@ DTR/Accomplishment Reports, rehiring, documents and payroll.
 | Head | Head of Student Assistantship (never the Admin): hiring calls, applications and screening, offices, skills, rehiring, student documents, payroll requirements, Sent to Head. Signs as "Head, Student Assistantship". |
 | Supervisor | Heads an office: requests student assistants, runs attendance (QR), tasks, DTR/Accomplishment Reports, evaluations. |
 | Student Assistant | Clocks in and out, does tasks, submits reports. |
-| Student | An applicant: the student portal (Apply, Notifications, Profile). |
+| Student | An applicant: the student portal (Home, Apply, Notifications, Profile). Home (`/home`) is the welcome page a student opens on after signing in: greeting, the four steps, where their application stands, and a button to Apply. |
 
 ## Stack
 
@@ -83,7 +83,11 @@ Students apply **to be a Student Assistant**, never to an office.
    Head's list or typed; typed ones take the Head's spelling) and one file
    per requirement. One application per student per year, id
    `app_<uid>_<academicYear>` (`Application.idFor`); the rules enforce the
-   id, the year in effect and an open hiring call.
+   id, the year in effect and an open hiring call. The Apply card also
+   lists the offices with an open approved request, with the skills each
+   needs (`officesNeedingAssistants`, information only: office name and
+   skills, never the supervisor or the request text); the Head still
+   decides the placement.
 4. The **Head's Applications & Screening page** (`ApplicantScreeningScreen`
    with `ApplicationsPanel`) matches each applicant's skills against the
    open approved requests (`skillMatchesFor`, `SkillMatch`). A low or zero
@@ -127,6 +131,16 @@ The Head checks each Student Assistant's payroll requirements
 everyone in it is Ready. A Student Assistant reads only their own
 `payrollChecks` document and own `payrollRecords` (live listeners in
 `_startLiveData`); `AppState.myPay` feeds the dashboard's My Pay card.
+The same dashboard's My Office card shows the office(s) the Student
+Assistant is placed in (`currentUserOffices`) and the supervisors' names, or
+that they are not placed yet; it stays hidden until the offices have loaded.
+Its "View details" opens the My Office page (`MyOfficeScreen`, `/my-office`, Student
+Assistant only): About, Location (with an optional picture), supervisors and
+the skills the office looks for. The Head enters About, Location and the
+picture in the Offices dialog (`Office.about`, `location`, `locationImagePath`).
+The picture is stored under the `announcements/<uid>/` storage root so the
+upload function needs no change (it has no delete, so a replaced picture stays
+in the bucket).
 
 ### Backups (Admin)
 

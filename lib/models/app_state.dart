@@ -3096,8 +3096,9 @@ class AppState extends ChangeNotifier {
         .map((a) => a.id == id ? approved : a)
         .toList();
 
-    // A supervisor's request ends with the Head's approval: students never
-    // see it, they apply to be a Student Assistant. Only the Head's own
+    // A supervisor's request ends with the Head's approval: students aren't
+    // told (they apply to be a Student Assistant; the Apply page only lists
+    // the office and the skills it needs). Only the Head's own
     // announcements, re-opened here, are news to them.
     if (!approved.isSupervisorRequest) {
       final studentUsers = users.where(
@@ -4705,6 +4706,8 @@ class AppState extends ChangeNotifier {
       ('head_forward', 'Head') => 'head_forwards',
       ('office', 'Head') => 'offices',
       ('office', 'Supervisor') => 'students',
+      // "You have been assigned to <office>": the office's page.
+      ('office', 'Student Assistant') => 'my_office',
       ('attendance', 'Student Assistant') => 'attendance',
       // A returned or missing DTR is sent again from there.
       ('payroll_requirement', 'Supervisor') => 'dtr_accomplishment_report',

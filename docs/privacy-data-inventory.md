@@ -24,7 +24,7 @@ Google). Removed only in the Firebase console, under Authentication.
 | `users` | Name (and its parts), email, phone, address, photo, skills, Student ID, SA ID, course/program, year level, department, campus, role, status, consent time and version, whether they get notification emails | The person; Head, Supervisor, Admin |
 | `studentIds` | Which account holds a Student ID | Any signed-in account (one ID at a time) |
 | `students` | Roster record: name, email, department, campus, hours, phone, address, photo | Head, Supervisor, Admin, the person |
-| `officeAssignments`, `offices` | Which office a person is in; names of supervisors and assistants | Head, Supervisors, assistants |
+| `officeAssignments`, `offices` | Which office a person is in; names of supervisors and assistants; the office's About text, Location and the path of its location picture (not personal) | `offices`: everyone signed in. `officeAssignments`: Head |
 | `announcements` | Name of whoever posted; attachments | Everyone signed in |
 | `applications` | Applicant name, skills, answers, uploaded requirement documents, screening remarks, decisions | The applicant; Head |
 | `screeningRecords` | Interview ratings and remarks about an applicant | Head |
@@ -46,7 +46,9 @@ Google). Removed only in the Firebase console, under Authentication.
 
 ### Supabase Storage (private bucket `Documents`)
 Files people upload, under `reports/<account id>/`, `applications/<account
-id>/` and `announcements/<account id>/`, and the archived copies under
+id>/` and `announcements/<account id>/` (the Head's announcement
+attachments and the offices' location pictures; any signed-in account can open
+these), and the archived copies under
 `academic_year_archives/<year>/`. Since October 2026 new files are stored under
 random names; older ones keep the person's own file name in the path. Files open
 only through links that expire after an hour.

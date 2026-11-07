@@ -21,6 +21,7 @@ import './accounts/programs_screen.dart';
 import './accounts/payroll_screen.dart';
 import './accounts/payroll_requirements_screen.dart';
 import './accounts/skills_screen.dart';
+import './my_office/my_office_screen.dart';
 import './profile/profile_screen.dart';
 import './settings/academic_year_archive_screen.dart';
 import './settings/academic_year_settings_screen.dart';
@@ -177,6 +178,13 @@ class _AppShellState extends State<AppShell> {
       label: 'Profile',
       icon: Icons.person_outline,
       activeIcon: Icons.person,
+    ),
+    (
+      id: 'my_office',
+      label: 'My Office',
+      icon: Icons.apartment_outlined,
+      activeIcon: Icons.apartment,
+      roles: ['Student Assistant'],
     ),
     (
       id: 'accounts',
@@ -398,6 +406,8 @@ class _AppShellState extends State<AppShell> {
         return const DashboardScreen();
       case 'profile':
         return const ProfileScreen();
+      case 'my_office':
+        return const MyOfficeScreen();
       case 'accounts':
         return const AccountsScreen();
       case 'departments':
@@ -470,6 +480,8 @@ class _AppShellState extends State<AppShell> {
         return 'Dashboard';
       case 'profile':
         return 'Profile';
+      case 'my_office':
+        return 'My Office';
       case 'accounts':
         return 'Accounts';
       case 'applications':

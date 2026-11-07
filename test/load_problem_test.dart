@@ -11,6 +11,7 @@ import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/screens/accounts/payroll_screen.dart';
 import 'package:projectsais/screens/app_shell.dart';
+import 'package:projectsais/screens/dashboard/dashboard_screen.dart';
 import 'package:projectsais/screens/student_portal/student_portal_shell.dart';
 import 'package:projectsais/theme/app_theme.dart';
 import 'package:projectsais/widgets/load_problem_banner.dart';
@@ -526,6 +527,79 @@ void main() {
         state.dispose();
       });
     }
+  });
+
+  group('the Student Assistant\'s office card', () {
+    final assistant = User(
+      id: 'sa1',
+      name: 'Sia Assistant',
+      email: 'sa@e.com',
+      role: 'Student Assistant',
+    );
+
+    Future<(AppState, _Fake)> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1000, 1800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final onError = FlutterError.onError;
+      // The test font draws every glyph as a full square, so some rows
+      // overflow here though they fit in the app.
+      FlutterError.onError = (details) =>
+          details.exceptionAsString().contains('overflowed')
+          ? null
+          : onError?.call(details);
+      addTearDown(() => FlutterError.onError = onError);
+      final fake = _Fake();
+      final state = AppState(firestoreService: fake)..currentUser = assistant;
+      await tester.runAsync(state.init);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(
+            theme: AppTheme.theme,
+            home: const Scaffold(body: DashboardScreen()),
+          ),
+        ),
+      );
+      return (state, fake);
+    }
+
+    Future<void> close(WidgetTester tester, AppState state) async {
+      await tester.pumpWidget(const SizedBox());
+      state.dispose();
+    }
+
+    testWidgets('waits for the offices, then says the student is not placed', (
+      tester,
+    ) async {
+      final (state, fake) = await open(tester);
+      expect(find.text('My Office'), findsNothing);
+
+      fake.answerAll(profile: assistant.toJson(), profileId: assistant.id);
+      await tester.runAsync(_settle);
+      await tester.pump();
+
+      expect(find.text('My Office'), findsOneWidget);
+      expect(
+        find.textContaining("not placed in an office yet"),
+        findsOneWidget,
+      );
+      await close(tester, state);
+    });
+
+    testWidgets('is hidden when the offices could not be loaded', (
+      tester,
+    ) async {
+      final (state, fake) = await open(tester);
+
+      fake.fail('offices', 'permission-denied');
+      await tester.runAsync(_settle);
+      await tester.pump();
+
+      expect(find.text('My Office'), findsNothing);
+      expect(find.textContaining('not placed'), findsNothing);
+      await close(tester, state);
+    });
   });
 
   testWidgets(

@@ -1,9 +1,14 @@
+import 'package:file_picker/file_picker.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/file_names.dart';
+import '../../widgets/office_picture.dart';
 import '../../widgets/shared_widgets.dart';
 
 class OfficesScreen extends StatefulWidget {
@@ -104,6 +109,10 @@ class _OfficesScreenState extends State<OfficesScreen> {
               user.status.trim().toLowerCase() != 'archived',
         )
         .toList();
+    final locationController = TextEditingController(
+      text: office?.location ?? '',
+    );
+    final aboutController = TextEditingController(text: office?.about ?? '');
     var headIds = [...(office?.headIds ?? const <String>[])];
     var requiredSkills = [...(office?.requiredSkills ?? const <String>[])];
     var isActive = office?.isActive ?? true;
@@ -112,6 +121,13 @@ class _OfficesScreenState extends State<OfficesScreen> {
     // behind it), and whether one is under way.
     String? saveError;
     var saving = false;
+    // The location picture: one chosen in this dialog (uploaded on Save, and
+    // kept uploaded if the save then fails so a retry doesn't send it again),
+    // or the office's current one, which can be removed.
+    PlatformFile? picture;
+    String? uploadedPicturePath;
+    var removePicture = false;
+    String? pictureError;
 
     final saved = await showDialog<bool>(
       context: context,
@@ -289,6 +305,88 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                 labelText: 'Assistant capacity (optional)',
                                 hintText: 'Leave empty for no limit',
                                 prefixIcon: Icon(Icons.groups_outlined),
+                              ),
+                            ),
+                            const SizedBox(height: 14),
+                            // Shown to the Student Assistants placed here, on
+                            // their My Office page.
+                            TextField(
+                              controller: locationController,
+                              maxLength: Office.maxLocationLength,
+                              decoration: const InputDecoration(
+                                labelText: 'Location (optional)',
+                                hintText:
+                                    'e.g. Main Building, 2nd floor, Room 204',
+                                prefixIcon: Icon(Icons.place_outlined),
+                                counterText: '',
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+                            _LocationPictureField(
+                              officeName: nameController.text.trim(),
+                              pickedBytes: picture?.bytes,
+                              currentPath: removePicture
+                                  ? ''
+                                  : (office?.locationImagePath ?? ''),
+                              error: pictureError,
+                              enabled: !saving,
+                              onPick: () async {
+                                final result = await FilePicker.platform
+                                    .pickFiles(
+                                      type: FileType.custom,
+                                      allowedExtensions: const [
+                                        'jpg',
+                                        'jpeg',
+                                        'png',
+                                      ],
+                                      allowMultiple: false,
+                                      withData: true,
+                                    );
+                                if (result == null || result.files.isEmpty) {
+                                  return;
+                                }
+                                final file = result.files.single;
+                                if (!dialogContext.mounted) return;
+                                setState(() {
+                                  if (file.bytes == null || file.bytes!.isEmpty) {
+                                    pictureError = "That file couldn't be read.";
+                                  } else if (file.bytes!.length >
+                                      Office.maxPictureBytes) {
+                                    pictureError =
+                                        'Choose a picture under 5 MB.';
+                                  } else {
+                                    pictureError = null;
+                                    picture = file;
+                                    uploadedPicturePath = null;
+                                    removePicture = false;
+                                  }
+                                });
+                              },
+                              onRemove: () => setState(() {
+                                pictureError = null;
+                                picture = null;
+                                uploadedPicturePath = null;
+                                removePicture = true;
+                              }),
+                            ),
+                            const SizedBox(height: 14),
+                            TextField(
+                              controller: aboutController,
+                              maxLength: Office.maxAboutLength,
+                              minLines: 3,
+                              maxLines: 5,
+                              keyboardType: TextInputType.multiline,
+                              decoration: const InputDecoration(
+                                labelText: 'About this office (optional)',
+                                hintText:
+                                    'What the office does and what a student '
+                                    'assistant helps with',
+                                alignLabelWithHint: true,
+                                prefixIcon: Padding(
+                                  padding: EdgeInsets.only(bottom: 48),
+                                  child: Icon(Icons.info_outline),
+                                ),
+                                counterText: '',
                               ),
                             ),
                             const SizedBox(height: 20),
@@ -731,6 +829,57 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                 final heads = supervisors
                                     .where((user) => headIds.contains(user.id))
                                     .toList();
+                                var picturePath = removePicture
+                                    ? ''
+                                    : (office?.locationImagePath ?? '');
+                                final chosen = picture;
+                                if (chosen != null) {
+                                  setState(() {
+                                    saving = true;
+                                    saveError = null;
+                                  });
+                                  try {
+                                    if (uploadedPicturePath == null) {
+                                      final uid =
+                                          fb_auth
+                                              .FirebaseAuth
+                                              .instance
+                                              .currentUser
+                                              ?.uid ??
+                                          state.currentUser?.id ??
+                                          'user';
+                                      final path = officePicturePath(
+                                        uid,
+                                        chosen.name,
+                                      );
+                                      final extension = chosen.extension
+                                          ?.toLowerCase();
+                                      await SupabaseStorageService.instance
+                                          .uploadDocument(
+                                            bytes: chosen.bytes!,
+                                            path: path,
+                                            contentType: extension == null
+                                                ? null
+                                                : SupabaseStorageService
+                                                      .contentTypeForExtension(
+                                                        extension,
+                                                      ),
+                                          );
+                                      uploadedPicturePath = path;
+                                    }
+                                    picturePath = uploadedPicturePath!;
+                                  } catch (e) {
+                                    if (dialogContext.mounted) {
+                                      setState(() {
+                                        saving = false;
+                                        saveError =
+                                            'The picture could not be '
+                                            'uploaded: $e';
+                                      });
+                                    }
+                                    return;
+                                  }
+                                }
                                 final savedOffice = Office(
                                   id:
                                       office?.id ??
@@ -750,6 +899,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                   capacity: capacity,
                                   isActive: isActive,
                                   requiredSkills: requiredSkills,
+                                  location: locationController.text.trim(),
+                                  locationImagePath: picturePath,
+                                  about: aboutController.text.trim(),
                                 );
                                 setState(() {
                                   saving = true;
@@ -806,6 +958,8 @@ class _OfficesScreenState extends State<OfficesScreen> {
     nameController.dispose();
     codeController.dispose();
     capacityController.dispose();
+    locationController.dispose();
+    aboutController.dispose();
     if (saved == true && context.mounted)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -1117,6 +1271,31 @@ class _OfficeCardState extends State<_OfficeCard> {
                             _statusPill(office.isActive),
                           ],
                         ),
+                        if (office.location.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Row(
+                            children: [
+                              const Icon(
+                                Icons.place_outlined,
+                                size: 13,
+                                color: AppTheme.slate500,
+                              ),
+                              const SizedBox(width: 5),
+                              Expanded(
+                                child: Text(
+                                  office.location,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: AppTheme.slate500,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
                         const SizedBox(height: 6),
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2435,6 +2614,96 @@ class _AvatarStack extends StatelessWidget {
             ),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// The Head's control for an office's location picture: choose one, see it,
+/// replace it, or remove it. The picture itself is uploaded when the office
+/// is saved.
+class _LocationPictureField extends StatelessWidget {
+  final String officeName;
+  final Uint8List? pickedBytes;
+  final String currentPath;
+  final String? error;
+  final bool enabled;
+  final VoidCallback onPick;
+  final VoidCallback onRemove;
+
+  const _LocationPictureField({
+    required this.officeName,
+    required this.pickedBytes,
+    required this.currentPath,
+    required this.error,
+    required this.enabled,
+    required this.onPick,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final picked = pickedBytes != null && pickedBytes!.isNotEmpty;
+    final has = picked || currentPath.trim().isNotEmpty;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (picked)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: SizedBox(
+              width: double.infinity,
+              height: 140,
+              child: Image.memory(
+                pickedBytes!,
+                fit: BoxFit.cover,
+                cacheWidth: 800,
+                errorBuilder: (_, _, _) => const Center(
+                  child: Icon(
+                    Icons.image_not_supported_outlined,
+                    color: AppTheme.slate400,
+                  ),
+                ),
+              ),
+            ),
+          )
+        else if (currentPath.trim().isNotEmpty)
+          OfficePicture(
+            path: currentPath.trim(),
+            title: officeName.isEmpty ? 'office' : officeName,
+            height: 140,
+          ),
+        Row(
+          children: [
+            TextButton.icon(
+              onPressed: enabled ? onPick : null,
+              icon: Icon(
+                has ? Icons.swap_horiz_rounded : Icons.add_photo_alternate_outlined,
+                size: 18,
+              ),
+              label: Text(
+                has ? 'Replace picture' : 'Add a picture of the location',
+              ),
+            ),
+            if (has)
+              TextButton.icon(
+                onPressed: enabled ? onRemove : null,
+                icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                label: const Text('Remove'),
+                style: TextButton.styleFrom(foregroundColor: AppTheme.red500),
+              ),
+          ],
+        ),
+        Text(
+          error ??
+              "JPG or PNG, up to 5 MB. Don't include people's faces or private "
+                  'information.',
+          style: TextStyle(
+            fontSize: 11.5,
+            color: error == null ? AppTheme.slate500 : AppTheme.red500,
+            height: 1.4,
+          ),
+        ),
       ],
     );
   }

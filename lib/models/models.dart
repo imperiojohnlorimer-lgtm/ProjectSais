@@ -53,6 +53,23 @@ class Office {
   final bool isActive;
   final List<String> requiredSkills;
 
+  /// What the office does, and where it is, as the Head wrote them. Shown to
+  /// the Student Assistants placed there; blank until the Head fills them in.
+  final String about;
+  final String location;
+
+  /// A picture of the location (a photo of the entrance, a floor plan), kept
+  /// in storage under this path; blank when there is none.
+  final String locationImagePath;
+
+  /// The longest [location] and [about] the Head's form accepts.
+  static const maxLocationLength = 120;
+  static const maxAboutLength = 600;
+
+  /// The largest location picture the Head's form accepts (the upload
+  /// function's own limit is 10 MB).
+  static const maxPictureBytes = 5 * 1024 * 1024;
+
   const Office({
     required this.id,
     required this.name,
@@ -64,7 +81,17 @@ class Office {
     this.capacity = 0,
     this.isActive = true,
     this.requiredSkills = const [],
+    this.about = '',
+    this.location = '',
+    this.locationImagePath = '',
   });
+
+  /// The supervisors' names without the blanks that pad the list when ids and
+  /// names fall out of step, and without repeats.
+  List<String> get supervisorNames => {
+    for (final name in headNames)
+      if (name.trim().isNotEmpty) name.trim(),
+  }.toList();
 
   /// Whether the user [userId] (named [name]) is one of this office's
   /// student assistants. The id lists decide it — two people can share a
@@ -140,6 +167,9 @@ class Office {
     int? capacity,
     bool? isActive,
     List<String>? requiredSkills,
+    String? about,
+    String? location,
+    String? locationImagePath,
   }) => Office(
     id: id,
     name: name ?? this.name,
@@ -151,6 +181,9 @@ class Office {
     capacity: capacity ?? this.capacity,
     isActive: isActive ?? this.isActive,
     requiredSkills: requiredSkills ?? this.requiredSkills,
+    about: about ?? this.about,
+    location: location ?? this.location,
+    locationImagePath: locationImagePath ?? this.locationImagePath,
   );
 
   factory Office.fromJson(Map<String, dynamic> json) => Office(
@@ -188,6 +221,9 @@ class Office {
             ?.map((value) => value.toString())
             .toList() ??
         const [],
+    about: json['about']?.toString() ?? '',
+    location: json['location']?.toString() ?? '',
+    locationImagePath: json['locationImagePath']?.toString() ?? '',
   );
 
   Map<String, dynamic> toJson() => {
@@ -200,6 +236,11 @@ class Office {
     'capacity': capacity,
     'isActive': isActive,
     'requiredSkills': requiredSkills,
+    // Always saved: every office write replaces the whole document, so a
+    // field left out here would be erased by the next roster change.
+    'about': about,
+    'location': location,
+    'locationImagePath': locationImagePath,
   };
 
   /// A code to start from for an office called [name]: an acronym already
@@ -1302,8 +1343,9 @@ class Announcement {
   bool get isRejected => approvalStatus == 'Rejected';
 
   /// A Supervisor's request for a student assistant for their office. It
-  /// only goes as far as the Head approving it: students never see it, and
-  /// nobody applies to it. Applicants are matched to it by their skills.
+  /// only goes as far as the Head approving it: students are never sent it
+  /// and nobody applies to it (the Apply page just lists its office and the
+  /// skills it needs). Applicants are matched to it by their skills.
   bool get isSupervisorRequest => postedByRole == 'Supervisor';
 
   /// A call the Head posted for Student Assistant applicants. Students
