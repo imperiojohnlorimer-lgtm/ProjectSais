@@ -16,16 +16,19 @@ Future<void> _openAttachment(
   if (!announcement.hasAttachment) return;
   final messenger = ScaffoldMessenger.of(context);
   try {
-    final url = await SupabaseStorageService.instance.openableUrl(
-      path: announcement.attachmentPath,
-      storedUrl: announcement.attachmentUrl,
-    );
-    if (url == null) throw Exception('No file content available.');
-    final opened = await launchUrl(
-      Uri.parse(url),
-      mode: LaunchMode.externalApplication,
-    );
-    if (!opened) throw Exception('The browser could not open the file.');
+    // A fresh link is signed first, which takes a moment.
+    await runWithBusy(context, () async {
+      final url = await SupabaseStorageService.instance.openableUrl(
+        path: announcement.attachmentPath,
+        storedUrl: announcement.attachmentUrl,
+      );
+      if (url == null) throw Exception('No file content available.');
+      final opened = await launchUrl(
+        Uri.parse(url),
+        mode: LaunchMode.externalApplication,
+      );
+      if (!opened) throw Exception('The browser could not open the file.');
+    }, message: 'Opening…');
   } catch (e) {
     messenger.showSnackBar(
       SnackBar(

@@ -27,6 +27,18 @@ class _ProfileStore extends FirestoreService {
   Future<List<User>> getAllUserProfiles() async => profiles.values.toList();
 }
 
+/// Records the single fields saved to a profile, or refuses them.
+class _FieldStore extends FirestoreService {
+  bool fail = false;
+  final saved = <String, Map<String, dynamic>>{};
+
+  @override
+  Future<void> updateUserFields(String id, Map<String, dynamic> fields) async {
+    if (fail) throw Exception('permission-denied');
+    saved[id] = fields;
+  }
+}
+
 /// Records the task category lists the app saves.
 class _CategoryStore extends FirestoreService {
   _CategoryStore({this.fail = false});
@@ -43,6 +55,53 @@ class _CategoryStore extends FirestoreService {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group("another account's picture (Accounts screen)", () {
+    final admin = User(
+      id: 'a1',
+      name: 'Ana Admin',
+      email: 'ana@example.com',
+      role: 'Admin',
+    );
+    final sam = User(
+      id: 's1',
+      name: 'Sam Student',
+      email: 'sam@example.com',
+      role: 'Student',
+      phone: '0917 123 4567',
+    );
+
+    test('is saved, and only the picture', () async {
+      final store = _FieldStore();
+      final state = AppState(firestoreService: store)
+        ..currentUser = admin
+        ..users = [admin, sam];
+
+      await state.updateUserAvatar('s1', 'data:image/png;base64,AAAA');
+
+      expect(store.saved['s1'], {'avatar': 'data:image/png;base64,AAAA'});
+      expect(
+        state.users.firstWhere((u) => u.id == 's1').avatar,
+        'data:image/png;base64,AAAA',
+      );
+      state.dispose();
+    });
+
+    test('stays as it was when the save is refused', () async {
+      final store = _FieldStore()..fail = true;
+      final state = AppState(firestoreService: store)
+        ..currentUser = admin
+        ..users = [admin, sam];
+
+      await expectLater(
+        state.updateUserAvatar('s1', 'data:image/png;base64,AAAA'),
+        throwsException,
+      );
+
+      expect(state.users.firstWhere((u) => u.id == 's1').avatar, isNull);
+      state.dispose();
+    });
+  });
 
   group('AppState avatar persistence', () {
     late _ProfileStore store;

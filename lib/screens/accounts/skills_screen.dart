@@ -195,7 +195,11 @@ class _SkillsScreenState extends State<SkillsScreen> {
       confirmColor: AppTheme.red500,
     );
     if (!confirmed || !context.mounted) return;
-    final deleted = await state.removeSkill(skill);
+    final deleted = await runWithBusy(
+      context,
+      () => state.removeSkill(skill),
+      message: 'Deleting…',
+    );
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

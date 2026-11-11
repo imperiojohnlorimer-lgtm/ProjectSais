@@ -720,7 +720,13 @@ class _PerformanceEvaluationScreenState
     bool ok = false;
     String? errorText;
     try {
-      ok = await state.sendEvaluationToHead(evaluation);
+      // The file is built and uploaded first, which takes a few seconds;
+      // the card also keeps a second press from sending it twice.
+      ok = await runWithBusy(
+        context,
+        () => state.sendEvaluationToHead(evaluation),
+        message: 'Sending to the Head…',
+      );
     } catch (e) {
       errorText = '$e';
     }

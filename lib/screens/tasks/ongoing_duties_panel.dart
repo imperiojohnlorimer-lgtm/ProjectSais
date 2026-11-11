@@ -294,7 +294,12 @@ class _DutyRow extends StatelessWidget {
           );
           if (!ok) return;
         }
-        final saved = await state.setTaskDutyActive(duty.id, !stopping);
+        if (!context.mounted) return;
+        final saved = await runWithBusy(
+          context,
+          () => state.setTaskDutyActive(duty.id, !stopping),
+          message: stopping ? 'Stopping…' : 'Resuming…',
+        );
         if (!context.mounted || saved) return;
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -331,10 +336,14 @@ class _DutyRow extends StatelessWidget {
       builder: (_) =>
           _LogWorkDialog(duty: duty, initialNote: resend?.description),
     );
-    if (note == null) return;
-    final problem = resend == null
-        ? await state.logDutyWork(duty, note: note)
-        : await state.resubmitDutyLog(resend, note: note);
+    if (note == null || !context.mounted) return;
+    final problem = await runWithBusy(
+      context,
+      () => resend == null
+          ? state.logDutyWork(duty, note: note)
+          : state.resubmitDutyLog(resend, note: note),
+      message: 'Sending…',
+    );
     messenger.showSnackBar(
       SnackBar(
         content: Text(problem ?? 'Sent. Your supervisor will approve it.'),

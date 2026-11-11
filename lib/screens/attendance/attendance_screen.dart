@@ -511,7 +511,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   /// here first — a local check would only ever be a slower way to reach
   /// the same answer, and a wrong one if the phone's clock is off.
   Future<void> _handleScannedCode(BuildContext context, String code) async {
-    final result = await context.read<AppState>().clockViaQr(code);
+    final state = context.read<AppState>();
+    // The server takes a moment; without this the page looks idle once
+    // the scanner has closed.
+    final result = await runWithBusy(
+      context,
+      () => state.clockViaQr(code),
+      message: 'Recording your attendance…',
+    );
     if (!context.mounted) return;
     _snack(
       context,
@@ -545,7 +552,11 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     // re-opening the generator never invalidates a QR that's already posted.
     final String? token;
     try {
-      token = await state.generateAttendanceQrToken();
+      token = await runWithBusy(
+        context,
+        () => state.generateAttendanceQrToken(),
+        message: 'Getting the QR code…',
+      );
     } catch (error) {
       debugPrint('Could not get the attendance QR: $error');
       if (!context.mounted) return;

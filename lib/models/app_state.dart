@@ -6177,19 +6177,22 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateUserAvatar(String userId, String? avatar) async {
-    users = users.map((user) {
-      if (user.id == userId) {
-        return user.copyWith(avatar: avatar);
-      }
-      return user;
-    }).toList();
-
+  /// Saves [avatar] as [userId]'s picture (the Admin's Accounts screen).
+  /// The save comes first, and a refused one throws: the picture only
+  /// changes here once it is really stored.
+  Future<void> updateUserAvatar(String userId, String avatar) async {
     if (currentUser?.id == userId) {
-      currentUser = currentUser!.copyWith(avatar: avatar);
-      await _saveUserProfile(currentUser!);
+      await updateProfile(avatar: avatar);
+      return;
     }
-
+    _firestoreService ??= FirestoreService();
+    // Only the picture: the rest of the profile may have changed since
+    // this copy was loaded.
+    await _firestoreService!.updateUserFields(userId, {'avatar': avatar});
+    users = [
+      for (final user in users)
+        user.id == userId ? user.copyWith(avatar: avatar) : user,
+    ];
     notifyListeners();
   }
 

@@ -20,6 +20,9 @@ class SpProfileScreen extends StatefulWidget {
 class _SpProfileScreenState extends State<SpProfileScreen> {
   bool _isEditing = false;
   bool _isUploadingPhoto = false;
+
+  /// True while the Google sign-in window is open and the link is saved.
+  bool _linkingGoogle = false;
   late TextEditingController _phoneCtrl;
   late TextEditingController _addressCtrl;
 
@@ -405,10 +408,16 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
-        onPressed: linked
+        onPressed: linked || _linkingGoogle
             ? null
             : () async {
-                final error = await state.linkGoogleAccount();
+                setState(() => _linkingGoogle = true);
+                final String? error;
+                try {
+                  error = await state.linkGoogleAccount();
+                } finally {
+                  if (mounted) setState(() => _linkingGoogle = false);
+                }
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(
@@ -426,8 +435,18 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
                   ),
                 );
               },
-        icon: Icon(linked ? Icons.check_circle_outline : Icons.link, size: 17),
-        label: Text(linked ? 'Google account linked' : 'Link Google account'),
+        icon: BusyIcon(
+          busy: _linkingGoogle,
+          icon: linked ? Icons.check_circle_outline : Icons.link,
+          size: 17,
+        ),
+        label: Text(
+          linked
+              ? 'Google account linked'
+              : _linkingGoogle
+              ? 'Linking…'
+              : 'Link Google account',
+        ),
       ),
     );
   }

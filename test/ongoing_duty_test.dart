@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -16,6 +18,9 @@ import 'package:projectsais/theme/app_theme.dart';
 /// refuses every save while [fail] is set.
 class _Store extends FirestoreService {
   bool fail = false;
+
+  /// When set, stopping a duty and sending a log wait for it.
+  Completer<void>? gate;
   final duties = <String, TaskDuty>{};
   final logs = <Task>[];
   final tasks = <Task>[];
@@ -41,12 +46,14 @@ class _Store extends FirestoreService {
 
   @override
   Future<void> setTaskDutyActive(String id, bool value) async {
+    await gate?.future;
     if (fail) throw Exception('permission-denied');
     active[id] = value;
   }
 
   @override
   Future<void> createDutyLog(Task t) async {
+    await gate?.future;
     if (fail) throw Exception('permission-denied');
     logs.add(t);
   }
@@ -640,6 +647,66 @@ void main() {
 
       expect(store.active['duty1'], isFalse);
       expect(find.text('Resume'), findsOneWidget);
+    });
+
+    testWidgets('stopping a duty shows it working until it is saved', (
+      tester,
+    ) async {
+      final store = _Store()..gate = Completer<void>();
+      final state = AppState(firestoreService: store)
+        ..currentUser = _supervisor
+        ..users = [_assistant, _supervisor]
+        ..offices = [
+          const Office(
+            id: 'o1',
+            name: 'CICS Office',
+            code: 'CICS',
+            headIds: ['sup1'],
+            headNames: ['Sid Supervisor'],
+            assistantIds: ['sa1'],
+            assistantNames: ['Sara Assistant'],
+          ),
+        ]
+        ..taskDuties = [_duty()];
+      await open(tester, state);
+
+      await tester.tap(find.text('Stop'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Stop').last);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Stopping…'), findsOneWidget);
+      expect(store.active, isEmpty);
+
+      store.gate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Stopping…'), findsNothing);
+      expect(store.active['duty1'], isFalse);
+      expect(find.text('Resume'), findsOneWidget);
+    });
+
+    testWidgets("sending a day's log shows it working until it is saved", (
+      tester,
+    ) async {
+      final store = _Store()..gate = Completer<void>();
+      await open(tester, _studentState(store));
+
+      await tester.tap(find.text("Log today's work").last);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'Filed 12 forms');
+      await tester.tap(find.text('Send for approval'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+
+      expect(find.text('Sending…'), findsOneWidget);
+
+      store.gate!.complete();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Sending…'), findsNothing);
+      expect(store.logs.single.description, 'Filed 12 forms');
     });
 
     testWidgets('the panel fits a phone', (tester) async {

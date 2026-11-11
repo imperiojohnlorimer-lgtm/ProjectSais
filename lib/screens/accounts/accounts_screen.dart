@@ -8,6 +8,7 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv_export.dart';
 import '../../utils/input_formats.dart';
+import '../../widgets/avatar_editor.dart';
 import '../../widgets/document_preview.dart';
 import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
@@ -2367,40 +2368,56 @@ class _AccountRowState extends State<_AccountRow> {
   VoidCallback? get _onDelete =>
       _busyAction != null ? null : () => widget.onDelete(_runBusy);
 
+  /// True while a new picture is being saved.
+  bool _savingPhoto = false;
+
+  /// The account's picture, with a spinner over it while a new one saves.
+  Widget _avatar(User u, double size) => Stack(
+    alignment: Alignment.center,
+    children: [
+      UserAvatar(avatarUrl: u.avatar, initials: u.initials, size: size),
+      if (_savingPhoto)
+        Container(
+          width: size,
+          height: size,
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.35),
+            shape: BoxShape.circle,
+          ),
+          padding: EdgeInsets.all(size * 0.3),
+          child: const CircularProgressIndicator(
+            strokeWidth: 2,
+            color: Colors.white,
+          ),
+        ),
+    ],
+  );
+
+  /// Picks an image, lets the Admin frame it (which also keeps it small
+  /// enough to store), then saves it, and only then says it's updated.
   Future<void> _pickAvatar() async {
+    if (_savingPhoto) return;
     final messenger = ScaffoldMessenger.maybeOf(context);
 
     try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: ImageSource.gallery,
-        imageQuality: 85,
-      );
-
-      if (!mounted) return;
-      if (picked == null) {
-        messenger?.showSnackBar(
-          SnackBar(
-            content: Text('No image selected.'),
-            backgroundColor: AppTheme.amber500,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10),
-            ),
-            margin: const EdgeInsets.all(16),
-          ),
-        );
-        return;
-      }
+      final picked = await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (!mounted || picked == null) return;
 
       final bytes = await picked.readAsBytes();
-      final extension = picked.name.split('.').last.toLowerCase();
-      final mimeType = extension == 'jpg' || extension == 'jpeg'
-          ? 'image/jpeg'
-          : 'image/$extension';
-      final dataUrl = 'data:$mimeType;base64,${base64Encode(bytes)}';
+      if (!mounted) return;
 
-      widget.state.updateUserAvatar(widget.user.id, dataUrl);
+      final cropped = await showAvatarEditor(context, bytes);
+      if (!mounted || cropped == null) return;
+
+      setState(() => _savingPhoto = true);
+      try {
+        await widget.state.updateUserAvatar(
+          widget.user.id,
+          'data:image/png;base64,${base64Encode(cropped)}',
+        );
+      } finally {
+        if (mounted) setState(() => _savingPhoto = false);
+      }
       messenger?.showSnackBar(
         SnackBar(
           content: Text('Profile picture updated.'),
@@ -2490,11 +2507,7 @@ class _AccountRowState extends State<_AccountRow> {
                     onTap: _pickAvatar,
                     child: Stack(
                       children: [
-                        UserAvatar(
-                          avatarUrl: u.avatar,
-                          initials: u.initials,
-                          size: 44,
-                        ),
+                        _avatar(u, 44),
                         Positioned(
                           bottom: 0,
                           right: 0,
@@ -2520,11 +2533,7 @@ class _AccountRowState extends State<_AccountRow> {
                     onTap: _pickAvatar,
                     child: Tooltip(
                       message: 'Edit profile picture',
-                      child: UserAvatar(
-                        avatarUrl: u.avatar,
-                        initials: u.initials,
-                        size: 44,
-                      ),
+                      child: _avatar(u, 44),
                     ),
                   ),
             const SizedBox(width: 12),
@@ -2779,11 +2788,7 @@ class _AccountRowState extends State<_AccountRow> {
                       onTap: _pickAvatar,
                       child: Stack(
                         children: [
-                          UserAvatar(
-                            avatarUrl: u.avatar,
-                            initials: u.initials,
-                            size: 40,
-                          ),
+                          _avatar(u, 40),
                           Positioned(
                             bottom: 0,
                             right: 0,
@@ -2812,11 +2817,7 @@ class _AccountRowState extends State<_AccountRow> {
                       onTap: _pickAvatar,
                       child: Tooltip(
                         message: 'Edit profile picture',
-                        child: UserAvatar(
-                          avatarUrl: u.avatar,
-                          initials: u.initials,
-                          size: 40,
-                        ),
+                        child: _avatar(u, 40),
                       ),
                     ),
               const SizedBox(width: 10),
