@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../models/recurring_schedule.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 import '../../services/dtr_accomplishment_report_document_service.dart';
@@ -622,7 +623,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // if any — same automated pull as the DTR table above. Starts with 8
     // rows (or however many were saved, if more) — "Add Subject" below the
     // table grows it further, up to the template's 12-row capacity.
-    final saved = state.classScheduleForStudent(widget.student.name);
+    final saved = state.classScheduleForStudent(
+      widget.student.name,
+      studentId: widget.student.id,
+    );
     final startingRows = saved.length > 8
         ? (saved.length > _maxScheduleRows ? _maxScheduleRows : saved.length)
         : 8;
@@ -1297,7 +1301,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // Remember the (possibly edited) class schedule for next time, so the
     // supervisor doesn't have to re-type it every month.
     final state = context.read<AppState>();
-    await state.saveClassScheduleForStudent(
+    final messenger = ScaffoldMessenger.of(context);
+    final scheduleKept = await state.saveClassScheduleForStudent(
       widget.student.id,
       widget.student.name,
       List.generate(
@@ -1318,6 +1323,17 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         ),
       ),
     );
+    // The report doesn't depend on it, so it goes ahead; they're told the
+    // schedule will need typing again.
+    if (!scheduleKept) {
+      AppSnackBar.showWithMessenger(
+        messenger,
+        "The class schedule couldn't be saved, so it won't be filled in "
+        'next time. This report is not affected.',
+        type: SnackType.warning,
+        duration: const Duration(seconds: 6),
+      );
+    }
 
     return DtrAccomplishmentReportData(
       studentId: widget.student.id,
@@ -2189,7 +2205,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       child: CircularProgressIndicator(strokeWidth: 2, color: color),
     );
     final generate = FilledButton.icon(
-      onPressed: _generating ? null : _generate,
+      onPressed: _generating || _sendingToHead ? null : _generate,
       icon: _generating
           ? spinner(Colors.white)
           : const Icon(Icons.download_rounded, size: 16),
@@ -2201,7 +2217,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       ),
     );
     final send = OutlinedButton.icon(
-      onPressed: _sendingToHead ? null : _sendToHead,
+      onPressed: _generating || _sendingToHead ? null : _sendToHead,
       icon: _sendingToHead
           ? spinner(AppTheme.maroon)
           : const Icon(Icons.send_rounded, size: 16),

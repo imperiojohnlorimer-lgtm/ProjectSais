@@ -1305,6 +1305,71 @@ class FirestoreService {
     }
   }
 
+  /// Whether a class-schedule row saved under [rowStudentId] and
+  /// [rowStudentName] is the schedule of the student [studentId] /
+  /// [studentName]. The id decides it, since two students can share a name;
+  /// only a row saved without one goes by the name.
+  static bool isClassScheduleOf({
+    required String rowStudentId,
+    required String rowStudentName,
+    required String studentId,
+    required String studentName,
+  }) {
+    if (studentId.isNotEmpty && rowStudentId.isNotEmpty) {
+      return rowStudentId == studentId;
+    }
+    return rowStudentName == studentName;
+  }
+
+  /// Replaces the saved class schedule of [studentId] / [studentName] with
+  /// [rows] in one write: the old rows go and the new ones arrive together,
+  /// so a save that fails changes nothing, and two saves at once can't leave
+  /// both their rows behind. Returns [rows] with the ids they were saved
+  /// under.
+  Future<List<ClassScheduleEntry>> replaceClassSchedule(
+    String studentId,
+    String studentName,
+    List<ClassScheduleEntry> rows,
+  ) async {
+    final old = <String, DocumentReference>{};
+    void collect(QuerySnapshot snap) {
+      for (final doc in snap.docs) {
+        final data = doc.data() as Map<String, dynamic>? ?? const {};
+        final owner = data['studentId'];
+        if (isClassScheduleOf(
+          rowStudentId: owner is String ? owner : '',
+          rowStudentName: data['studentName']?.toString() ?? '',
+          studentId: studentId,
+          studentName: studentName,
+        )) {
+          old[doc.id] = doc.reference;
+        }
+      }
+    }
+
+    collect(
+      await _classSchedules.where('studentName', isEqualTo: studentName).get(),
+    );
+    if (studentId.isNotEmpty) {
+      collect(
+        await _classSchedules.where('studentId', isEqualTo: studentId).get(),
+      );
+    }
+
+    final batch = _db.batch();
+    for (final ref in old.values) {
+      batch.delete(ref);
+    }
+    final saved = <ClassScheduleEntry>[];
+    for (final row in rows) {
+      final ref = _classSchedules.doc();
+      batch.set(ref, row.toJson()..remove('id'));
+      saved.add(ClassScheduleEntry.fromJson({...row.toJson(), 'id': ref.id}));
+    }
+    await batch.commit();
+    return saved;
+  }
+
   // Tasks
   CollectionReference get _tasks => _db.collection('tasks');
 

@@ -312,6 +312,10 @@ class AppState extends ChangeNotifier {
   List<Student> students = [];
   List<AttendanceRecord> attendance = [];
   List<ClassScheduleEntry> classSchedules = [];
+
+  /// The class schedule save under way for each student (see
+  /// [saveClassScheduleForStudent]).
+  final _classScheduleSaves = <String, Future<bool>>{};
   List<Task> tasks = [];
   List<Report> reports = [];
   List<Evaluation> evaluations = [];
@@ -2769,7 +2773,7 @@ class AppState extends ChangeNotifier {
       }
       try {
         await _firestoreService!.setSkill(skill);
-        skills = [...skills, skill]..sort();
+        if (findSkill(skill) == null) skills = [...skills, skill]..sort();
       } catch (error) {
         debugPrint('Failed to sync approved application skill: $error');
       }
@@ -3616,13 +3620,24 @@ class AppState extends ChangeNotifier {
     return true;
   }
 
+  /// The department on the list named [name], whatever its case or
+  /// spacing: "cics" finds "CICS".
+  String? findDepartment(String name) {
+    final key = name.trim().toLowerCase();
+    if (key.isEmpty) return null;
+    return departments.where((d) => d.trim().toLowerCase() == key).firstOrNull;
+  }
+
   Future<bool> addDepartment(String name, {String code = ''}) async {
     final normalized = name.trim();
-    if (normalized.isEmpty || departments.contains(normalized)) return false;
+    if (normalized.isEmpty || findDepartment(normalized) != null) return false;
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.setDepartment(normalized, code: code.trim());
-      departments = [...departments, normalized];
+      // The live query usually has it already.
+      if (!departments.contains(normalized)) {
+        departments = [...departments, normalized];
+      }
       departmentCodes[normalized] = code.trim();
       notifyListeners();
       return true;
@@ -4187,7 +4202,10 @@ class AppState extends ChangeNotifier {
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.setSkill(normalized);
-      skills = [...skills, normalized]..sort();
+      // The live query usually has it already.
+      if (findSkill(normalized) == null) {
+        skills = [...skills, normalized]..sort();
+      }
       notifyListeners();
       return true;
     } catch (_) {
@@ -4254,8 +4272,10 @@ class AppState extends ChangeNotifier {
     String code = '',
   }) async {
     final normalized = newName.trim();
-    if (normalized.isEmpty ||
-        (normalized != oldName && departments.contains(normalized))) {
+    // Another department's name, whatever its case; its own is fine (a
+    // rename that only changes the capitals).
+    final taken = findDepartment(normalized);
+    if (normalized.isEmpty || (taken != null && taken != oldName)) {
       return false;
     }
     try {
@@ -5709,7 +5729,8 @@ class AppState extends ChangeNotifier {
     _firestoreService ??= FirestoreService();
     try {
       await _firestoreService!.setReport(report);
-      reports = [report, ...reports];
+      // The live query usually has it already.
+      reports = _withAdded(reports, report, (r) => r.id);
       User? assistant;
       try {
         assistant = users.firstWhere((user) {
@@ -5956,8 +5977,16 @@ class AppState extends ChangeNotifier {
   /// Regenerates the already-submitted performance evaluation document (the
   /// same file the "Download" button produces) and forwards it to the Head
   /// — no manual re-upload needed.
+  /// Evaluations on their way to the Head (see [sendEvaluationToHead]).
+  final _evaluationsBeingSent = <String>{};
+
   Future<bool> sendEvaluationToHead(Evaluation evaluation) async {
     if (evaluation.status != 'Submitted') return false;
+    // One with no id was never saved, and saving it here would make a
+    // second evaluation. One already on its way isn't sent twice.
+    if (evaluation.id.isEmpty || !_evaluationsBeingSent.add(evaluation.id)) {
+      return false;
+    }
     _firestoreService ??= FirestoreService();
     try {
       final doc = await const PerformanceEvaluationDocumentService()
@@ -6036,6 +6065,8 @@ class AppState extends ChangeNotifier {
     } catch (e) {
       debugPrint('Failed to send evaluation to Head: $e');
       rethrow;
+    } finally {
+      _evaluationsBeingSent.remove(evaluation.id);
     }
   }
 
@@ -6595,7 +6626,10 @@ class AppState extends ChangeNotifier {
         currentUser = currentUser!.copyWith(role: newRole);
       }
     }
-    if (newRecord != null) students = [newRecord, ...students];
+    if (newRecord != null) {
+      // The live query usually has it already.
+      students = _withAdded(students, newRecord, (s) => s.id);
+    }
 
     String? problem;
     if (promoted && newRecord == null && role == 'Head') {

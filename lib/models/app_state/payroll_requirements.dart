@@ -233,14 +233,25 @@ extension AppStatePayrollRequirements on AppState {
   /// the DTR/Accomplishment Report's "Class Schedule" grid), scoped the
   /// same way as [filteredStudents] so a supervisor only sees their own
   /// office's data.
-  List<ClassScheduleEntry> classScheduleForStudent(String studentName) {
+  ///
+  /// With [studentId], a row saved under another student's id is left out
+  /// even when the name is the same: two students can share a name.
+  List<ClassScheduleEntry> classScheduleForStudent(
+    String studentName, {
+    String studentId = '',
+  }) {
     final officeNames = role == 'Supervisor'
         ? _officeStudentNamesForSupervisor.toSet()
         : null;
     return classSchedules
         .where(
           (c) =>
-              c.studentName == studentName &&
+              FirestoreService.isClassScheduleOf(
+                rowStudentId: c.studentId,
+                rowStudentName: c.studentName,
+                studentId: studentId,
+                studentName: studentName,
+              ) &&
               (officeNames == null || officeNames.contains(c.studentName)),
         )
         .toList();
@@ -249,35 +260,62 @@ extension AppStatePayrollRequirements on AppState {
   /// Replaces this student's saved weekly class schedule with [rows] —
   /// called when a supervisor edits and generates a DTR/Accomplishment
   /// Report, so the schedule is remembered for next time instead of having
-  /// to be re-typed every month. Persists to Firestore when available,
-  /// falling back to an in-memory update if the backend call fails.
-  Future<void> saveClassScheduleForStudent(
+  /// to be re-typed every month.
+  ///
+  /// Returns whether it was saved. When it wasn't, the rows are still kept
+  /// for the rest of this session, so the grid stays filled in, and the
+  /// caller says they won't be there next time.
+  ///
+  /// One save at a time per student: a second one asked for meanwhile waits
+  /// for the first, so their rows can't both be left behind.
+  Future<bool> saveClassScheduleForStudent(
+    String studentId,
+    String studentName,
+    List<ClassScheduleEntry> rows,
+  ) {
+    final key = studentId.isNotEmpty ? studentId : studentName;
+    final before = _classScheduleSaves[key] ?? Future<bool>.value(true);
+    late final Future<bool> save;
+    save = before
+        .then((_) => _replaceClassSchedule(studentId, studentName, rows))
+        .whenComplete(() {
+          if (identical(_classScheduleSaves[key], save)) {
+            _classScheduleSaves.remove(key);
+          }
+        });
+    _classScheduleSaves[key] = save;
+    return save;
+  }
+
+  Future<bool> _replaceClassSchedule(
     String studentId,
     String studentName,
     List<ClassScheduleEntry> rows,
   ) async {
     _firestoreService ??= FirestoreService();
+    bool others(ClassScheduleEntry c) => !FirestoreService.isClassScheduleOf(
+      rowStudentId: c.studentId,
+      rowStudentName: c.studentName,
+      studentId: studentId,
+      studentName: studentName,
+    );
+    var saved = true;
+    var kept = rows;
     try {
-      await _firestoreService!.deleteClassScheduleEntriesForStudent(
+      kept = await _firestoreService!.replaceClassSchedule(
+        studentId,
         studentName,
+        rows,
       );
-      final saved = <ClassScheduleEntry>[];
-      for (final row in rows) {
-        saved.add(await _firestoreService!.addClassScheduleEntry(row));
-      }
-      classSchedules = [
-        ...classSchedules.where((c) => c.studentName != studentName),
-        ...saved,
-      ];
-    } catch (_) {
-      // Firestore not available — fall back to an in-memory update so the
-      // grid still stays pre-filled for the rest of this session.
-      classSchedules = [
-        ...classSchedules.where((c) => c.studentName != studentName),
-        ...rows,
-      ];
+    } catch (error) {
+      debugPrint('Failed to save the class schedule: $error');
+      saved = false;
     }
+    // By student, not by what was here before: the live query may have
+    // delivered the new rows already.
+    classSchedules = [...classSchedules.where(others), ...kept];
     _notify();
+    return saved;
   }
 
   /// The most recent evaluation already on file for a student + term
@@ -298,9 +336,12 @@ extension AppStatePayrollRequirements on AppState {
     try {
       Evaluation savedEvaluation;
       if (evaluation.id.isEmpty) {
-        // New evaluation: stamp createdAt/academicYear, then persist.
+        // New evaluation: stamp createdAt/academicYear, then persist. It
+        // gets its id here, not from Firestore, so the copy kept in memory
+        // is the saved one: saving or sending it again updates that record
+        // instead of making a second.
         final withCreated = Evaluation(
-          id: '',
+          id: _newDocId(),
           studentId: evaluation.studentId,
           studentName: evaluation.studentName,
           office: evaluation.office,
@@ -321,7 +362,12 @@ extension AppStatePayrollRequirements on AppState {
           updatedAt: nowIso,
         );
         await _firestoreService!.setEvaluation(withCreated);
-        evaluations = [withCreated, ...evaluations];
+        // The live query usually has it already.
+        evaluations = AppState._withAdded(
+          evaluations,
+          withCreated,
+          (e) => e.id,
+        );
         savedEvaluation = withCreated;
       } else {
         final updated = evaluation.copyWith(updatedAt: nowIso);

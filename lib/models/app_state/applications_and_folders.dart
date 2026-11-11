@@ -304,7 +304,10 @@ extension AppStateApplicationsAndFolders on AppState {
         }
         try {
           await _firestoreService!.setSkill(normalizedSkill);
-          skills = [...skills, normalizedSkill]..sort();
+          // The live query usually has it already.
+          if (findSkill(normalizedSkill) == null) {
+            skills = [...skills, normalizedSkill]..sort();
+          }
         } catch (error) {
           debugPrint('Failed to add approved application skill: $error');
         }

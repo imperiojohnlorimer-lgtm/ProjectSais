@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
+import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -584,6 +585,16 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                         final name = nameCtrl.text.trim();
                         final code = codeCtrl.text.trim();
                         if (name.isEmpty) return;
+                        // Another department's name, whatever its capitals.
+                        final taken = state.findDepartment(name);
+                        if (taken != null && taken != department) {
+                          AppSnackBar.show(
+                            context,
+                            '"$taken" is already on the list.',
+                            type: SnackType.warning,
+                          );
+                          return;
+                        }
                         final confirmed = await showConfirmDialog(
                           context,
                           title: department == null
