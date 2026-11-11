@@ -515,6 +515,44 @@ test('a placement reads and rewrites the person\'s assignment with the offices',
   await assertSucceeds(place(as('head')));
 });
 
+// ── the day someone was accepted as a Student Assistant ──
+
+test('the Head records the acceptance date; the student and a Supervisor cannot', async () => {
+  const accepted = { acceptedAt: '2026-11-11T04:00:00.000Z' };
+  await assertFails(updateDoc(doc(as('sa'), 'users', 'sa'), accepted));
+  await assertFails(updateDoc(doc(as('sup'), 'users', 'sa'), accepted));
+  await assertSucceeds(updateDoc(doc(as('head'), 'users', 'sa'), accepted));
+  // Recorded, it isn't theirs to move or remove; their own details still change.
+  await assertFails(updateDoc(doc(as('sa'), 'users', 'sa'), { acceptedAt: '2020-01-01T04:00:00.000Z' }));
+  await assertFails(updateDoc(doc(as('sa'), 'users', 'sa'), { acceptedAt: deleteField() }));
+  await assertSucceeds(updateDoc(doc(as('sa'), 'users', 'sa'), { phone: '0917 123 4567' }));
+  // The Admin may correct it too.
+  await assertSucceeds(updateDoc(doc(as('admin'), 'users', 'sa'), { acceptedAt: '2026-08-03T04:00:00.000Z' }));
+});
+
+test('a promotion carries the acceptance date in the same write', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'users', 'applicant'), {
+      name: 'Apple Cant',
+      email: 'applicant@example.com',
+      role: 'Student',
+      status: 'Active',
+    });
+  });
+  await assertSucceeds(
+    updateDoc(doc(as('head'), 'users', 'applicant'), {
+      role: 'Student Assistant',
+      acceptedAt: '2026-11-11T04:00:00.000Z',
+    }),
+  );
+});
+
+test('a new account cannot give itself an acceptance date', async () => {
+  await assertFails(
+    setDoc(doc(as('fresh'), 'users', 'fresh'), newAccount({ acceptedAt: '2026-11-11T04:00:00.000Z' })),
+  );
+});
+
 // ── the Privacy Notice acceptance ──
 
 const newAccount = (over = {}) => ({

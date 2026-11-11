@@ -7,6 +7,7 @@ import '../../models/models.dart';
 import '../../services/endorsement_document_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv_export.dart';
+import '../../utils/philippine_dates.dart';
 import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
@@ -1553,6 +1554,12 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                               offices.isEmpty
                                   ? 'Not placed yet'
                                   : offices.map((o) => o.name).join(', '),
+                            ),
+                          if (app.isApproved &&
+                              philippineDayText(applicant.acceptedAt) != null)
+                            _applicationDetail(
+                              'Accepted',
+                              philippineDayText(applicant.acceptedAt)!,
                             ),
                         ],
                       ),

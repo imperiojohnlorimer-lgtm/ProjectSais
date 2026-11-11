@@ -411,6 +411,12 @@ class User {
   // studentId, which is the university-issued school ID.
   final String? saId;
 
+  /// When this person was accepted as a Student Assistant (an ISO time in
+  /// UTC): saved when a Student becomes one, or entered by the Head for
+  /// someone accepted before SAIS kept it. Null when not recorded. Only the
+  /// Head or the Admin may change it (the rules).
+  final String? acceptedAt;
+
   /// Set when the Admin deletes the account. The profile stays, archived,
   /// because deleting it would not delete the sign-in: the person could
   /// still log in and be let back in as a new Student. Deleted accounts
@@ -462,6 +468,7 @@ class User {
     courseProgram: courseProgram,
     yearLevel: yearLevel,
     saId: saId,
+    acceptedAt: acceptedAt,
     isDeleted: isDeleted,
     consentAt: consentAt,
     consentVersion: consentVersion,
@@ -489,6 +496,7 @@ class User {
     this.courseProgram,
     this.yearLevel,
     this.saId,
+    this.acceptedAt,
     this.isDeleted = false,
     this.consentAt,
     this.consentVersion,
@@ -512,6 +520,7 @@ class User {
     String? courseProgram,
     String? yearLevel,
     String? saId,
+    String? acceptedAt,
     bool? isDeleted,
     bool? emailNotifications,
     bool clearRequestedRole = false,
@@ -535,6 +544,7 @@ class User {
     courseProgram: courseProgram ?? this.courseProgram,
     yearLevel: yearLevel ?? this.yearLevel,
     saId: saId ?? this.saId,
+    acceptedAt: acceptedAt ?? this.acceptedAt,
     isDeleted: isDeleted ?? this.isDeleted,
     consentAt: consentAt,
     consentVersion: consentVersion,
@@ -564,6 +574,7 @@ class User {
     courseProgram: json['courseProgram'],
     yearLevel: json['yearLevel'],
     saId: json['saId'],
+    acceptedAt: json['acceptedAt']?.toString(),
     isDeleted: json['deleted'] == true,
     consentAt: json['consentAt']?.toString(),
     consentVersion: json['consentVersion']?.toString(),
@@ -597,6 +608,8 @@ class User {
     'courseProgram': courseProgram,
     'yearLevel': yearLevel,
     'saId': saId,
+    // Left off until there is one, so an older profile saves as it was.
+    if (acceptedAt != null) 'acceptedAt': acceptedAt,
     if (isDeleted) 'deleted': true,
     if (consentAt != null) 'consentAt': consentAt,
     if (consentVersion != null) 'consentVersion': consentVersion,

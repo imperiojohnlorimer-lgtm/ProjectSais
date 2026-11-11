@@ -183,6 +183,24 @@ CSV files (Head Attendance, Students, Rehiring, Admin Payroll) are built
 with `lib/utils/csv.dart` (BOM, quoting, formula guard) and saved by
 `saveCsv`; the button is `ExportCsvButton`.
 
+### Acceptance date
+
+- A profile keeps `acceptedAt`: when the person was accepted as a Student
+  Assistant (ISO time, UTC). `changeUserRole` writes it in the same save as
+  the role whenever a Student becomes a Student Assistant (the Head's
+  approval, Approve Anyway, the Admin's role menu); being accepted again
+  later replaces it.
+- Accounts from before it was kept have none and show "Not recorded". The
+  Head sets or corrects it on the Students page (`_AcceptedDateTile`,
+  `AppState.setAcceptedDate`): a picked day is saved as noon Philippine
+  time (`lib/utils/philippine_dates.dart`) so it reads as the same day
+  anywhere. No future dates.
+- Shown on the Students detail dialog and its CSV, the Student Assistant's
+  own Profile ("Student Assistant since"), the Approved card on
+  Applications, and the Admin's account details.
+- Rules: nobody sets or changes their own; a self-made profile can't carry
+  one. The Head and Admin branches allow the write.
+
 ### Privacy and sign-in
 
 - Registration requires accepting the Privacy Notice
@@ -292,6 +310,16 @@ differ only in case.
   `tool/docx_viewer_check/` (see its README note in `web/docx-preview/README.md`).
 - **Data safety:** save first, then update local state and notify people;
   a failed save must leave nothing half-done or announced.
+- **No second copy after a save:** a live query delivers a new document as
+  soon as it is written, before the save returns. So after `await`ing a
+  save, add the record to its list only if it isn't there
+  (`AppState._withAdded`, or a `contains`/`find…` check for plain names),
+  and give a new record its id before saving (`_newDocId()`), never an
+  empty one for Firestore to fill in. `test/live_duplicates_test.dart` has
+  a fake whose saves echo through the live query first. A request to a
+  server function gets a time limit (`SupabaseStorageService.requestTimeout`).
+  When no button can show the wait (a menu item, a scan, a confirmed
+  action), wrap the work in `runWithBusy`.
 - **Commits:** a short title, grouped bullet points, a `Deploy with:` line
   when rules, hosting or functions must be deployed. Work on
   `feat/landing-page`; `main` is fast-forwarded to it after each push.

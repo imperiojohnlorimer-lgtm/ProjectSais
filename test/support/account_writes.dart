@@ -39,6 +39,7 @@ mixin AccountWrites on FirestoreService {
       role: fields['role'] as String?,
       status: fields['status'] as String?,
       saId: fields['saId'] as String?,
+      acceptedAt: fields['acceptedAt'] as String?,
       skills: (fields['skills'] as List<dynamic>?)
           ?.map((e) => e.toString())
           .toList(),

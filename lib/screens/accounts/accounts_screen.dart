@@ -8,6 +8,7 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv_export.dart';
 import '../../utils/input_formats.dart';
+import '../../utils/philippine_dates.dart';
 import '../../widgets/avatar_editor.dart';
 import '../../widgets/document_preview.dart';
 import '../../widgets/export_csv_button.dart';
@@ -1799,6 +1800,12 @@ class _AccountsScreenState extends State<AccountsScreen>
                 user.phone?.isEmpty ?? true ? '—' : user.phone!,
                 Icons.phone_outlined,
               ),
+              if (user.role == 'Student Assistant')
+                _profileDetail(
+                  'Accepted as Student Assistant',
+                  philippineDayText(user.acceptedAt) ?? 'Not recorded',
+                  Icons.event_available_outlined,
+                ),
               if (user.role == 'Student Assistant' ||
                   user.role == 'Student') ...[
                 _profileDetail(

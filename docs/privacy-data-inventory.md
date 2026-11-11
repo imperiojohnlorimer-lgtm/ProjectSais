@@ -21,7 +21,7 @@ Google). Removed only in the Firebase console, under Authentication.
 
 | Collection | What it holds about a person | Who can read it |
 |---|---|---|
-| `users` | Name (and its parts), email, phone, address, photo, skills, Student ID, SA ID, course/program, year level, department, campus, role, status, consent time and version, whether they get notification emails | The person; Head, Supervisor, Admin |
+| `users` | Name (and its parts), email, phone, address, photo, skills, Student ID, SA ID, the date they were accepted as a Student Assistant, course/program, year level, department, campus, role, status, consent time and version, whether they get notification emails | The person; Head, Supervisor, Admin |
 | `studentIds` | Which account holds a Student ID | Any signed-in account (one ID at a time) |
 | `students` | Roster record: name, email, department, campus, hours, phone, address, photo | Head, Supervisor, Admin, the person |
 | `officeAssignments`, `offices` | Which office a person is in; names of supervisors and assistants; the office's About text, Location and the path of its location picture (not personal) | `offices`: everyone signed in. `officeAssignments`: Head |

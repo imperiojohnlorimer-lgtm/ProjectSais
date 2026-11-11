@@ -17,6 +17,7 @@ import 'package:projectsais/services/push_service.dart';
 import 'package:projectsais/services/supabase_storage_service.dart';
 import 'package:projectsais/utils/auth_errors.dart';
 import 'package:projectsais/utils/file_names.dart';
+import 'package:projectsais/utils/philippine_dates.dart';
 import '../firebase_options.dart';
 import 'assistant_attendance.dart';
 import 'backup_info.dart';
@@ -6604,7 +6605,16 @@ class AppState extends ChangeNotifier {
     _firestoreService ??= FirestoreService();
     final service = _firestoreService!;
 
-    final updatedUser = user.copyWith(role: newRole);
+    // The day a Student becomes a Student Assistant is kept with the
+    // account, saved in the same write as the role.
+    final acceptedAt = promoted && roleChanges
+        ? DateTime.now().toUtc().toIso8601String()
+        : null;
+    final roleFields = <String, dynamic>{
+      'role': newRole,
+      'acceptedAt': ?acceptedAt,
+    };
+    final updatedUser = user.copyWith(role: newRole, acceptedAt: acceptedAt);
     // A new students record, written with the role (Head only).
     Student? newRecord;
     if (promoted && role == 'Head' && _studentRecordsForUser(user).isEmpty) {
@@ -6621,11 +6631,9 @@ class AppState extends ChangeNotifier {
     }
     try {
       if (roleChanges && newRecord != null) {
-        await service.updateUserFieldsWithStudent(id, {
-          'role': newRole,
-        }, newRecord);
+        await service.updateUserFieldsWithStudent(id, roleFields, newRecord);
       } else if (roleChanges) {
-        await service.updateUserFields(id, {'role': newRole});
+        await service.updateUserFields(id, roleFields);
       } else if (newRecord != null) {
         await service.setStudent(newRecord);
       }
@@ -6678,6 +6686,45 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     return problem;
   }
+
+  /// Sets the day [userId] was accepted as a Student Assistant: for someone
+  /// accepted before SAIS kept the date, or to correct it. Head or Admin
+  /// only. [day] is a calendar day in the Philippines. Saved first; returns
+  /// null when it's done, or what to tell them.
+  Future<String?> setAcceptedDate(String userId, DateTime day) async {
+    if (role != 'Head' && role != 'Admin') {
+      return 'Only the Head can set this date.';
+    }
+    final user = users.where((u) => u.id == userId).firstOrNull;
+    if (user == null || user.role != 'Student Assistant') {
+      return "This account isn't a Student Assistant.";
+    }
+    final picked = DateTime(day.year, day.month, day.day);
+    if (picked.isAfter(_philippineDay())) {
+      return "The date can't be in the future.";
+    }
+    final acceptedAt = philippineNoonIso(picked);
+    try {
+      _firestoreService ??= FirestoreService();
+      // Only this field: the rest of the profile may have changed since
+      // this copy was loaded.
+      await _firestoreService!.updateUserFields(userId, {
+        'acceptedAt': acceptedAt,
+      });
+    } catch (error) {
+      debugPrint('Failed to save the acceptance date of $userId: $error');
+      return "Couldn't save the date. Check your connection and try again.";
+    }
+    users = [
+      for (final u in users)
+        u.id == userId ? u.copyWith(acceptedAt: acceptedAt) : u,
+    ];
+    notifyListeners();
+    return null;
+  }
+
+  /// The account behind a students record, if it is loaded.
+  User? accountOfStudent(Student student) => _accountForStudent(student);
 
   /// The students-collection records that belong to [user].
   List<Student> _studentRecordsForUser(User user) {

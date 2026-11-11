@@ -5,6 +5,7 @@ import '../../models/models.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv_export.dart';
+import '../../utils/philippine_dates.dart';
 import '../../widgets/export_csv_button.dart';
 import '../../widgets/shared_widgets.dart';
 
@@ -23,8 +24,18 @@ class _StudentsScreenState extends State<StudentsScreen> {
   /// The list as filtered, with the contact details staff already see on
   /// the cards, as a spreadsheet.
   void _export(List<Student> students) {
+    final state = context.read<AppState>();
     saveCsv(_showArchived ? 'students-archived.csv' : 'students.csv', [
-      ['Name', 'Email', 'Department', 'Campus', 'Phone', 'Status', 'Hours'],
+      [
+        'Name',
+        'Email',
+        'Department',
+        'Campus',
+        'Phone',
+        'Status',
+        'Hours',
+        'Accepted as Student Assistant',
+      ],
       for (final s in students)
         [
           s.name,
@@ -34,6 +45,8 @@ class _StudentsScreenState extends State<StudentsScreen> {
           s.phone,
           s.status,
           double.parse(s.totalHours.toStringAsFixed(2)),
+          // Blank when it was never recorded.
+          philippineDayText(state.accountOfStudent(s)?.acceptedAt) ?? '',
         ],
     ]);
   }
@@ -1158,6 +1171,8 @@ class _StudentRowState extends State<_StudentRow> {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 10),
+                        _AcceptedDateTile(state: widget.state, student: s),
                       ],
                     ),
                   ),
@@ -1888,6 +1903,168 @@ class _HoursBar extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+// ─── Acceptance date ────────────────────────────────
+/// When this student was accepted as a Student Assistant. The Head can set
+/// the date for someone accepted before SAIS kept it, or correct it.
+class _AcceptedDateTile extends StatefulWidget {
+  final AppState state;
+  final Student student;
+
+  const _AcceptedDateTile({required this.state, required this.student});
+
+  @override
+  State<_AcceptedDateTile> createState() => _AcceptedDateTileState();
+}
+
+class _AcceptedDateTileState extends State<_AcceptedDateTile> {
+  bool _saving = false;
+
+  /// Why the last save didn't go through, shown under the date.
+  String? _problem;
+
+  Future<void> _edit(User account) async {
+    final clock = widget.state.philippineClock();
+    final today = DateTime(clock.year, clock.month, clock.day);
+    final saved = philippineDayOf(account.acceptedAt);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: saved == null || saved.isAfter(today) ? today : saved,
+      firstDate: DateTime(2000),
+      lastDate: today,
+      helpText: 'ACCEPTED AS STUDENT ASSISTANT',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      _saving = true;
+      _problem = null;
+    });
+    String? problem;
+    try {
+      problem = await widget.state.setAcceptedDate(account.id, picked);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _problem = problem;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The dialog isn't rebuilt by the page, so this listens for the saved
+    // date itself.
+    return ListenableBuilder(
+      listenable: widget.state,
+      builder: (context, _) {
+        final account = widget.state.accountOfStudent(widget.student);
+        final date = philippineDayText(account?.acceptedAt);
+        final canEdit =
+            widget.state.role == 'Head' &&
+            account != null &&
+            account.role == 'Student Assistant';
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.slate50,
+            borderRadius: BorderRadius.circular(13),
+            border: Border.all(color: AppTheme.slate100),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(5),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.slate100),
+                          ),
+                          child: const Icon(
+                            Icons.event_available_outlined,
+                            size: 12,
+                            color: AppTheme.maroon,
+                          ),
+                        ),
+                        const SizedBox(width: 7),
+                        const Flexible(
+                          child: Text(
+                            'Date accepted',
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.slate500,
+                              letterSpacing: 0.5,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    Text(
+                      date ?? 'Not recorded',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: date == null
+                            ? AppTheme.slate500
+                            : AppTheme.slate800,
+                      ),
+                    ),
+                    if (_problem != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _problem!,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.red500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (canEdit)
+                TextButton.icon(
+                  onPressed: _saving ? null : () => _edit(account),
+                  icon: BusyIcon(
+                    busy: _saving,
+                    icon: Icons.edit_calendar_outlined,
+                    size: 15,
+                  ),
+                  label: Text(
+                    _saving
+                        ? 'Saving…'
+                        : date == null
+                        ? 'Set date'
+                        : 'Change',
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.maroon,
+                    textStyle: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
