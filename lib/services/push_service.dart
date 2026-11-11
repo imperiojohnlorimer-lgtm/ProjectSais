@@ -56,15 +56,19 @@ class PushService {
         final end = i + deliverBatch < notificationIds.length
             ? i + deliverBatch
             : notificationIds.length;
-        await http.post(
-          Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
-          headers: {
-            'Authorization': 'Bearer $idToken',
-            'apikey': SupabaseStorageService.publishableKey,
-            'Content-Type': 'application/json',
-          },
-          body: jsonEncode({'notificationIds': notificationIds.sublist(i, end)}),
-        );
+        await http
+            .post(
+              Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
+              headers: {
+                'Authorization': 'Bearer $idToken',
+                'apikey': SupabaseStorageService.publishableKey,
+                'Content-Type': 'application/json',
+              },
+              body: jsonEncode({
+                'notificationIds': notificationIds.sublist(i, end),
+              }),
+            )
+            .timeout(SupabaseStorageService.requestTimeout);
       }
     } catch (error) {
       debugPrint('Could not push notifications: $error');
@@ -84,15 +88,17 @@ class PushService {
       if (idToken == null || idToken.isEmpty) {
         return (ok: false, message: 'You must be signed in.');
       }
-      final response = await http.post(
-        Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
-        headers: {
-          'Authorization': 'Bearer $idToken',
-          'apikey': SupabaseStorageService.publishableKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'testEmail': true}),
-      );
+      final response = await http
+          .post(
+            Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'apikey': SupabaseStorageService.publishableKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'testEmail': true}),
+          )
+          .timeout(SupabaseStorageService.requestTimeout);
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return (
@@ -131,15 +137,17 @@ class PushService {
       if (idToken == null || idToken.isEmpty) {
         return (ok: false, error: 'You must be signed in.');
       }
-      final response = await http.post(
-        Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
-        headers: {
-          'Authorization': 'Bearer $idToken',
-          'apikey': SupabaseStorageService.publishableKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({'test': true, 'delaySeconds': delaySeconds}),
-      );
+      final response = await http
+          .post(
+            Uri.parse(SupabaseStorageService.clockOutRemindersUrl),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'apikey': SupabaseStorageService.publishableKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode({'test': true, 'delaySeconds': delaySeconds}),
+          )
+          .timeout(SupabaseStorageService.requestTimeout);
       if (response.statusCode >= 200 && response.statusCode < 300) {
         return (ok: true, error: null);
       }

@@ -751,9 +751,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Widget _buildPasswordRequirements(PasswordValidationResult validation) {
     final rules = <_PasswordRequirement>[
       _PasswordRequirement(
-        'At least 8 characters',
+        'At least ${PasswordValidator.minLength} characters',
         !validation.errors.contains(
-          'Password must be at least 8 characters long.',
+          'Password must be at least ${PasswordValidator.minLength} '
+          'characters long.',
         ),
       ),
       _PasswordRequirement(

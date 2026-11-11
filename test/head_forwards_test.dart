@@ -28,6 +28,32 @@ final _head = User(
 );
 
 void main() {
+  test('a server that never answers is reported in plain words', () async {
+    // What an upload or a link request does with a stalled connection.
+    final stalled =
+        Future<String>.delayed(
+          const Duration(seconds: 1),
+          () => 'answer',
+        ).timeout(
+          const Duration(milliseconds: 10),
+          onTimeout: () => throw const ServerTimeout(),
+        );
+
+    await expectLater(
+      stalled,
+      throwsA(
+        isA<ServerTimeout>().having(
+          (e) => '$e',
+          'text',
+          'The server took too long to answer. Check your connection and '
+              'try again.',
+        ),
+      ),
+    );
+    expect(SupabaseStorageService.requestTimeout.inSeconds, 30);
+    expect(SupabaseStorageService.uploadTimeout.inMinutes, 2);
+  });
+
   group('pathFromSignedUrl', () {
     test('reads the file path out of a signed storage link', () {
       expect(

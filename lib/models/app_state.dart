@@ -5053,6 +5053,9 @@ class AppState extends ChangeNotifier {
   /// with admin credentials, since the rules keep attendance staff-only.
   /// That means a student can't forge hours by calling Firestore directly
   /// or by moving their phone's clock.
+  /// How long a scan waits for the attendance server.
+  static const clockRequestTimeout = Duration(seconds: 45);
+
   Future<QrClockResult> clockViaQr(String token) async {
     try {
       final idToken = await fb_auth.FirebaseAuth.instance.currentUser
@@ -5072,7 +5075,7 @@ class AppState extends ChangeNotifier {
           'Content-Type': 'application/json',
         },
         body: jsonEncode({'token': token}),
-      );
+      ).timeout(clockRequestTimeout);
 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
       if (response.statusCode < 200 || response.statusCode >= 300) {
@@ -5090,6 +5093,16 @@ class AppState extends ChangeNotifier {
         clockedIn: body['action']?.toString() == 'in',
         // Set when the weekly hours cap trimmed this session's hours.
         message: body['message']?.toString() ?? '',
+      );
+    } on TimeoutException {
+      // The scan may still have been recorded: a second scan a minute later
+      // would then clock them out, so they're told to look first.
+      debugPrint('Clock via QR timed out');
+      return const QrClockResult(
+        ok: false,
+        message:
+            'The attendance server is taking too long. Check your attendance '
+            'below before you scan again: this scan may still be recorded.',
       );
     } catch (error) {
       debugPrint('Clock via QR failed: $error');

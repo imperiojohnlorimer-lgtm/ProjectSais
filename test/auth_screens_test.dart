@@ -223,6 +223,25 @@ void main() {
       expect(find.text('6 of 6'), findsOneWidget);
     });
 
+    testWidgets('the checklist asks for the 10 characters the app enforces', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        RegisterScreen(onBackToLogin: () {}),
+        const Size(1440, 1000),
+      );
+
+      // Nine characters used to tick "At least 8 characters" although the
+      // password was refused.
+      await tester.enterText(find.byType(TextFormField).at(4), 'Str0ng!Pa');
+      await tester.pumpAndSettle();
+
+      expect(find.text('At least 10 characters'), findsOneWidget);
+      expect(find.text('At least 8 characters'), findsNothing);
+      expect(find.text('5 of 6'), findsOneWidget);
+    });
+
     testWidgets('empty submit surfaces an error banner', (tester) async {
       await pumpScreen(
         tester,

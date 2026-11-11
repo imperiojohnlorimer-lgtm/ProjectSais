@@ -59,15 +59,17 @@ class BackupService {
       if (idToken == null || idToken.isEmpty) {
         return (body: null, error: 'You must be signed in.');
       }
-      final response = await http.post(
-        Uri.parse(SupabaseStorageService.backupStatusUrl),
-        headers: {
-          'Authorization': 'Bearer $idToken',
-          'apikey': SupabaseStorageService.publishableKey,
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode(request),
-      );
+      final response = await http
+          .post(
+            Uri.parse(SupabaseStorageService.backupStatusUrl),
+            headers: {
+              'Authorization': 'Bearer $idToken',
+              'apikey': SupabaseStorageService.publishableKey,
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode(request),
+          )
+          .timeout(SupabaseStorageService.requestTimeout);
       Map<String, dynamic>? body;
       try {
         body = jsonDecode(response.body) as Map<String, dynamic>;

@@ -5,6 +5,16 @@ import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+/// The server didn't answer in time. Its text is what to tell the person.
+class ServerTimeout implements Exception {
+  const ServerTimeout();
+
+  @override
+  String toString() =>
+      'The server took too long to answer. Check your connection and try '
+      'again.';
+}
+
 /// A file that could not be fetched for a reason that may pass (the network,
 /// an expired link, the service being busy): trying again can work. Reasons
 /// it never will are [FormatException]s.
@@ -55,6 +65,13 @@ class SupabaseStorageService {
 
   final SupabaseClient _client = Supabase.instance.client;
 
+  /// How long a request to a server function may take before the app stops
+  /// waiting: without a limit, a stalled connection waits for ever.
+  static const requestTimeout = Duration(seconds: 30);
+
+  /// The same for sending a file, which takes longer on a slow connection.
+  static const uploadTimeout = Duration(minutes: 2);
+
   Future<String> uploadDocument({
     required Uint8List bytes,
     required String path,
@@ -80,8 +97,14 @@ class SupabaseStorageService {
         ),
       );
 
-    final response = await request.send();
-    final responseBody = await response.stream.bytesToString();
+    final response = await request.send().timeout(
+      uploadTimeout,
+      onTimeout: () => throw const ServerTimeout(),
+    );
+    final responseBody = await response.stream.bytesToString().timeout(
+      requestTimeout,
+      onTimeout: () => throw const ServerTimeout(),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception('Upload failed (${response.statusCode}): $responseBody');
     }
@@ -204,15 +227,17 @@ class SupabaseStorageService {
       throw const FormatException('You must be signed in to view a file.');
     }
 
-    final response = await http.post(
-      Uri.parse(uploadDocumentUrl),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'apikey': publishableKey,
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({'action': 'sign', 'path': path}),
-    );
+    final response = await http
+        .post(
+          Uri.parse(uploadDocumentUrl),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'apikey': publishableKey,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({'action': 'sign', 'path': path}),
+        )
+        .timeout(requestTimeout, onTimeout: () => throw const ServerTimeout());
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw Exception(
