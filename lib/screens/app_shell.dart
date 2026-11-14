@@ -514,7 +514,12 @@ class _AppShellState extends State<AppShell> {
       case 'performance_evaluation':
         return 'Performance Evaluation';
       case 'announcements':
+      case 'announcements_admin':
         return 'Announcements';
+      case 'skills':
+        return 'Skills';
+      case 'dtr_accomplishment_report':
+        return 'DTR/Accomplishment Report';
       case 'sv_announcements':
         return 'Request Student Assistant';
       case 'sa_notifications':

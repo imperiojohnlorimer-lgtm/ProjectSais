@@ -724,8 +724,8 @@ class _AccountsScreenState extends State<AccountsScreen>
                         SizedBox(width: 44),
                         SizedBox(width: 12),
                         Expanded(flex: 3, child: _ColHeader('USER')),
-                        Expanded(flex: 2, child: _ColHeader('ROLE')),
-                        Expanded(flex: 3, child: _ColHeader('DEPARTMENT')),
+                        Expanded(flex: 3, child: _ColHeader('ROLE')),
+                        Expanded(flex: 2, child: _ColHeader('DEPARTMENT')),
                         Expanded(flex: 2, child: _ColHeader('CAMPUS')),
                         SizedBox(
                           width: 144,
@@ -2626,7 +2626,7 @@ class _AccountRowState extends State<_AccountRow> {
 
             // Role
             Expanded(
-              flex: 2,
+              flex: 3,
               child: isSelf
                   ? Row(
                       children: [
@@ -2652,12 +2652,15 @@ class _AccountRowState extends State<_AccountRow> {
                         ),
                       ],
                     )
-                  : _RoleDropdown(user: u, state: widget.state),
+                  : Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: _RoleDropdown(user: u, state: widget.state),
+                    ),
             ),
 
             // Department
             Expanded(
-              flex: 3,
+              flex: 2,
               child: Tooltip(
                 message: u.department ?? '—',
                 child: Text(
@@ -2713,6 +2716,9 @@ class _AccountRowState extends State<_AccountRow> {
                             minWidth: 36,
                             minHeight: 36,
                           ),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
                         IconButton(
                           onPressed: widget.onEdit,
@@ -2726,6 +2732,9 @@ class _AccountRowState extends State<_AccountRow> {
                           constraints: const BoxConstraints(
                             minWidth: 36,
                             minHeight: 36,
+                          ),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                         ),
                         IconButton(
@@ -2748,6 +2757,9 @@ class _AccountRowState extends State<_AccountRow> {
                             minWidth: 36,
                             minHeight: 36,
                           ),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                         ),
                         IconButton(
                           onPressed: _onDelete,
@@ -2762,6 +2774,9 @@ class _AccountRowState extends State<_AccountRow> {
                           constraints: const BoxConstraints(
                             minWidth: 36,
                             minHeight: 36,
+                          ),
+                          style: IconButton.styleFrom(
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                           ),
                         ),
                       ],

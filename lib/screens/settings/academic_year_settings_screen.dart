@@ -603,7 +603,7 @@ class _AcademicYearSettingsScreenState
         ),
         _policy(
           'Open Applications',
-          'Permit students to apply for offices in this AY',
+          'Let students apply to be a Student Assistant in this AY',
           _allowApplications,
           (v) => setState(() => _allowApplications = v),
         ),
