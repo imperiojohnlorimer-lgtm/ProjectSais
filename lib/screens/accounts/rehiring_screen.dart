@@ -8,10 +8,50 @@ import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv.dart';
 import '../../utils/csv_export.dart';
-import '../../widgets/export_csv_button.dart';
+import '../../utils/list_print.dart';
+import '../../widgets/export_list_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 typedef _Term = ({String academicYear, String semester});
+
+/// The rehiring list of [termLabel] as shown: each Student Assistant's
+/// latest evaluation and the decision, for the spreadsheet and the
+/// printout alike.
+@visibleForTesting
+List<List<Object?>> rehiringCsvRows(
+  List<User> users,
+  Map<String, Evaluation?> evaluationFor,
+  Map<String, RehireRecord?> recordFor,
+  String termLabel,
+) => [
+  [
+    'Student Assistant',
+    'SA ID',
+    'Term',
+    'Latest evaluation',
+    'Recommended for rehire',
+    'Decision',
+    'Decided by',
+    'Decided on',
+    'Remarks',
+  ],
+  for (final u in users)
+    [
+      u.name,
+      u.saId,
+      termLabel,
+      evaluationFor[u.id]?.overallRating,
+      switch (evaluationFor[u.id]?.eligibleForRehire) {
+        true => 'Yes',
+        false => 'No',
+        null => 'No evaluation',
+      },
+      recordFor[u.id]?.decision ?? 'Pending',
+      recordFor[u.id]?.decidedByName,
+      recordFor[u.id]?.decidedAt,
+      recordFor[u.id]?.remarks,
+    ],
+];
 
 /// Head screen: decide, term by term, which Student Assistants are rehired
 /// and which aren't — the follow-through on the "Eligible for Rehire" mark
@@ -120,40 +160,37 @@ class _RehiringScreenState extends State<RehiringScreen> {
             searchHint: 'Search by name or SA ID...',
             onSearch: (value) => setState(() => _search = value),
             filters: [
-              ExportCsvButton(
-                onPressed: visible.isEmpty
+              ExportListButton(
+                onSaveCsv: visible.isEmpty
                     ? null
                     : () => saveCsv(
                         'rehiring-${csvFileSafe(termLabel)}.csv',
-                        [
-                          [
-                            'Student Assistant',
-                            'SA ID',
-                            'Term',
-                            'Latest evaluation',
-                            'Recommended for rehire',
-                            'Decision',
-                            'Decided by',
-                            'Decided on',
-                            'Remarks',
+                        rehiringCsvRows(
+                          visible,
+                          evaluationFor,
+                          recordFor,
+                          termLabel,
+                        ),
+                      ),
+                onPrint: visible.isEmpty
+                    ? null
+                    : () => printList(
+                        context,
+                        PrintableList(
+                          title: 'Rehiring, $termLabel',
+                          details: [
+                            ?filtersLine({
+                              'Search': _search,
+                              'Show': _filter == 'All' ? null : _filter,
+                            }),
                           ],
-                          for (final u in visible)
-                            [
-                              u.name,
-                              u.saId,
-                              termLabel,
-                              evaluationFor[u.id]?.overallRating,
-                              switch (evaluationFor[u.id]?.eligibleForRehire) {
-                                true => 'Yes',
-                                false => 'No',
-                                null => 'No evaluation',
-                              },
-                              recordFor[u.id]?.decision ?? 'Pending',
-                              recordFor[u.id]?.decidedByName,
-                              recordFor[u.id]?.decidedAt,
-                              recordFor[u.id]?.remarks,
-                            ],
-                        ],
+                          rows: rehiringCsvRows(
+                            visible,
+                            evaluationFor,
+                            recordFor,
+                            termLabel,
+                          ),
+                        ),
                       ),
               ),
               _dropdown<_Term>(

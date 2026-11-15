@@ -13,7 +13,8 @@ import '../../utils/web_download_stub.dart'
     as web_download;
 import '../../widgets/application_status.dart';
 import '../../widgets/document_preview.dart';
-import '../../widgets/export_csv_button.dart';
+import '../../utils/list_print.dart';
+import '../../widgets/export_list_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 /// The spreadsheet rows for [apps] as listed (filters and order applied).
@@ -109,6 +110,31 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
     List<Application> apps,
     Map<String, List<SkillMatch>> matches,
   ) => saveCsv('applications.csv', applicationsCsvRows(state, apps, matches));
+
+  /// The same list on paper, with the filters in use.
+  void _print(
+    AppState state,
+    List<Application> apps,
+    Map<String, List<SkillMatch>> matches,
+    Announcement? chosenRequest,
+  ) => printList(
+    context,
+    PrintableList(
+      title: 'Applications',
+      details: [
+        ?filtersLine({
+          'Search': widget.search,
+          'Status': statusFilter == 'All' ? null : statusFilter,
+          'Skill match': chosenRequest != null
+              ? chosenRequest.title
+              : (_matchFilter == _anyMatch ? null : _matchFilter),
+          'Department': departmentFilter == 'All' ? null : departmentFilter,
+          'Campus': campusFilter == 'All' ? null : campusFilter,
+        }),
+      ],
+      rows: applicationsCsvRows(state, apps, matches),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -290,11 +316,25 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
           ),
         ),
         const SizedBox(height: 12),
-        Align(
-          alignment: Alignment.centerRight,
-          child: ExportCsvButton(
-            onPressed: apps.isEmpty ? null : () => _export(state, apps, matches),
-          ),
+        Row(
+          children: [
+            Flexible(
+              child: StatusGuideLink(
+                label: 'What the statuses mean',
+                onTap: () =>
+                    showApplicationStatusGuide(context, forStudent: false),
+              ),
+            ),
+            const Spacer(),
+            ExportListButton(
+              onSaveCsv: apps.isEmpty
+                  ? null
+                  : () => _export(state, apps, matches),
+              onPrint: apps.isEmpty
+                  ? null
+                  : () => _print(state, apps, matches, chosenRequest),
+            ),
+          ],
         ),
         const SizedBox(height: 12),
         if (pendingShown.isNotEmpty) ...[

@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:projectsais/utils/csv.dart';
-import 'package:projectsais/widgets/export_csv_button.dart';
+import 'package:projectsais/widgets/export_list_button.dart';
 
 void main() {
   group('csvOf', () {
@@ -21,10 +21,7 @@ void main() {
         ['Dela Cruz, Juan', 'He said "hi"', 'two\nlines'],
       ]);
 
-      expect(
-        text,
-        '﻿"Dela Cruz, Juan","He said ""hi""","two\nlines"\r\n',
-      );
+      expect(text, '﻿"Dela Cruz, Juan","He said ""hi""","two\nlines"\r\n');
     });
 
     test('leaves blanks empty and keeps numbers as numbers', () {
@@ -64,27 +61,73 @@ void main() {
     expect(csvFileSafe('2026-10-01-to-'), '2026-10-01-to');
   });
 
-  group('ExportCsvButton', () {
-    Future<void> pump(WidgetTester tester, VoidCallback? onPressed) =>
-        tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(body: ExportCsvButton(onPressed: onPressed)),
+  group('ExportListButton', () {
+    Future<void> pump(
+      WidgetTester tester, {
+      VoidCallback? onSaveCsv,
+      VoidCallback? onPrint,
+    }) => tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ExportListButton(
+            onSaveCsv: onSaveCsv,
+            onPrint: onPrint,
+            showPrint: true,
           ),
-        );
+        ),
+      ),
+    );
 
-    testWidgets('saves when there is something to save', (tester) async {
-      var taps = 0;
-      await pump(tester, () => taps++);
+    testWidgets('offers Print and the spreadsheet from one menu', (
+      tester,
+    ) async {
+      var saved = 0;
+      var printed = 0;
+      await pump(tester, onSaveCsv: () => saved++, onPrint: () => printed++);
 
-      await tester.tap(find.text('Export CSV'));
-      expect(taps, 1);
+      await tester.tap(find.text('Export'));
+      await tester.pumpAndSettle();
+      expect(find.text(ExportListButton.printLabel), findsOneWidget);
+      expect(find.text(ExportListButton.csvLabel), findsOneWidget);
+
+      await tester.tap(find.text(ExportListButton.csvLabel));
+      await tester.pumpAndSettle();
+      expect((saved, printed), (1, 0));
+
+      await tester.tap(find.text('Export'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(ExportListButton.printLabel));
+      await tester.pumpAndSettle();
+      expect((saved, printed), (1, 1));
+    });
+
+    testWidgets('leaves Print out where printing is not available', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ExportListButton(
+              onSaveCsv: () {},
+              onPrint: () {},
+              showPrint: false,
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Export'));
+      await tester.pumpAndSettle();
+      expect(find.text(ExportListButton.printLabel), findsNothing);
+      expect(find.text(ExportListButton.csvLabel), findsOneWidget);
     });
 
     testWidgets('does nothing while the list is empty', (tester) async {
-      await pump(tester, null);
+      await pump(tester);
 
-      await tester.tap(find.text('Export CSV'));
+      await tester.tap(find.text('Export'));
+      await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
+      expect(find.text(ExportListButton.csvLabel), findsNothing);
     });
   });
 }

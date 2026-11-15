@@ -187,9 +187,17 @@ for one program; the rules do not enforce it.
 
 ### Exports
 
-CSV files (Head Attendance, Students, Rehiring, Admin Payroll) are built
-with `lib/utils/csv.dart` (BOM, quoting, formula guard) and saved by
-`saveCsv`; the button is `ExportCsvButton`.
+Six lists (Accounts, Applications, Head Attendance, Students, Rehiring,
+Admin Payroll) have one `ExportListButton` menu: **Print** and **Save as
+spreadsheet (CSV)**. Each page builds its rows once (`accountsCsvRows`,
+`applicationsCsvRows`, `attendanceCsvRows`, `studentsCsvRows`,
+`rehiringCsvRows`, `payrollCsvRows`) for both, so paper and file match.
+CSV: `lib/utils/csv.dart` (BOM, quoting, formula guard), saved by `saveCsv`.
+Print: `lib/utils/list_print.dart` (`PrintableList`, `printableTable`:
+cells as text, a column the title already says is dropped) and
+`WebPrintUtils.printTable` (a hidden sheet shown only under `@media print`,
+landscape, header row repeated; text goes in as DOM text, never HTML).
+Not on the Android app.
 
 ### Acceptance date
 

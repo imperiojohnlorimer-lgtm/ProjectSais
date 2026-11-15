@@ -5,7 +5,8 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv.dart';
 import '../../utils/csv_export.dart';
-import '../../widgets/export_csv_button.dart';
+import '../../utils/list_print.dart';
+import '../../widgets/export_list_button.dart';
 import '../../widgets/shared_widgets.dart';
 import 'payroll_sheet_editor.dart';
 
@@ -41,6 +42,43 @@ class PayrollScreen extends StatefulWidget {
   @override
   State<PayrollScreen> createState() => _PayrollScreenState();
 }
+
+/// The payroll of [period] as listed: hours, pay and whatever still holds
+/// each person up, for the spreadsheet and the printout alike.
+@visibleForTesting
+List<List<Object?>> payrollCsvRows(List<PayrollRecord> rows, String period) => [
+  [
+    'Student Assistant',
+    'SA ID',
+    'Office',
+    'Campus',
+    'Department',
+    'Period',
+    'Status',
+    'Hours worked',
+    'Payable hours',
+    'Gross pay (PHP)',
+    'Still to be checked',
+  ],
+  for (final p in rows)
+    [
+      p.studentName,
+      p.saId,
+      p.office,
+      p.campus,
+      p.department,
+      period,
+      switch (p.status) {
+        'Incomplete' => 'Not ready',
+        'Excluded' => 'Left out',
+        final other => other,
+      },
+      double.parse(p.hoursWorked.toStringAsFixed(2)),
+      double.parse(p.payableHours.toStringAsFixed(2)),
+      double.parse(p.grossPay.toStringAsFixed(2)),
+      p.unchecked.map((r) => r.label).join('; '),
+    ],
+];
 
 class _PayrollScreenState extends State<PayrollScreen> {
   late String _semester;
@@ -503,41 +541,31 @@ class _PayrollScreenState extends State<PayrollScreen> {
 
   /// What the page lists for the period, as a spreadsheet: hours, pay and
   /// whatever still holds each person up.
-  void _export(List<PayrollRecord> rows) {
-    saveCsv('payroll-${csvFileSafe(_periodLabel)}.csv', [
-      [
-        'Student Assistant',
-        'SA ID',
-        'Office',
-        'Campus',
-        'Department',
-        'Period',
-        'Status',
-        'Hours worked',
-        'Payable hours',
-        'Gross pay (PHP)',
-        'Still to be checked',
-      ],
-      for (final p in rows)
-        [
-          p.studentName,
-          p.saId,
-          p.office,
-          p.campus,
-          p.department,
-          _periodLabel,
-          switch (p.status) {
-            'Incomplete' => 'Not ready',
-            'Excluded' => 'Left out',
-            final other => other,
+  void _export(List<PayrollRecord> rows) => saveCsv(
+    'payroll-${csvFileSafe(_periodLabel)}.csv',
+    payrollCsvRows(rows, _periodLabel),
+  );
+
+  /// The same list on paper: the pay period's dates and the filters in use.
+  void _print(List<PayrollRecord> rows) => printList(
+    context,
+    PrintableList(
+      title: 'Payroll, $_periodLabel',
+      details: [
+        'Pay period: ${printDay(_start)} to ${printDay(_end)}',
+        ?filtersLine({
+          'Campus': _campusFilter == 'All' ? null : _campusFilter,
+          'Department': _departmentFilter == 'All' ? null : _departmentFilter,
+          'Office': switch (_officeFilter) {
+            'All' => null,
+            _unassignedOffice => 'Unassigned',
+            final office => office,
           },
-          double.parse(p.hoursWorked.toStringAsFixed(2)),
-          double.parse(p.payableHours.toStringAsFixed(2)),
-          double.parse(p.grossPay.toStringAsFixed(2)),
-          p.unchecked.map((r) => r.label).join('; '),
-        ],
-    ]);
-  }
+        }),
+      ],
+      rows: payrollCsvRows(rows, _periodLabel),
+    ),
+  );
 
   Widget _header(List<PayrollRecord> rows) => Row(
     crossAxisAlignment: CrossAxisAlignment.start,
@@ -591,7 +619,10 @@ class _PayrollScreenState extends State<PayrollScreen> {
         ),
       ),
       const SizedBox(width: 10),
-      ExportCsvButton(onPressed: rows.isEmpty ? null : () => _export(rows)),
+      ExportListButton(
+        onSaveCsv: rows.isEmpty ? null : () => _export(rows),
+        onPrint: rows.isEmpty ? null : () => _print(rows),
+      ),
     ],
   );
 

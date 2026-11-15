@@ -6,8 +6,38 @@ import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/csv.dart';
 import '../../utils/csv_export.dart';
-import '../../widgets/export_csv_button.dart';
+import '../../utils/list_print.dart';
+import '../../widgets/export_list_button.dart';
 import '../../widgets/shared_widgets.dart';
+
+/// The Head's attendance summary as listed, one row per Student Assistant,
+/// for the spreadsheet and the printout alike.
+@visibleForTesting
+List<List<Object?>> attendanceCsvRows(List<AssistantAttendance> rows) => [
+  [
+    'Student Assistant',
+    'SA ID',
+    'Office',
+    'Department',
+    'Verified hours',
+    'Days with hours',
+    'Missed time-outs',
+    'Clocked in now',
+    'Last record',
+  ],
+  for (final row in rows)
+    [
+      row.assistant.name,
+      row.assistant.saId,
+      row.officeLabel,
+      row.assistant.department,
+      double.parse(row.hours.toStringAsFixed(2)),
+      row.verifiedDays,
+      row.missedTimeOuts,
+      row.clockedIn ? 'Yes' : 'No',
+      row.lastDate,
+    ],
+];
 
 /// The periods the Head's summary covers.
 enum _Period { thisWeek, thisMonth, lastMonth, schoolYear, custom }
@@ -90,31 +120,49 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
         ? ''
         : '${d.year}-${d.month.toString().padLeft(2, '0')}-'
               '${d.day.toString().padLeft(2, '0')}';
-    saveCsv('attendance-${csvFileSafe('${iso(from)}-to-${iso(to)}')}.csv', [
-      [
-        'Student Assistant',
-        'SA ID',
-        'Office',
-        'Department',
-        'Verified hours',
-        'Days with hours',
-        'Missed time-outs',
-        'Clocked in now',
-        'Last record',
-      ],
-      for (final row in rows)
-        [
-          row.assistant.name,
-          row.assistant.saId,
-          row.officeLabel,
-          row.assistant.department,
-          double.parse(row.hours.toStringAsFixed(2)),
-          row.verifiedDays,
-          row.missedTimeOuts,
-          row.clockedIn ? 'Yes' : 'No',
-          row.lastDate,
+    saveCsv(
+      'attendance-${csvFileSafe('${iso(from)}-to-${iso(to)}')}.csv',
+      attendanceCsvRows(rows),
+    );
+  }
+
+  /// The same summary on paper: the period's dates and the filters in use.
+  void _print(
+    AppState state,
+    List<AssistantAttendance> rows,
+    DateTime? from,
+    DateTime? to,
+  ) {
+    String day(DateTime? d) => d == null ? '' : '${_day(d)}, ${d.year}';
+    final period = from == null && to == null
+        ? 'All dates'
+        : from == null
+        ? 'Until ${day(to)}'
+        : to == null
+        ? 'From ${day(from)}'
+        : '${day(from)} – ${day(to)}';
+    final office = switch (_office) {
+      _all => null,
+      _unassigned => 'No office yet',
+      final id => state.offices.where((o) => o.id == id).firstOrNull?.name,
+    };
+    printList(
+      context,
+      PrintableList(
+        title: 'Attendance Summary',
+        details: [
+          'Period: ${_periodLabel(_period)} ($period)',
+          ?filtersLine({
+            'Search': _search,
+            'Status': _status == _all ? null : _status,
+            'Office': office,
+            'Department': _department == _all ? null : _department,
+            'Archived': _showArchived ? 'shown' : null,
+          }),
         ],
-    ]);
+        rows: attendanceCsvRows(rows),
+      ),
+    );
   }
 
   String _periodLabel(_Period period) => switch (period) {
@@ -222,10 +270,13 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
                 onSearch: (value) => setState(() => _search = value),
                 filters: [
                   _archivedToggle(),
-                  ExportCsvButton(
-                    onPressed: rows.isEmpty
+                  ExportListButton(
+                    onSaveCsv: rows.isEmpty
                         ? null
                         : () => _export(rows, from, to),
+                    onPrint: rows.isEmpty
+                        ? null
+                        : () => _print(state, rows, from, to),
                   ),
                 ],
                 stats: [

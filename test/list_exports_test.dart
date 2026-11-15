@@ -137,7 +137,7 @@ void main() {
     });
   });
 
-  group('the Export CSV button', () {
+  group('the Export button', () {
     Future<void> pump(WidgetTester tester, AppState state, Widget home) async {
       tester.view.physicalSize = const Size(1440, 1000);
       tester.view.devicePixelRatio = 1.0;
@@ -165,7 +165,7 @@ void main() {
     bool enabled(WidgetTester tester) => tester
         .widget<InkWell>(
           find.ancestor(
-            of: find.text('Export CSV'),
+            of: find.text('Export'),
             matching: find.byType(InkWell),
           ),
         )
@@ -178,7 +178,7 @@ void main() {
         ..users = [_admin, _sam];
       await pump(tester, state, const AccountsScreen());
 
-      expect(find.text('Export CSV'), findsOneWidget);
+      expect(find.text('Export'), findsOneWidget);
       expect(enabled(tester), isTrue);
     });
 
@@ -190,7 +190,7 @@ void main() {
         ..users = [_head, _sam];
       await pump(tester, state, const ApplicantScreeningScreen());
 
-      expect(find.text('Export CSV'), findsOneWidget);
+      expect(find.text('Export'), findsOneWidget);
       expect(enabled(tester), isFalse);
 
       state.applications = [_application('app1', _sam)];

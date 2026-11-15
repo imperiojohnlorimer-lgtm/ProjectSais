@@ -11,4 +11,13 @@ class WebPrintUtils {
   }) async {
     // No-op on non-web targets.
   }
+
+  static Future<void> printTable({
+    required String title,
+    required List<String> details,
+    required List<List<String>> rows,
+    Set<int> numeric = const {},
+  }) async {
+    // No-op on non-web targets.
+  }
 }

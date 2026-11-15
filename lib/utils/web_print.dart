@@ -85,6 +85,99 @@ class WebPrintUtils {
     }
   }
 
+  /// Prints a list as a table on landscape pages: a small school line, the
+  /// [title], the [details] lines, then [rows] (the first row is the
+  /// header, repeated on every page). [numeric] marks the columns to align
+  /// right. Every piece of text goes in as text, never as HTML, so a name
+  /// someone typed can't add markup.
+  ///
+  /// Throws if the browser refuses to print, so the caller can report it.
+  static Future<void> printTable({
+    required String title,
+    required List<String> details,
+    required List<List<String>> rows,
+    Set<int> numeric = const {},
+  }) async {
+    if (!kIsWeb) return;
+    _cleanUp();
+
+    final style = StyleElement()
+      ..id = _styleId
+      ..text =
+          '''
+#$_rootId { display: none; }
+@media print {
+  @page { size: A4 landscape; margin: 12mm; }
+  html, body { background: #fff !important; }
+  body > *:not(#$_rootId) { display: none !important; }
+  #$_rootId {
+    display: block !important;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #0f172a;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  #$_rootId .school { font-size: 8.5pt; color: #8b1c3e; font-weight: bold;
+    letter-spacing: 0.4pt; margin: 0 0 1.5mm; }
+  #$_rootId h1 { font-size: 15pt; margin: 0 0 1.5mm; }
+  #$_rootId p { font-size: 8.5pt; color: #475569; margin: 0 0 0.8mm; }
+  #$_rootId table { width: 100%; border-collapse: collapse; margin-top: 4mm;
+    font-size: 8.5pt; }
+  #$_rootId thead { display: table-header-group; }
+  #$_rootId tr { break-inside: avoid; page-break-inside: avoid; }
+  #$_rootId th { background: #f1f5f9; text-align: left; font-weight: bold;
+    border-bottom: 1.2pt solid #8b1c3e; }
+  #$_rootId th, #$_rootId td { padding: 1.4mm 2mm; vertical-align: top;
+    border-bottom: 0.5pt solid #e2e8f0; overflow-wrap: break-word; }
+  #$_rootId tbody tr:nth-child(even) td { background: #f8fafc; }
+  #$_rootId .num { text-align: right; white-space: nowrap; }
+}''';
+
+    final root = DivElement()..id = _rootId;
+    root.append(
+      ParagraphElement()
+        ..className = 'school'
+        ..text =
+            'MARINDUQUE STATE UNIVERSITY · SAIS: STUDENT ASSISTANT '
+            'INFORMATION SYSTEM',
+    );
+    root.append(HeadingElement.h1()..text = title);
+    for (final line in details) {
+      root.append(ParagraphElement()..text = line);
+    }
+    final table = TableElement();
+    if (rows.isNotEmpty) {
+      final head = table.createTHead().addRow();
+      for (final (i, cell) in rows.first.indexed) {
+        final th = Element.tag('th')..text = cell;
+        if (numeric.contains(i)) th.className = 'num';
+        head.append(th);
+      }
+      final body = table.createTBody();
+      for (final row in rows.skip(1)) {
+        final tr = body.addRow();
+        for (final (i, cell) in row.indexed) {
+          final td = tr.addCell()..text = cell;
+          if (numeric.contains(i)) td.className = 'num';
+        }
+      }
+    }
+    root.append(table);
+
+    final head = document.head;
+    final body = document.body;
+    if (head == null || body == null) {
+      throw StateError('The page is not ready to print.');
+    }
+    head.append(style);
+    body.append(root);
+    try {
+      window.print();
+    } finally {
+      Timer(const Duration(seconds: 20), _cleanUp);
+    }
+  }
+
   static void _cleanUp() {
     document.getElementById(_rootId)?.remove();
     document.getElementById(_styleId)?.remove();

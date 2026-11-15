@@ -582,7 +582,11 @@ class _MyApplicationCard extends StatelessWidget {
                   ),
                 ),
               ),
-              ApplicationStatusPill(status),
+              // Named as the track names it.
+              ApplicationStatusPill(
+                status,
+                label: rejected ? 'Not accepted' : null,
+              ),
             ],
           ),
           const SizedBox(height: 4),
@@ -635,6 +639,11 @@ class _MyApplicationCard extends StatelessWidget {
                 height: 1.5,
               ),
             ),
+          ),
+          const SizedBox(height: 4),
+          StatusGuideLink(
+            label: 'What does this mean?',
+            onTap: () => showApplicationStatusGuide(context, forStudent: true),
           ),
           if (application.remarks?.isNotEmpty == true) ...[
             const SizedBox(height: 10),

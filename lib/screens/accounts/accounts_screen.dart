@@ -11,7 +11,8 @@ import '../../utils/input_formats.dart';
 import '../../utils/philippine_dates.dart';
 import '../../widgets/avatar_editor.dart';
 import '../../widgets/document_preview.dart';
-import '../../widgets/export_csv_button.dart';
+import '../../utils/list_print.dart';
+import '../../widgets/export_list_button.dart';
 import '../../widgets/shared_widgets.dart';
 
 const _roles = ['Admin', 'Head', 'Supervisor', 'Student Assistant', 'Student'];
@@ -74,6 +75,23 @@ class _AccountsScreenState extends State<AccountsScreen>
   void _exportAccounts(List<User> users) => saveCsv(
     _showArchived ? 'accounts-archived.csv' : 'accounts.csv',
     accountsCsvRows(users),
+  );
+
+  /// The same list on paper, with the filters in use.
+  void _printAccounts(List<User> users) => printList(
+    context,
+    PrintableList(
+      title: _showArchived ? 'Archived Accounts' : 'User Accounts',
+      details: [
+        ?filtersLine({
+          'Search': _search,
+          'Role': _filterRole == 'All' ? null : _filterRole,
+          'Department': _filterDept == 'All Departments' ? null : _filterDept,
+          'Campus': _filterCampus == 'All Campuses' ? null : _filterCampus,
+        }),
+      ],
+      rows: accountsCsvRows(users),
+    ),
   );
 
   @override
@@ -672,8 +690,9 @@ class _AccountsScreenState extends State<AccountsScreen>
                   ),
                 ),
               ),
-              ExportCsvButton(
-                onPressed: users.isEmpty ? null : () => _exportAccounts(users),
+              ExportListButton(
+                onSaveCsv: users.isEmpty ? null : () => _exportAccounts(users),
+                onPrint: users.isEmpty ? null : () => _printAccounts(users),
               ),
             ],
           ),

@@ -715,6 +715,18 @@ void main() {
       await pump(tester, const AnnouncementsScreen(), const Size(390, 900));
 
       expect(find.text('Reason: Wrong file for "Resume"'), findsOneWidget);
+      // The pill names it as the track does; the Head's word isn't shown.
+      expect(find.text('Not accepted'), findsNWidgets(2));
+      expect(find.text('Rejected'), findsNothing);
+      final guide = find.text('What does this mean?');
+      await tester.ensureVisible(guide);
+      await tester.tap(guide);
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Read the reason and apply again'), findsOne);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(find.text('Apply Again'));
       await tester.tap(find.text('Apply Again'));
       await tester.pumpAndSettle();
 
