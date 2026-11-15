@@ -80,6 +80,7 @@ flutter:
   assets:
     - assets/images/logo.jpg
     - assets/images/seal.png
+    - assets/images/sais_logo.png
     - assets/images/marsu_hero.jpg
     - assets/images/marsu_campus.jpg
     - assets/images/google_logo.png

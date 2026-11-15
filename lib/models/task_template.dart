@@ -1,3 +1,15 @@
+import 'models.dart';
+
+/// Tasks that share one title, as listed under a category: the newest of
+/// them (its description, priority and checklist) and how many there are.
+class TaskTitleGroup {
+  final Task latest;
+  final int count;
+  const TaskTitleGroup(this.latest, this.count);
+
+  String get title => latest.title.trim();
+}
+
 /// A ready-made task the Head sets up under a category, so a Supervisor can
 /// pick it when assigning a task instead of typing the same one out again.
 /// Choosing one only fills the form in: the Supervisor can still change

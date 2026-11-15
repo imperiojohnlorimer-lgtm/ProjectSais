@@ -340,6 +340,7 @@ class _DtrAccomplishmentReportScreenState
                                       color: AppTheme.slate500,
                                       fontWeight: FontWeight.w500,
                                     ),
+                                    maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ),
@@ -979,7 +980,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     // calendar day (a day can have more than one session).
     final sessionsByDay = <int, List<AttendanceRecord>>{};
     for (final r in state.filteredAttendance) {
-      if (!state.isRecordOfStudent(widget.student, r.studentId, r.studentName)) {
+      if (!state.isRecordOfStudent(
+        widget.student,
+        r.studentId,
+        r.studentName,
+      )) {
         continue;
       }
       if (r.isArchived) continue;
@@ -1023,7 +1028,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       (tasksByDay[day] ??= []).add(t);
     }
 
-    return List.generate(_daysInMonth, (i) {
+    final built = List.generate(_daysInMonth, (i) {
       final day = i + 1;
       final sessions = sessionsByDay[day];
       final weekday = DateTime(
@@ -1101,6 +1106,25 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         isInvalid: missedTimeOut,
       );
     });
+
+    // A day put back with Fix stays put when the report is rebuilt (the
+    // schedule or the tasks changed meanwhile), not red again.
+    return [
+      for (final e in built)
+        _fixedDays.contains(e.day) && _fixable(e)
+            ? e.copyWith(
+                isInvalid: false,
+                note: _defaultNoteFor(
+                  DateTime(widget.month.year, widget.month.month, e.day),
+                  DateTime(
+                    widget.month.year,
+                    widget.month.month,
+                    e.day,
+                  ).weekday,
+                ),
+              )
+            : e,
+    ];
   }
 
   /// The titles of a day's approved tasks, as its Accomplishment/s entry,
@@ -2271,6 +2295,67 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         date.weekday == DateTime.sunday;
   }
 
+  /// Whether day [i] is a red weekend/holiday row the supervisor can put back
+  /// to its plain label: a task was approved on a non-working day and there
+  /// is no clock-in (no times) behind it. A missed time-out on such a day has
+  /// a time-in, and needs the time-out recorded, so it isn't fixable here.
+  bool _canFix(int i) => _fixable(_days[i]);
+
+  bool _fixable(DtrDayEntry d) {
+    if (!d.isInvalid) return false;
+    bool empty(String? time) => (time ?? '').trim().isEmpty;
+    if (!(empty(d.amIn) && empty(d.amOut) && empty(d.pmIn) && empty(d.pmOut))) {
+      return false;
+    }
+    return _isDtrSpecialDay(
+      DateTime(widget.month.year, widget.month.month, d.day),
+    );
+  }
+
+  /// The days the supervisor put back with Fix (by day of the month).
+  final _fixedDays = <int>{};
+
+  /// Puts day [i] back to what a day with nothing on it says ("Sunday",
+  /// "Saturday" or "Holiday") and clears its red flag. The task stays as it
+  /// was and earns no hours, as before; this only saves retyping the note.
+  void _fixDay(int i) {
+    final d = _days[i];
+    final date = DateTime(widget.month.year, widget.month.month, d.day);
+    final note = _defaultNoteFor(date, date.weekday);
+    setState(() {
+      _fixedDays.add(d.day);
+      _days[i] = d.copyWith(isInvalid: false, note: note);
+      _noteCtrls[i].text = note;
+    });
+  }
+
+  /// The small "Fix" button on a red non-working-day row.
+  Widget _fixButton(int i) {
+    final date = DateTime(widget.month.year, widget.month.month, _days[i].day);
+    return Tooltip(
+      message: 'Set this day back to ${_defaultNoteFor(date, date.weekday)}',
+      child: OutlinedButton.icon(
+        onPressed: () => _fixDay(i),
+        icon: const Icon(Icons.auto_fix_high_rounded, size: 15),
+        label: const Text('Fix'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppTheme.maroon,
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: AppTheme.maroon200),
+          minimumSize: const Size(0, 32),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          visualDensity: VisualDensity.compact,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(9)),
+          textStyle: const TextStyle(
+            fontFamily: 'Inter',
+            fontWeight: FontWeight.w700,
+            fontSize: 12.5,
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Minimum width the "Accomplishment/s" column needs to stay readable
   /// (not scrunched) — below this, the table falls back to a horizontally
   /// scrollable fixed-width layout instead of squeezing everything.
@@ -2516,6 +2601,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                           letterSpacing: 0.3,
                         ),
                       ),
+                      // A red weekend/holiday day: one tap puts it back.
+                      if (_canFix(i)) ...[const Spacer(), _fixButton(i)],
                     ],
                   ),
                 ),
@@ -2951,6 +3038,17 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                     : null),
           prefixIconConstraints: const BoxConstraints(
             minWidth: 30,
+            minHeight: 0,
+          ),
+          // A red weekend/holiday row gets a one-tap Fix.
+          suffixIcon: _canFix(i)
+              ? Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: _fixButton(i),
+                )
+              : null,
+          suffixIconConstraints: const BoxConstraints(
+            minWidth: 0,
             minHeight: 0,
           ),
           border: OutlineInputBorder(

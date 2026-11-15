@@ -570,7 +570,10 @@ class _StudentRowState extends State<_StudentRow> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // On a phone a full name takes two lines rather than
+                  // being cut.
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Text(
@@ -580,6 +583,7 @@ class _StudentRowState extends State<_StudentRow> {
                             fontSize: 14,
                             color: AppTheme.slate900,
                           ),
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
@@ -602,6 +606,7 @@ class _StudentRowState extends State<_StudentRow> {
                       fontSize: 11,
                       color: AppTheme.slate500,
                     ),
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 8),

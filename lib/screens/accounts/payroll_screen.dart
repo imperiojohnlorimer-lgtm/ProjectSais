@@ -1397,7 +1397,7 @@ class _HeldUpCardState extends State<_HeldUpCard> {
                     Expanded(
                       child: Text(
                         p.studentName,
-                        maxLines: 1,
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                           fontSize: 13,
@@ -1421,7 +1421,7 @@ class _HeldUpCardState extends State<_HeldUpCard> {
                         ),
                         child: Text(
                           summary.text,
-                          maxLines: 1,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             fontSize: 11.5,
@@ -1916,7 +1916,7 @@ class _PayrollRow extends StatelessWidget {
                             children: [
                               Text(
                                 record.studentName,
-                                maxLines: 1,
+                                maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 14.5,
@@ -1953,7 +1953,7 @@ class _PayrollRow extends StatelessWidget {
                                     ),
                                   ],
                                 ),
-                                maxLines: 1,
+                                maxLines: 5,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
                                   fontSize: 12,
@@ -1964,7 +1964,7 @@ class _PayrollRow extends StatelessWidget {
                                 const SizedBox(height: 2),
                                 Text(
                                   hint,
-                                  maxLines: 1,
+                                  maxLines: 2,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     fontSize: 11.5,

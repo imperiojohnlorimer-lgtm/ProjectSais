@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../models/models.dart';
 import '../utils/file_names.dart';
 import '../models/schedule_event.dart';
+import '../models/supervisor_card.dart';
 import '../models/task_duty.dart';
 import 'supabase_storage_service.dart';
 
@@ -1945,6 +1946,47 @@ class FirestoreService {
     });
   }
 
+  // Supervisor cards: supervisorCards/{account id} = {name, avatar, updatedAt},
+  // the only part of a supervisor's profile a Student Assistant may read.
+  CollectionReference<Map<String, dynamic>> get _supervisorCards =>
+      _db.collection('supervisorCards');
+
+  /// The cards of [ids], or every card when [ids] is null (staff and the
+  /// Admin, to compare with the profiles). An id with no card is left out.
+  Future<List<SupervisorCard>> getSupervisorCards([
+    Iterable<String>? ids,
+  ]) async {
+    if (ids == null) {
+      final snapshot = await _supervisorCards.get();
+      return [
+        for (final doc in snapshot.docs)
+          SupervisorCard.fromJson(doc.id, doc.data()),
+      ];
+    }
+    final docs = await Future.wait([
+      for (final id in ids.toSet())
+        if (id.isNotEmpty) _supervisorCards.doc(id).get(),
+    ]);
+    return [
+      for (final doc in docs)
+        if (doc.exists) SupervisorCard.fromJson(doc.id, doc.data()!),
+    ];
+  }
+
+  /// Saves each of [cards] in one batch (the stored card is replaced).
+  Future<void> saveSupervisorCards(List<SupervisorCard> cards) async {
+    for (var i = 0; i < cards.length; i += 500) {
+      final batch = _db.batch();
+      for (final card in cards.skip(i).take(500)) {
+        batch.set(_supervisorCards.doc(card.id), {
+          ...card.toJson(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
+  }
+
   Future<void> deletePushToken(String token) async {
     await _db.collection('pushTokens').doc(token).delete();
   }
@@ -2039,6 +2081,19 @@ class FirestoreService {
           items.add(template);
         } else {
           items[at] = template;
+        }
+      });
+
+  /// Saves several templates in one transaction: all of them or none.
+  Future<void> upsertTaskTemplates(List<Map<String, dynamic>> templates) =>
+      _changeTaskTemplates((items) {
+        for (final template in templates) {
+          final at = items.indexWhere((i) => i['id'] == template['id']);
+          if (at < 0) {
+            items.add(template);
+          } else {
+            items[at] = template;
+          }
         }
       });
 

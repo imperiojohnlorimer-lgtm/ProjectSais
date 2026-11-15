@@ -377,7 +377,7 @@ class _DepartmentGroup extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 14,
@@ -571,9 +571,10 @@ class _ProgramCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Two lines tall whatever the name, so cards in a row line up.
+          // Two lines tall whatever the name, so cards in a row line up;
+          // taller with a bigger phone font size, so the 2nd line isn't cut.
           SizedBox(
-            height: 38,
+            height: MediaQuery.textScalerOf(context).scale(19) * 2,
             child: Text(
               program.name,
               maxLines: 2,

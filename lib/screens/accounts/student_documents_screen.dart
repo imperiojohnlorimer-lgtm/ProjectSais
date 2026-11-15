@@ -604,7 +604,10 @@ class _FilterDropdown extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isActive = options.isNotEmpty && value != options.first;
+    // A set width: sized to its longest item (a long office name), the
+    // menu ran off the side of a phone.
     return Container(
+      constraints: const BoxConstraints(maxWidth: 280),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
         color: Colors.white,
@@ -616,7 +619,9 @@ class _FilterDropdown extends StatelessWidget {
           value: options.contains(value) ? value : options.first,
           icon: const Icon(Icons.keyboard_arrow_down_rounded, size: 18, color: AppTheme.slate400),
           isDense: true,
+          isExpanded: true,
           style: TextStyle(
+            fontFamily: 'Inter',
             fontSize: 12.5,
             fontWeight: FontWeight.w700,
             color: isActive ? AppTheme.maroon : AppTheme.slate600,
@@ -699,6 +704,7 @@ class _StudentDocGroupState extends State<_StudentDocGroup> {
                     child: Text(
                       widget.studentName,
                       style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.slate900),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

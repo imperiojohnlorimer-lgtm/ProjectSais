@@ -39,6 +39,27 @@ void main() {
     handle.dispose();
   });
 
+  testWidgets('the SAIS logo is labelled, unless a wordmark sits beside it', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: SaisLogo())),
+    );
+    expect(find.bySemanticsLabel('SAIS logo'), findsOneWidget);
+    expect(_hasImageNode(tester), isTrue);
+
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(body: SaisLogo(excludeFromSemantics: true)),
+      ),
+    );
+    await tester.pump();
+    expect(find.bySemanticsLabel('SAIS logo'), findsNothing);
+    expect(_hasImageNode(tester), isFalse);
+    handle.dispose();
+  });
+
   testWidgets('an avatar photo adds no image node beside the name', (
     tester,
   ) async {

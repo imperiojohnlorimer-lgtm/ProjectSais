@@ -1610,39 +1610,53 @@ class _ReportCardState extends State<_ReportCard> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Row(
+                  // Name and date sit side by side when they fit, the date
+                  // drops to the next line on a narrow phone.
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 4,
                     children: [
-                      const Icon(
-                        Icons.person_rounded,
-                        size: 13,
-                        color: AppTheme.slate400,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        report.studentName,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: AppTheme.slate500,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                      if (report.submittedAt != null) ...[
-                        const SizedBox(width: 12),
-                        const Icon(
-                          Icons.calendar_today_rounded,
-                          size: 12,
-                          color: AppTheme.slate400,
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          report.submittedAt!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.slate500,
-                            fontWeight: FontWeight.w500,
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.person_rounded,
+                            size: 13,
+                            color: AppTheme.slate400,
                           ),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              report.studentName,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate500,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (report.submittedAt != null)
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(
+                              Icons.calendar_today_rounded,
+                              size: 12,
+                              color: AppTheme.slate400,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              report.submittedAt!,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate500,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
                     ],
                   ),
                   const SizedBox(height: 10),

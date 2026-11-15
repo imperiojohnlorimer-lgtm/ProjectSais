@@ -738,11 +738,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
       ),
     ];
 
+    // On a phone they wrap onto a second line: in a sideways-scrolling row
+    // the last one ("Add Event") sat half off the screen and looked cut.
     if (isMobile) {
-      return SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        child: Row(children: chips),
+      return Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final chip in chips)
+            if (chip is! SizedBox) chip,
+        ],
       );
     }
     return Row(mainAxisSize: MainAxisSize.min, children: chips);

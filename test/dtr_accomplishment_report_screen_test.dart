@@ -52,6 +52,7 @@ void main() {
     required User user,
     List<User> others = const [],
     List<AttendanceRecord> attendance = const [],
+    List<Task> tasks = const [],
   }) async {
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1.0;
@@ -60,6 +61,7 @@ void main() {
       ..currentUser = user
       ..users = [user, ...others]
       ..attendance = attendance
+      ..tasks = tasks
       ..students = [
         Student(
           id: 's1',
@@ -166,6 +168,167 @@ void main() {
 
     expect(flagged, findsOneWidget);
     expect(find.text('Present (ongoing)'), findsNothing);
+  });
+
+  group('Fix on a red weekend row', () {
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
+        'Sep', 'Oct', 'Nov', 'Dec'];
+
+    /// The first Sunday of this month that is not also a holiday.
+    DateTime firstSunday() {
+      final now = DateTime.now();
+      final holidays = AppState();
+      var d = DateTime(now.year, now.month, 1);
+      while (d.weekday != DateTime.sunday || holidays.isHoliday(d)) {
+        d = d.add(const Duration(days: 1));
+      }
+      return d;
+    }
+
+    /// A holiday of this month (null when there is none).
+    DateTime? aHoliday() {
+      final now = DateTime.now();
+      final holidays = AppState();
+      for (var day = 1; day <= 31; day++) {
+        final d = DateTime(now.year, now.month, day);
+        if (d.month == now.month && holidays.isHoliday(d)) return d;
+      }
+      return null;
+    }
+
+    String stored(DateTime d) => '${months[d.month - 1]} ${d.day}, ${d.year}';
+
+    Task approvedOn(DateTime d, {String title = 'Shelve returns'}) => Task(
+      id: 't1',
+      title: title,
+      description: '',
+      status: 'Completed',
+      priority: 'Medium',
+      dueDate: 'Oct 30, 2026',
+      assignedTo: 's1',
+      assignedToName: 'Charlie A. Matining',
+      completedAt: stored(d),
+      reviewStatus: 'Approved',
+    );
+
+    final redNote = find.textContaining('non-working day (Sunday)');
+
+    // The "Need review" count in the summary.
+    String needReview(WidgetTester tester) {
+      final pill = find
+          .ancestor(of: find.text('Need review'), matching: find.byType(Column))
+          .first;
+      return tester
+          .widget<Text>(
+            find.descendant(of: pill, matching: find.byType(Text)).first,
+          )
+          .data!;
+    }
+
+    for (final width in [1280.0, 390.0]) {
+      testWidgets('turns a Sunday task back to "Sunday" at ${width.toInt()}px', (
+        tester,
+      ) async {
+        await pumpScreen(
+          tester,
+          Size(width, 1400),
+          user: _head,
+          tasks: [approvedOn(firstSunday())],
+        );
+        await openBuilder(tester);
+        // The summary sits above the table: read it before scrolling down.
+        expect(needReview(tester), '1');
+        await tester.dragUntilVisible(
+          redNote,
+          find.byType(ListView).last,
+          const Offset(0, -300),
+        );
+        expect(redNote, findsOneWidget);
+        expect(find.text('Fix'), findsOneWidget);
+
+        await tester.ensureVisible(find.text('Fix'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Fix'));
+        await tester.pumpAndSettle();
+
+        expect(redNote, findsNothing);
+        expect(find.text('Fix'), findsNothing);
+        await tester.dragUntilVisible(
+          find.text('Need review'),
+          find.byType(ListView).last,
+          const Offset(0, 300),
+        );
+        expect(needReview(tester), '0');
+        // The day now reads like any other Sunday, and the rest is untouched.
+        final sunday = find.byWidgetPredicate(
+          (w) => w is EditableText && w.controller.text == 'Sunday',
+        );
+        expect(sunday, findsWidgets);
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('a holiday goes back to "Holiday"', (tester) async {
+      final holiday = aHoliday();
+      if (holiday == null) return; // no holiday this month
+      await pumpScreen(
+        tester,
+        const Size(1280, 1400),
+        user: _head,
+        tasks: [approvedOn(holiday)],
+      );
+      await openBuilder(tester);
+      final red = find.textContaining('non-working day (Holiday)');
+      await tester.dragUntilVisible(
+        red,
+        find.byType(ListView).last,
+        const Offset(0, -300),
+      );
+      expect(red, findsOneWidget);
+
+      await tester.ensureVisible(find.text('Fix'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Fix'));
+      await tester.pumpAndSettle();
+
+      expect(red, findsNothing);
+      expect(find.text('Fix'), findsNothing);
+    });
+
+    testWidgets('a missed time-out on a Sunday has no Fix', (tester) async {
+      await pumpScreen(
+        tester,
+        const Size(1280, 1400),
+        user: _head,
+        attendance: [
+          AttendanceRecord(
+            id: 'r1',
+            studentId: 's1',
+            studentName: 'Charlie A. Matining',
+            date: stored(firstSunday()),
+            timeIn: '8:00 AM',
+            isInvalid: true,
+          ),
+        ],
+      );
+      await openBuilder(tester);
+      final flagged = find.textContaining('Missed time-out');
+      await tester.dragUntilVisible(
+        flagged,
+        find.byType(ListView).last,
+        const Offset(0, -300),
+      );
+
+      expect(flagged, findsOneWidget);
+      expect(find.text('Fix'), findsNothing);
+    });
+
+    testWidgets('a row that is not red has no Fix', (tester) async {
+      await pumpScreen(tester, const Size(1280, 1400), user: _head);
+      await openBuilder(tester);
+
+      expect(find.text('Fix'), findsNothing);
+    });
   });
 
   testWidgets('the Head is not offered "Send to Head"', (tester) async {

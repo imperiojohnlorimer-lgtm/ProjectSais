@@ -489,6 +489,7 @@ class _RehiringScreenState extends State<RehiringScreen> {
                                 color: AppTheme.slate500,
                                 fontWeight: FontWeight.w500,
                               ),
+                              maxLines: 4,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ],

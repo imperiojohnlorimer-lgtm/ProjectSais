@@ -259,7 +259,7 @@ class _LandingScreenState extends State<LandingScreen> {
               ),
               child: Row(
                 children: [
-                  const AppLogo(size: 40, shadow: []),
+                  const SaisLogo(size: 40, shadow: []),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -384,7 +384,7 @@ class _LandingScreenState extends State<LandingScreen> {
               color: LandingColors.maroonDeep,
               child: const Row(
                 children: [
-                  AppLogo(size: 44, shadow: []),
+                  SaisLogo(size: 44, shadow: []),
                   SizedBox(width: 12),
                   Expanded(
                     child: Text(
@@ -1201,7 +1201,7 @@ class _LandingScreenState extends State<LandingScreen> {
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const AppLogo(size: 40, shadow: []),
+                  const SaisLogo(size: 40, shadow: []),
                   const SizedBox(width: 12),
                   Flexible(
                     child: Column(

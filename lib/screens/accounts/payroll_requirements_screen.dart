@@ -362,7 +362,7 @@ class _PayrollRequirementsScreenState extends State<PayrollRequirementsScreen> {
           color: AppTheme.slate800,
         ),
         decoration: InputDecoration(
-          hintText: 'Search name, SA ID or office',
+          hintText: 'Search',
           hintStyle: const TextStyle(fontSize: 13, color: AppTheme.slate500),
           prefixIcon: const Icon(
             Icons.search_rounded,
@@ -973,6 +973,22 @@ class _StudentCardState extends State<_StudentCard> {
     final monthly = requirements
         .where((r) => r.kind == PayrollRequirementKind.dtr)
         .toList();
+    final narrow = MediaQuery.sizeOf(context).width < 480;
+    final statusPill = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: statusTint,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        statusText,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: statusColor,
+        ),
+      ),
+    );
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -1020,21 +1036,24 @@ class _StudentCardState extends State<_StudentCard> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Row(
+                        // The SA ID follows the name, or goes under it when
+                        // they don't fit side by side.
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 2,
+                          crossAxisAlignment: WrapCrossAlignment.center,
                           children: [
-                            Flexible(
-                              child: Text(
-                                row.studentName,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 14.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.slate900,
-                                ),
+                            Text(
+                              row.studentName,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w800,
+                                color: AppTheme.slate900,
                               ),
                             ),
-                            if ((row.saId ?? '').isNotEmpty) ...[
-                              const SizedBox(width: 8),
+                            if ((row.saId ?? '').isNotEmpty)
                               Text(
                                 row.saId!,
                                 style: const TextStyle(
@@ -1043,12 +1062,12 @@ class _StudentCardState extends State<_StudentCard> {
                                   color: AppTheme.slate500,
                                 ),
                               ),
-                            ],
                           ],
                         ),
                         const SizedBox(height: 2),
                         Text(
                           row.office.isEmpty ? 'Unassigned office' : row.office,
+                          maxLines: 3,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontSize: 12,
@@ -1077,28 +1096,16 @@ class _StudentCardState extends State<_StudentCard> {
                             ),
                           ],
                         ),
+                        // On a phone the status goes under the rest, so the
+                        // name and office keep the card's width.
+                        if (narrow) ...[
+                          const SizedBox(height: 8),
+                          statusPill,
+                        ],
                       ],
                     ),
                   ),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 5,
-                    ),
-                    decoration: BoxDecoration(
-                      color: statusTint,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      statusText,
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: statusColor,
-                      ),
-                    ),
-                  ),
+                  if (!narrow) ...[const SizedBox(width: 10), statusPill],
                   const SizedBox(width: 4),
                   AnimatedRotation(
                     turns: _open ? 0.5 : 0,

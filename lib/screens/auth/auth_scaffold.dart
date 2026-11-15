@@ -341,16 +341,8 @@ class _Lockup extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        ClipOval(
-          child: Image.asset(
-            'assets/images/seal.png',
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            // The wordmark beside it says it.
-            excludeFromSemantics: true,
-          ),
-        ),
+        // The wordmark beside it says "SAIS", so a screen reader skips it.
+        SaisLogo(size: size, shadow: const [], excludeFromSemantics: true),
         const SizedBox(width: 10),
         Text(
           'SAIS',

@@ -901,6 +901,26 @@ service cloud.firestore {
         && request.resource.data.updatedAt == request.time;
     }
 
+    // The name and picture of each Supervisor, copied from their profile so a
+    // Student Assistant can see who supervises their office on My Office
+    // without being able to read the profile (email, phone, ...). A Supervisor
+    // writes their own card; the Head and the Admin keep every card in step
+    // from the profiles they can read.
+    match /supervisorCards/{uid} {
+      allow read: if signedIn();
+
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasAll(['name', 'avatar', 'updatedAt'])
+        && request.resource.data.keys().hasOnly(['name', 'avatar', 'updatedAt'])
+        && request.resource.data.name is string
+        && request.resource.data.avatar is string
+        && request.resource.data.updatedAt == request.time
+        && (isHead() || isAdmin()
+          || (request.auth.uid == uid && isSupervisor()));
+
+      allow delete: if isHead() || isAdmin();
+    }
+
     // Offices decide which students each Supervisor may change, so only the
     // Head (who runs the Offices screen) edits them.
     match /offices/{id} {

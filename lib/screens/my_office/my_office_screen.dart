@@ -4,6 +4,7 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/office_picture.dart';
+import '../../widgets/shared_widgets.dart';
 import '../student_portal/student_page_widgets.dart';
 
 /// A Student Assistant's page for their own office: what it does, where it
@@ -99,15 +100,50 @@ class MyOfficeScreen extends StatelessWidget {
   }
 }
 
-class _OfficeCard extends StatelessWidget {
+class _OfficeCard extends StatefulWidget {
   final Office office;
   final OfficePictureLoader? pictureLoader;
   const _OfficeCard({required this.office, this.pictureLoader});
 
   @override
+  State<_OfficeCard> createState() => _OfficeCardState();
+}
+
+class _OfficeCardState extends State<_OfficeCard> {
+  Office get office => widget.office;
+  OfficePictureLoader? get pictureLoader => widget.pictureLoader;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPictures();
+  }
+
+  @override
+  void didUpdateWidget(_OfficeCard old) {
+    super.didUpdateWidget(old);
+    final before = [for (final s in old.office.supervisorEntries) s.id];
+    final now = [for (final s in office.supervisorEntries) s.id];
+    if (before.join(',') != now.join(',')) _loadPictures();
+  }
+
+  /// The supervisors' pictures come from their cards (a profile is not
+  /// readable here); without one, initials show.
+  void _loadPictures() {
+    final ids = [for (final s in office.supervisorEntries) s.id];
+    // After the first frame: this runs while the page is being built.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AppState>().loadSupervisorCards(ids);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final code = office.code.trim();
-    final supervisors = office.supervisorNames;
+    final supervisors = office.supervisorEntries;
+    final avatars = context.select<AppState, Map<String, String>>(
+      (s) => s.supervisorAvatars,
+    );
     final skills = [
       for (final skill in office.requiredSkills)
         if (skill.trim().isNotEmpty) skill.trim(),
@@ -202,11 +238,20 @@ class _OfficeCard extends StatelessWidget {
             supervisors.length > 1 ? 'SUPERVISORS' : 'SUPERVISOR',
           ),
           const SizedBox(height: 6),
-          _Text(
-            supervisors.join(', '),
-            empty: 'No supervisor assigned yet.',
-            icon: Icons.badge_outlined,
-          ),
+          if (supervisors.isEmpty)
+            const _Text(
+              '',
+              empty: 'No supervisor assigned yet.',
+              icon: Icons.badge_outlined,
+            )
+          else
+            for (var i = 0; i < supervisors.length; i++) ...[
+              if (i > 0) const SizedBox(height: 10),
+              _SupervisorRow(
+                name: supervisors[i].name,
+                avatar: avatars[supervisors[i].id],
+              ),
+            ],
           if (skills.isNotEmpty) ...[
             const SizedBox(height: 18),
             const StudentSectionLabel('SKILLS THIS OFFICE LOOKS FOR'),
@@ -239,6 +284,91 @@ class _OfficeCard extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+/// A supervisor: their picture (initials until they have one) and name.
+class _SupervisorRow extends StatelessWidget {
+  final String name;
+  final String? avatar;
+  const _SupervisorRow({required this.name, this.avatar});
+
+  static String _initials(String name) {
+    final parts = name.split(RegExp(r'\s+')).where((p) => p.isNotEmpty);
+    if (parts.isEmpty) return '?';
+    final first = parts.first[0];
+    return (parts.length > 1 ? '$first${parts.last[0]}' : first).toUpperCase();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final hasPicture = (avatar ?? '').isNotEmpty;
+    void view() => showPictureViewer(context, pictureUrl: avatar!, title: name);
+    final picture = UserAvatar(
+      avatarUrl: avatar,
+      initials: _initials(name),
+      size: 40,
+    );
+    return Row(
+      children: [
+        // With a picture, tapping it enlarges it, like "View picture" below.
+        if (hasPicture)
+          Semantics(
+            button: true,
+            label: "View $name's picture",
+            excludeSemantics: true,
+            child: MouseRegion(
+              cursor: SystemMouseCursors.click,
+              child: GestureDetector(onTap: view, child: picture),
+            ),
+          )
+        else
+          picture,
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                name,
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.slate800,
+                ),
+              ),
+              if (hasPicture)
+                InkWell(
+                  onTap: view,
+                  borderRadius: BorderRadius.circular(6),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 3),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.zoom_in_rounded,
+                          size: 15,
+                          color: AppTheme.maroon,
+                        ),
+                        SizedBox(width: 4),
+                        Text(
+                          'View picture',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.maroon,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

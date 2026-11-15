@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -832,9 +833,13 @@ class _AppShellState extends State<AppShell> {
               children: [
                 // Top app bar
                 Container(
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isMobile ? 16 : 32,
-                    vertical: isCompact ? 10 : 12,
+                  // Phones draw the page under the status bar: keep the
+                  // header below it (0 on the web and on computers).
+                  padding: EdgeInsets.fromLTRB(
+                    isMobile ? 16 : 32,
+                    (isCompact ? 10 : 12) + MediaQuery.viewPaddingOf(context).top,
+                    isMobile ? 16 : 32,
+                    isCompact ? 10 : 12,
                   ),
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -871,33 +876,63 @@ class _AppShellState extends State<AppShell> {
                               ),
                             ),
                             const SizedBox(width: 12),
-                            // Title
+                            // Title. On a phone the year sits under the page
+                            // name, so the name gets the whole width; a long
+                            // one shrinks a little instead of being cut.
                             Expanded(
-                              child: Row(
-                                children: [
-                                  Flexible(
-                                    child: Text(
-                                      _tabTitle(activeTab),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: isCompact ? 18 : 20,
-                                        fontWeight: FontWeight.w800,
-                                        color: AppTheme.maroon,
-                                        letterSpacing: -0.3,
-                                      ),
+                              child: isCompact
+                                  ? Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment: Alignment.centerLeft,
+                                          child: Text(
+                                            _tabTitle(activeTab),
+                                            maxLines: 1,
+                                            style: const TextStyle(
+                                              fontSize: 18,
+                                              fontWeight: FontWeight.w800,
+                                              color: AppTheme.maroon,
+                                              letterSpacing: -0.3,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        _academicYearBadge(
+                                          state.academicYear,
+                                          state.academicSemester,
+                                          compact: true,
+                                        ),
+                                      ],
+                                    )
+                                  : Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            _tabTitle(activeTab),
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.w800,
+                                              color: AppTheme.maroon,
+                                              letterSpacing: -0.3,
+                                            ),
+                                          ),
+                                        ),
+                                        const SizedBox(width: 7),
+                                        Flexible(
+                                          child: _academicYearBadge(
+                                            state.academicYear,
+                                            state.academicSemester,
+                                            compact: true,
+                                          ),
+                                        ),
+                                      ],
                                     ),
-                                  ),
-                                  const SizedBox(width: 7),
-                                  Flexible(
-                                    child: _academicYearBadge(
-                                      state.academicYear,
-                                      state.academicSemester,
-                                      compact: true,
-                                    ),
-                                  ),
-                                ],
-                              ),
                             ),
                             // Notification bell (Head, SA + Supervisor)
                             if (showNotificationBell)
@@ -1143,7 +1178,7 @@ class _Sidebar extends StatelessWidget {
                 Row(
                   children: [
                     // Logo Container
-                    AppLogo(size: 52),
+                    SaisLogo(size: 52),
                     const SizedBox(width: 12),
                     // Branding Text
                     Expanded(
@@ -1414,7 +1449,12 @@ class _Drawer extends StatelessWidget {
           // Header
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(20, 32, 20, 20),
+            padding: EdgeInsets.fromLTRB(
+              20,
+              math.max(32, MediaQuery.viewPaddingOf(context).top + 12),
+              20,
+              20,
+            ),
             decoration: const BoxDecoration(
               border: Border(
                 bottom: BorderSide(color: AppTheme.gold400, width: 2),
@@ -1426,7 +1466,7 @@ class _Drawer extends StatelessWidget {
                 Row(
                   children: [
                     // Logo Container
-                    AppLogo(size: 56),
+                    SaisLogo(size: 56),
                     const SizedBox(width: 16),
                     // Branding Text
                     Expanded(
@@ -1609,6 +1649,7 @@ class _Drawer extends StatelessWidget {
                           color: AppTheme.slate900,
                           letterSpacing: 0.2,
                         ),
+                        maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
                       Text(

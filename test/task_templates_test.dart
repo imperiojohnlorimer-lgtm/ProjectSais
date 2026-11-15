@@ -268,10 +268,31 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('shows the chosen category\'s templates only', (tester) async {
+    // The dropdown of saved tasks (it is the one keyed by category | pick).
+    final savedTasks = find.byWidgetPredicate(
+      (w) =>
+          w is DropdownButtonFormField<String> &&
+          w.key is ValueKey<String> &&
+          (w.key! as ValueKey<String>).value.contains('|'),
+    );
+
+    Future<void> pick(WidgetTester tester, String title) async {
+      await tester.tap(savedTasks);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(title).last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('lists the chosen category\'s templates only', (tester) async {
       await open(tester);
 
-      expect(find.text('START FROM A TEMPLATE'), findsOneWidget);
+      expect(find.text('START FROM A SAVED TASK'), findsOneWidget);
+      // Closed, it holds nothing but "Type my own".
+      expect(find.text('Receive documents'), findsNothing);
+      await tester.tap(savedTasks);
+      await tester.pumpAndSettle();
+
+      expect(find.text('TEMPLATES'), findsOneWidget);
       expect(find.text('Receive documents'), findsOneWidget);
       expect(find.text('Filing'), findsOneWidget);
       expect(find.text('Grade sheets'), findsNothing);
@@ -282,8 +303,7 @@ void main() {
     ) async {
       await open(tester);
 
-      await tester.tap(find.text('Receive documents'));
-      await tester.pumpAndSettle();
+      await pick(tester, 'Receive documents');
 
       expect(
         find.widgetWithText(TextField, 'Receive documents'),
@@ -313,8 +333,7 @@ void main() {
       await open(tester);
 
       await tester.enterText(find.byType(TextField).first, 'My own task');
-      await tester.tap(find.text('Filing'));
-      await tester.pumpAndSettle();
+      await pick(tester, 'Filing');
 
       expect(find.text('Use This Template?'), findsOneWidget);
       await tester.tap(find.text('Replace'));
@@ -323,8 +342,7 @@ void main() {
       expect(find.widgetWithText(TextField, 'Filing'), findsOneWidget);
 
       // Picking another one straight away needs no question: nothing typed.
-      await tester.tap(find.text('Receive documents'));
-      await tester.pumpAndSettle();
+      await pick(tester, 'Receive documents');
       expect(find.text('Use This Template?'), findsNothing);
       expect(
         find.widgetWithText(TextField, 'Receive documents'),
@@ -335,12 +353,10 @@ void main() {
     testWidgets('a changed priority counts as typed content', (tester) async {
       await open(tester);
 
-      await tester.tap(find.text('Receive documents'));
-      await tester.pumpAndSettle();
+      await pick(tester, 'Receive documents');
       await tester.tap(find.text('Low'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Filing'));
-      await tester.pumpAndSettle();
+      await pick(tester, 'Filing');
 
       expect(find.text('Use This Template?'), findsOneWidget);
     });
@@ -356,7 +372,9 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Academic'), findsWidgets);
-      expect(find.text('START FROM A TEMPLATE'), findsOneWidget);
+      expect(find.text('START FROM A SAVED TASK'), findsOneWidget);
+      await tester.tap(savedTasks);
+      await tester.pumpAndSettle();
       expect(find.text('Grade sheets'), findsOneWidget);
     });
 

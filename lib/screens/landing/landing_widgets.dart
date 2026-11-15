@@ -535,7 +535,7 @@ class IdCard extends StatelessWidget {
               children: [
                 Text(
                   'MARINDUQUE STATE UNIVERSITY',
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white,

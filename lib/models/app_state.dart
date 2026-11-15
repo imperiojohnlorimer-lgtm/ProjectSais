@@ -23,6 +23,7 @@ import 'assistant_attendance.dart';
 import 'backup_info.dart';
 import 'models.dart';
 import 'program_batch.dart';
+import 'supervisor_card.dart';
 import 'task_duty.dart';
 import 'task_template.dart';
 
@@ -37,6 +38,7 @@ part 'app_state/rehiring.dart';
 part 'app_state/load_problems.dart';
 part 'app_state/backups.dart';
 part 'app_state/staff_requests.dart';
+part 'app_state/supervisor_cards.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
@@ -147,6 +149,14 @@ class AppState extends ChangeNotifier {
   /// The profiles' Student IDs as [_syncStudentIdClaims] last reconciled
   /// them, so an unrelated profile change doesn't re-read every claim.
   String? _syncedStudentIds;
+
+  /// The supervisors' names and pictures as [syncSupervisorCards] last
+  /// reconciled them with their cards.
+  String? _syncedSupervisorCards;
+
+  /// The pictures of the supervisors My Office has asked for, by account id
+  /// ('' when one has none). Filled by [loadSupervisorCards].
+  Map<String, String> supervisorAvatars = {};
   Timer? _missedTimeOutTimer;
   Timer? _clockOutReminderTimer;
   Timer? _archiveTimer;
@@ -922,6 +932,8 @@ class AppState extends ChangeNotifier {
         // Only a Head or the Admin may publish it (firestore.rules).
         if (isHead || isAdmin) _publishHeadIds();
         if (isAdmin || isHead) _syncStudentIdClaims();
+        // The picture Student Assistants see on My Office.
+        syncSupervisorCards();
         if (isHead) _cleanUpDeletedAccounts();
       });
       listen('Students', fs.collectionStream('students'), (list) {
@@ -1963,6 +1975,8 @@ class AppState extends ChangeNotifier {
     notifications = [];
     documents = [];
     _deletedAccounts = [];
+    supervisorAvatars = {};
+    _syncedSupervisorCards = null;
   }
 
   // ─── Navigation ────────────────────────────────────
@@ -4082,6 +4096,74 @@ class AppState extends ChangeNotifier {
   List<TaskTemplate> templatesIn(String category) =>
       taskTemplates.where((t) => t.category == category).toList();
 
+  /// Most tasks offered under "Given before" in the Assign Task form.
+  static const maxRecentTaskPicks = 30;
+
+  /// The tasks in [source] filed under [category], grouped by title (case
+  /// and spacing ignored): the newest task of each title and how many share
+  /// it, the most repeated first. [source] lists newest first, as [tasks]
+  /// does. Blank titles are left out.
+  List<TaskTitleGroup> taskTitleGroups(
+    Iterable<Task> source,
+    String category, {
+    bool skipDutyLogs = false,
+  }) {
+    final latest = <String, Task>{};
+    final counts = <String, int>{};
+    for (final t in source) {
+      if ((t.category ?? '') != category) continue;
+      if (skipDutyLogs && t.isDutyLog) continue;
+      final key = t.title.trim().toLowerCase();
+      if (key.isEmpty) continue;
+      latest.putIfAbsent(key, () => t);
+      counts[key] = (counts[key] ?? 0) + 1;
+    }
+    final keys = latest.keys.toList();
+    // Sort is not stable: the position breaks ties, so newer titles stay
+    // above older ones with the same count.
+    final order = {for (var i = 0; i < keys.length; i++) keys[i]: i};
+    keys.sort((a, b) {
+      final byCount = counts[b]!.compareTo(counts[a]!);
+      return byCount != 0 ? byCount : order[a]!.compareTo(order[b]!);
+    });
+    return [for (final k in keys) TaskTitleGroup(latest[k]!, counts[k]!)];
+  }
+
+  /// Tasks already given under [category] that the signed-in Supervisor (or
+  /// Head) can pick again in the Assign Task form, so the same task isn't
+  /// typed over and over: each fills in its newest version's description,
+  /// priority and checklist. Titles that are already one of the Head's
+  /// templates are left out (the template is offered instead). The ids start
+  /// with "recent:", so they never clash with a saved template.
+  List<TaskTemplate> recentTaskPicks(String category) {
+    final templateTitles = {
+      for (final t in templatesIn(category)) t.title.trim().toLowerCase(),
+    };
+    return [
+      for (final group in taskTitleGroups(
+        filteredTasks,
+        category,
+        skipDutyLogs: true,
+      ))
+        if (!templateTitles.contains(group.title.toLowerCase()))
+          TaskTemplate(
+            id: 'recent:${group.latest.id}',
+            category: category,
+            title: group.title,
+            description: group.latest.description,
+            priority: const ['High', 'Medium', 'Low'].contains(
+                  group.latest.priority,
+                )
+                ? group.latest.priority
+                : 'Medium',
+            checklist: [
+              for (final item in group.latest.checklistItems)
+                if (item.trim().isNotEmpty) item,
+            ],
+          ),
+    ].take(maxRecentTaskPicks).toList();
+  }
+
   /// Saves a template, new or changed. Returns null when it worked, or what
   /// to tell the Head.
   Future<String?> saveTaskTemplate(TaskTemplate template) async {
@@ -4126,6 +4208,92 @@ class AppState extends ChangeNotifier {
         : [...taskTemplates, clean];
     notifyListeners();
     return null;
+  }
+
+  /// Makes a template under [category] from each of [groups] (tasks already
+  /// given, see [taskTitleGroups]): its title, and the description, priority
+  /// and checklist of its newest task, cut to the template limits. All are
+  /// saved in one go or none are. A title the category already has a
+  /// template for, a blank one and one that only logs an ongoing duty are
+  /// skipped. [problem] is what to tell the Head when nothing was saved.
+  Future<({int made, int skipped, String? problem})> saveTaskTemplatesFromTasks(
+    String category,
+    Iterable<TaskTitleGroup> groups,
+  ) async {
+    if (!taskCategories.contains(category)) {
+      return (made: 0, skipped: 0, problem: 'Pick a category from the list.');
+    }
+    String cut(String text, int most) =>
+        text.length <= most ? text : text.substring(0, most);
+    final have = {
+      for (final t in templatesIn(category)) t.title.trim().toLowerCase(),
+    };
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final fresh = <TaskTemplate>[];
+    var skipped = 0;
+    for (final group in groups) {
+      final title = group.title;
+      if (title.isEmpty || group.latest.isDutyLog || !have.add(title.toLowerCase())) {
+        skipped++;
+        continue;
+      }
+      final task = group.latest;
+      fresh.add(
+        TaskTemplate(
+          id: 'tpl_${stamp}_${fresh.length}',
+          category: category,
+          title: cut(title, TaskTemplate.maxTitle),
+          description: cut(
+            task.description.trim(),
+            TaskTemplate.maxDescription,
+          ),
+          priority: const ['High', 'Medium', 'Low'].contains(task.priority)
+              ? task.priority
+              : 'Medium',
+          checklist: [
+            for (final item in task.checklistItems)
+              if (item.trim().isNotEmpty)
+                cut(item.trim(), TaskTemplate.maxChecklistItem),
+          ].take(TaskTemplate.maxChecklistItems).toList(),
+        ),
+      );
+    }
+    if (fresh.isEmpty) return (made: 0, skipped: skipped, problem: null);
+    final room = maxTaskTemplates - taskTemplates.length;
+    if (fresh.length > room) {
+      return (
+        made: 0,
+        skipped: skipped,
+        problem:
+            'You can keep up to $maxTaskTemplates templates, so '
+            '${room <= 0 ? 'no more' : 'only $room more'} fit. Delete some '
+            'you no longer use, or tick fewer.',
+      );
+    }
+    try {
+      _firestoreService ??= FirestoreService();
+      await _firestoreService!.upsertTaskTemplates([
+        for (final t in fresh) t.toJson(),
+      ]);
+    } catch (error) {
+      debugPrint('Failed to save task templates: $error');
+      return (
+        made: 0,
+        skipped: skipped,
+        problem:
+            "Couldn't save the templates. Check your connection and try "
+            'again.',
+      );
+    }
+    // The live listener may have delivered some already.
+    final ids = {for (final t in taskTemplates) t.id};
+    taskTemplates = [
+      ...taskTemplates,
+      for (final t in fresh)
+        if (!ids.contains(t.id)) t,
+    ];
+    notifyListeners();
+    return (made: fresh.length, skipped: skipped, problem: null);
   }
 
   /// Removes a template. Tasks already made from it are not touched.

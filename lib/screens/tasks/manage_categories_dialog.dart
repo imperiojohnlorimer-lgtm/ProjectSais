@@ -21,8 +21,8 @@ Future<void> showManageCategoriesDialog(BuildContext context) {
 
 /// The Head's list of task categories: add one, rename one (the tasks and
 /// templates filed under it follow) or delete one nothing is filed under.
-/// Opening a category shows its templates: the ready-made tasks a
-/// Supervisor can pick when assigning one. Results show in the dialog
+/// Opening a category shows the tasks given under it and its templates: the
+/// ready-made tasks a Supervisor can pick when assigning one. Results show in the dialog
 /// itself, so it stays open while the Head works down the list.
 class ManageCategoriesDialog extends StatefulWidget {
   const ManageCategoriesDialog({super.key});
@@ -345,7 +345,12 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
         Expanded(
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
-            onTap: () => setState(() => _open = open ? null : name),
+            onTap: () => setState(() {
+              _open = open ? null : name;
+              // The ticks belong to the category that was open.
+              _picked.clear();
+              _showAllTasks = false;
+            }),
             child: Row(
               children: [
                 Container(
@@ -498,6 +503,7 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          ..._taskList(state, category),
           const TaskSectionLabel('TEMPLATES'),
           const SizedBox(height: 10),
           if (templates.isEmpty)
@@ -546,6 +552,247 @@ class _ManageCategoriesDialogState extends State<ManageCategoriesDialog> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Titles listed before "Show all".
+  static const _shownTaskTitles = 10;
+
+  /// The titles ticked to become templates (lower-case, as grouped).
+  final _picked = <String>{};
+  bool _showAllTasks = false;
+
+  /// The tasks Supervisors have given under [category], by title with how
+  /// many were given (the same tasks the row's count adds up). Each can be
+  /// ticked to become a template; several at once make several templates.
+  /// Empty when there are none.
+  List<Widget> _taskList(AppState state, String category) {
+    final groups = state.taskTitleGroups(state.tasks, category);
+    if (groups.isEmpty) return const [];
+    final have = {
+      for (final t in state.templatesIn(category)) t.title.trim().toLowerCase(),
+    };
+    bool tickable(TaskTitleGroup g) =>
+        !g.latest.isDutyLog && !have.contains(g.title.toLowerCase());
+    final canTick = groups.where(tickable).toList();
+    final picked = [
+      for (final g in canTick)
+        if (_picked.contains(g.title.toLowerCase())) g,
+    ];
+    final shown = _showAllTasks
+        ? groups
+        : groups.take(_shownTaskTitles).toList();
+    return [
+      Row(
+        children: [
+          const Expanded(child: TaskSectionLabel('TASKS GIVEN')),
+          if (canTick.isNotEmpty)
+            TextButton(
+              onPressed: _busy
+                  ? null
+                  : () => setState(() {
+                      if (picked.length == canTick.length) {
+                        _picked.clear();
+                      } else {
+                        _picked.addAll(
+                          canTick.map((g) => g.title.toLowerCase()),
+                        );
+                      }
+                    }),
+              style: TextButton.styleFrom(
+                foregroundColor: AppTheme.maroon,
+                visualDensity: VisualDensity.compact,
+                textStyle: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+              child: Text(
+                picked.length == canTick.length ? 'Clear' : 'Select all',
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      Container(
+        constraints: const BoxConstraints(maxHeight: 260),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.slate200),
+        ),
+        // Scrolls inside, so a long list doesn't push the rest away.
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: SingleChildScrollView(
+            child: Column(
+              children: [for (final g in shown) _taskRow(g, tickable(g))],
+            ),
+          ),
+        ),
+      ),
+      if (groups.length > _shownTaskTitles)
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            onPressed: () => setState(() => _showAllTasks = !_showAllTasks),
+            style: TextButton.styleFrom(
+              foregroundColor: AppTheme.slate600,
+              visualDensity: VisualDensity.compact,
+              textStyle: const TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w600,
+                fontSize: 12.5,
+              ),
+            ),
+            child: Text(
+              _showAllTasks ? 'Show fewer' : 'Show all ${groups.length}',
+            ),
+          ),
+        ),
+      if (picked.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 44,
+          child: ElevatedButton(
+            onPressed: _busy ? null : () => _makeTemplates(category, picked),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.maroon,
+              foregroundColor: Colors.white,
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+              textStyle: const TextStyle(
+                fontFamily: 'Inter',
+                fontWeight: FontWeight.w700,
+                fontSize: 13.5,
+              ),
+            ),
+            child: _busy
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    picked.length == 1
+                        ? 'Make 1 template'
+                        : 'Make ${picked.length} templates',
+                  ),
+          ),
+        ),
+      ],
+      const SizedBox(height: 16),
+    ];
+  }
+
+  /// One title of the list: a tick box (a quiet "Template" tag when it
+  /// already is one, nothing for an ongoing duty's log), the title and how
+  /// many were given.
+  Widget _taskRow(TaskTitleGroup g, bool tickable) {
+    final key = g.title.toLowerCase();
+    final ticked = _picked.contains(key);
+    final isTemplate = !g.latest.isDutyLog && !tickable;
+    return InkWell(
+      onTap: !tickable || _busy
+          ? null
+          : () => setState(() {
+              if (!_picked.remove(key)) _picked.add(key);
+            }),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(4, 2, 12, 2),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 40,
+              child: tickable
+                  ? Checkbox(
+                      value: ticked,
+                      activeColor: AppTheme.maroon,
+                      visualDensity: VisualDensity.compact,
+                      onChanged: _busy
+                          ? null
+                          : (_) => setState(() {
+                              if (!_picked.remove(key)) _picked.add(key);
+                            }),
+                    )
+                  : null,
+            ),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  g.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate900,
+                  ),
+                ),
+              ),
+            ),
+            if (isTemplate) ...[
+              const SizedBox(width: 8),
+              const Text(
+                'Template',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.slate500,
+                ),
+              ),
+            ],
+            if (g.count > 1) ...[
+              const SizedBox(width: 8),
+              Text(
+                '×${g.count}',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.slate500,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Makes a template of each ticked task and says how it went.
+  Future<void> _makeTemplates(
+    String category,
+    List<TaskTitleGroup> chosen,
+  ) async {
+    if (_busy) return;
+    final state = context.read<AppState>();
+    setState(() => _busy = true);
+    final result = await state.saveTaskTemplatesFromTasks(category, chosen);
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      if (result.problem == null) _picked.clear();
+    });
+    final problem = result.problem;
+    if (problem != null) {
+      _say(problem, error: true);
+      return;
+    }
+    final skipped = result.skipped == 0
+        ? ''
+        : ' Left out ${result.skipped} that already had one.';
+    _say(
+      result.made == 0
+          ? 'Nothing new to make.$skipped'
+          : 'Made ${result.made} template${result.made == 1 ? '' : 's'}.'
+                '$skipped',
     );
   }
 

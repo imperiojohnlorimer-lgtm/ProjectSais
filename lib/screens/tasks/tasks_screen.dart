@@ -820,7 +820,7 @@ class _TaskCard extends StatelessWidget {
                       Expanded(
                         child: Text(
                           task.title,
-                          maxLines: 2,
+                          maxLines: 4,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontWeight: FontWeight.w800,

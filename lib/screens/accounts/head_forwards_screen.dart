@@ -371,6 +371,7 @@ class _StudentGroupState extends State<_StudentGroup> {
                         fontWeight: FontWeight.w800,
                         color: AppTheme.slate900,
                       ),
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),

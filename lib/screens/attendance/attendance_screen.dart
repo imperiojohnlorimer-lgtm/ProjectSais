@@ -1304,10 +1304,11 @@ class _RecordCard extends StatelessWidget {
                     children: [
                       ConstrainedBox(
                         constraints: BoxConstraints(
-                          maxWidth: isMobile ? 120 : 180,
+                          maxWidth: isMobile ? 210 : 260,
                         ),
                         child: Text(
                           record.studentName,
+                          maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
                             fontWeight: FontWeight.w700,

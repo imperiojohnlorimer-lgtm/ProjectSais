@@ -776,7 +776,7 @@ class _NoticeCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 3),
                     Text(
-                      'Posted by ${notice.postedBy} · ${notice.postedAt}',
+                      'Posted by ${notice.postedBy} · ${notice.postedOn}',
                       style: const TextStyle(
                         fontSize: 11,
                         color: AppTheme.slate500,

@@ -143,7 +143,14 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
               children: [
                 // Top bar — identical to app_shell
                 Container(
-                  padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 32, vertical: isCompact ? 10 : 12),
+                  // Phones draw the page under the status bar: keep the
+                  // header below it (0 on the web and on computers).
+                  padding: EdgeInsets.fromLTRB(
+                    isMobile ? 16 : 32,
+                    (isCompact ? 10 : 12) + MediaQuery.viewPaddingOf(context).top,
+                    isMobile ? 16 : 32,
+                    isCompact ? 10 : 12,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     border: Border(bottom: BorderSide(color: AppTheme.slate200, width: 1)),
@@ -152,16 +159,21 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                       ? Row(
                           children: [
                             // Title
+                            // A long page name shrinks a little instead of
+                            // being cut.
                             Expanded(
-                              child: Text(
-                                _title(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: isCompact ? 18 : 20,
-                                  fontWeight: FontWeight.w800,
-                                  color: AppTheme.maroon,
-                                  letterSpacing: -0.3,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  _title(),
+                                  maxLines: 1,
+                                  style: TextStyle(
+                                    fontSize: isCompact ? 18 : 20,
+                                    fontWeight: FontWeight.w800,
+                                    color: AppTheme.maroon,
+                                    letterSpacing: -0.3,
+                                  ),
                                 ),
                               ),
                             ),
@@ -236,7 +248,7 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             if (isMobile) ...[
-                              AppLogo(size: 36),
+                              SaisLogo(size: 36),
                               const SizedBox(width: 10),
                             ],
                             ShaderMask(
@@ -419,7 +431,7 @@ class _Sidebar extends StatelessWidget {
             ),
             child: Row(
               children: [
-                AppLogo(size: 52),
+                SaisLogo(size: 52),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(

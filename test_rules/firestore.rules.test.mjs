@@ -964,3 +964,60 @@ test('a Head still archives and restores students, but not a waiting request as 
   await seedPending();
   await assertFails(updateDoc(doc(as('head'), 'users', 'pend'), { status: 'Active' }));
 });
+
+// ── Supervisor cards: the name and picture a Student Assistant sees on My Office
+const card = (over = {}) => ({
+  name: 'Sam Supervisor',
+  avatar: 'data:image/png;base64,AAAA',
+  updatedAt: serverTimestamp(),
+  ...over,
+});
+
+test('a Supervisor writes only their own card, with exactly name, avatar and updatedAt', async () => {
+  const sup = as('sup');
+  await assertSucceeds(setDoc(doc(sup, 'supervisorCards', 'sup'), card()));
+  await assertSucceeds(
+    setDoc(doc(sup, 'supervisorCards', 'sup'), card({ avatar: '' })),
+  );
+  // Not another supervisor's, and nothing extra or missing.
+  await assertFails(setDoc(doc(sup, 'supervisorCards', 'sup2'), card()));
+  await assertFails(
+    setDoc(doc(sup, 'supervisorCards', 'sup'), card({ email: 'sup@example.com' })),
+  );
+  await assertFails(
+    setDoc(doc(sup, 'supervisorCards', 'sup'), { name: 'Sam', avatar: '' }),
+  );
+  await assertFails(
+    setDoc(doc(sup, 'supervisorCards', 'sup'), card({ updatedAt: new Date(0) })),
+  );
+  await assertFails(
+    setDoc(doc(sup, 'supervisorCards', 'sup'), card({ avatar: 42 })),
+  );
+});
+
+test('a Student Assistant or Student cannot write a card, but anyone signed in reads one', async () => {
+  for (const who of ['sa', 'stu']) {
+    await assertFails(setDoc(doc(as(who), 'supervisorCards', who), card()));
+    await assertFails(setDoc(doc(as(who), 'supervisorCards', 'sup'), card()));
+  }
+  await assertSucceeds(setDoc(doc(as('sup'), 'supervisorCards', 'sup'), card()));
+  for (const who of ['sa', 'stu', 'sup2', 'head', 'admin']) {
+    await assertSucceeds(getDoc(doc(as(who), 'supervisorCards', 'sup')));
+  }
+  await assertFails(getDoc(doc(env.unauthenticatedContext().firestore(), 'supervisorCards', 'sup')));
+});
+
+test('the Head and the Admin keep any Supervisor card in step, and may remove one', async () => {
+  await assertSucceeds(setDoc(doc(as('head'), 'supervisorCards', 'sup'), card()));
+  await assertSucceeds(
+    setDoc(doc(as('admin'), 'supervisorCards', 'sup2'), card({ name: 'Sol Supervisor' })),
+  );
+  await assertFails(deleteDoc(doc(as('sup'), 'supervisorCards', 'sup')));
+  await assertFails(deleteDoc(doc(as('sa'), 'supervisorCards', 'sup')));
+  await assertSucceeds(deleteDoc(doc(as('head'), 'supervisorCards', 'sup')));
+  await assertSucceeds(deleteDoc(doc(as('admin'), 'supervisorCards', 'sup2')));
+});
+
+test('a Student Assistant still cannot read a supervisor profile', async () => {
+  await assertFails(getDoc(doc(as('sa'), 'users', 'sup')));
+});

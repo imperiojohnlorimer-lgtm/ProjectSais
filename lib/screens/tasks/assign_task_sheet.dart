@@ -23,9 +23,10 @@ Future<void> showAssignTaskSheet(BuildContext context) {
   );
 }
 
-/// The Supervisor's Assign Task form. Picking one of the Head's templates
-/// for the chosen category fills in the title, description, priority and
-/// checklist; everything stays editable, and the task made is its own copy.
+/// The Supervisor's Assign Task form. Picking one of the Head's templates, or
+/// a task already given in the chosen category, fills in the title,
+/// description, priority and checklist; everything stays editable, and the
+/// task made is its own copy.
 class AssignTaskSheet extends StatefulWidget {
   const AssignTaskSheet({super.key});
 
@@ -50,6 +51,8 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
   String? _templateId;
   ({String title, String description, String priority, List<String> checklist})?
   _applied;
+  // Bumped to redraw the saved-task dropdown after a pick was turned down.
+  int _pickerTurn = 0;
   String? _error;
   // Set while the task saves, so a second tap can't assign it twice.
   bool _saving = false;
@@ -89,14 +92,6 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
 
   Future<void> _pickTemplate(TaskTemplate template) async {
     if (_saving) return;
-    if (_templateId == template.id) {
-      // Tapping the chosen one again just lets go of it.
-      setState(() {
-        _templateId = null;
-        _applied = null;
-      });
-      return;
-    }
     if (_hasTypedContent) {
       final replace = await showConfirmDialog(
         context,
@@ -254,6 +249,7 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
       _applied = null;
     }
     final templates = state.templatesIn(_category);
+    final recents = state.recentTaskPicks(_category);
     final students = state.filteredStudents;
     return Padding(
       padding: EdgeInsets.only(
@@ -325,17 +321,14 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
                             _applied = null;
                           }),
                         ),
-                        if (templates.isNotEmpty) ...[
+                        // The Head's templates and the tasks already given in
+                        // this category, so the same one isn't typed out
+                        // again.
+                        if (templates.isNotEmpty || recents.isNotEmpty) ...[
                           const SizedBox(height: 14),
-                          const TaskSectionLabel('START FROM A TEMPLATE'),
+                          const TaskSectionLabel('START FROM A SAVED TASK'),
                           const SizedBox(height: 10),
-                          Wrap(
-                            spacing: 8,
-                            runSpacing: 8,
-                            children: [
-                              for (final t in templates) _templateChip(t),
-                            ],
-                          ),
+                          _savedTaskPicker(templates, recents),
                         ],
                         const SizedBox(height: 24),
                         const TaskSectionLabel('TASK'),
@@ -493,45 +486,88 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
     );
   }
 
-  Widget _templateChip(TaskTemplate t) {
-    final selected = _templateId == t.id;
-    return InkWell(
-      borderRadius: BorderRadius.circular(20),
-      onTap: () => _pickTemplate(t),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? AppTheme.maroon50 : Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: selected ? AppTheme.maroon : AppTheme.slate200,
-            width: selected ? 1.4 : 1,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              selected ? Icons.check_circle_rounded : Icons.bookmark_outline,
-              size: 15,
-              color: selected ? AppTheme.maroon : AppTheme.slate400,
-            ),
-            const SizedBox(width: 6),
-            Flexible(
-              child: Text(
-                t.title,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w700,
-                  color: selected ? AppTheme.maroon : AppTheme.slate600,
-                ),
-              ),
-            ),
-          ],
+  /// The value of the dropdown's first entry: nothing picked, type it out.
+  static const _typeMyOwn = '';
+
+  /// One dropdown instead of a wall of chips: "Type my own", then the Head's
+  /// templates, then the tasks already given. Choosing one fills the form.
+  Widget _savedTaskPicker(
+    List<TaskTemplate> templates,
+    List<TaskTemplate> recents,
+  ) {
+    final byId = {
+      for (final t in [...templates, ...recents]) t.id: t,
+    };
+    DropdownMenuItem<String> header(String text) => DropdownMenuItem(
+      // A heading, not a choice.
+      enabled: false,
+      value: '#$text',
+      child: Text(
+        text.toUpperCase(),
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.4,
+          color: AppTheme.slate500,
         ),
       ),
+    );
+    DropdownMenuItem<String> entry(TaskTemplate t, IconData icon) =>
+        DropdownMenuItem(
+          value: t.id,
+          child: Row(
+            children: [
+              Icon(icon, size: 16, color: AppTheme.slate400),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  t.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        );
+    return DropdownButtonFormField<String>(
+      // Rebuilt when the pick changes or is turned down, so it shows what
+      // the form holds.
+      key: ValueKey('$_category|$_templateId|$_pickerTurn'),
+      initialValue: _templateId ?? _typeMyOwn,
+      isExpanded: true,
+      menuMaxHeight: 360,
+      icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),
+      decoration: const InputDecoration(
+        prefixIcon: Icon(Icons.bookmark_outline, size: 19),
+      ),
+      items: [
+        const DropdownMenuItem(value: _typeMyOwn, child: Text('Type my own')),
+        if (templates.isNotEmpty) ...[
+          header('Templates'),
+          for (final t in templates) entry(t, Icons.bookmark_outline),
+        ],
+        if (recents.isNotEmpty) ...[
+          header('Given before'),
+          for (final t in recents) entry(t, Icons.history_rounded),
+        ],
+      ],
+      onChanged: (id) async {
+        if (id == null) return;
+        if (id == _typeMyOwn) {
+          // Lets go of the pick; what is typed stays.
+          setState(() {
+            _templateId = null;
+            _applied = null;
+          });
+          return;
+        }
+        final picked = byId[id];
+        if (picked == null) return;
+        await _pickTemplate(picked);
+        // Turned down (the Head said no to replacing the text): show the
+        // pick the form still holds.
+        if (mounted && _templateId != id) setState(() => _pickerTurn++);
+      },
     );
   }
 

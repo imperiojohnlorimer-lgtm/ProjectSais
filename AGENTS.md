@@ -141,6 +141,14 @@ picture in the Offices dialog (`Office.about`, `location`, `locationImagePath`).
 The picture is stored under the `announcements/<uid>/` storage root so the
 upload function needs no change (it has no delete, so a replaced picture stays
 in the bucket).
+Each supervisor shows with a picture (initials until they have one). A Student
+Assistant can't read `users/{uid}`, so the picture comes from
+`supervisorCards/{account id}` = {name, avatar, updatedAt} (`SupervisorCard`):
+every staff/Admin session's Users listener calls `AppState.syncSupervisorCards`
+(Head/Admin bring every Supervisor's card up to date, a Supervisor only their
+own; only what differs is written), and My Office reads them with
+`loadSupervisorCards`. Readable by anyone signed in, never carries email or
+phone (rules). Needs the rules deployed, or pictures stay as initials.
 
 ### Backups (Admin)
 
@@ -241,7 +249,44 @@ with `lib/utils/csv.dart` (BOM, quoting, formula guard) and saved by
   templates under them (`meta/task_templates`, `TaskTemplate`) in
   `ManageCategoriesDialog`. Renaming a category renames its tasks and
   templates in one transaction; a category in use can't be deleted. Only the
-  Head writes both documents (rules).
+  Head writes both documents (rules). An opened category also lists the tasks
+  given under it ("TASKS GIVEN", `AppState.taskTitleGroups`: by title, with a
+  count); the Head can tick several and "Make N templates" in one save
+  (`AppState.saveTaskTemplatesFromTasks`, one `upsertTaskTemplates`
+  transaction; titles that already are templates and duty logs are skipped).
+- The Assign Task form has one "START FROM A SAVED TASK" dropdown: "Type my
+  own", the Head's templates, then "Given before": the tasks already given in
+  the chosen category that this Supervisor (Head: all) can see, one per
+  title, most repeated first, at most 30 (`AppState.recentTaskPicks`,
+  in-memory `TaskTemplate`s with ids `recent:<taskId>`), so the same task
+  isn't typed over and over.
+- DTR/Accomplishment Report: a red weekend/holiday row (a task approved on
+  a non-working day, no clock-in) has a "Fix" button that puts the note back
+  to "Sunday"/"Saturday"/"Holiday" and clears the red (`_fixDay`; kept when
+  the days are rebuilt, `_fixedDays`). A missed time-out is never fixable
+  that way. My Office: a supervisor's picture opens larger with "View
+  picture" (`showPictureViewer` in `shared_widgets.dart`).
+- Phone text: `tool/mobile_audit/` draws every page, role and main dialog at
+  360/390 px and 1.3x font with Roboto (what phones draw for 'Inter') and
+  reports cut text and overflows (see its README). Widget tests use the
+  square test font, so only this, or a test using `test/support/
+  real_fonts.dart` (as `test/mobile_text_fit_test.dart` does), can prove a
+  text fits. On phones: names/offices take 2-4 lines rather than an
+  ellipsis, the phone header puts the year under the page name, and side
+  buttons move under the text.
+- Branding: `SaisLogo` (`assets/images/sais_logo.png`, the university's maroon
+  and gold badge with the system's name) is the app's own logo: sidebar,
+  drawer, sign-in/landing header and the launcher/web icons. `AppLogo` (the
+  university seal, `logo.jpg`) stays on printed forms (DTR report, payroll
+  sheet, screening) and the landing credit line.
+- Android: a test APK builds from this code (README, "Android app (APK)"):
+  `firebase_auth` must be 6.7+ for Android, always pass `-t lib/main.dart`,
+  debug-signed with the default `com.example.projectsais` id; Google
+  sign-in and push are web-only so far. Keep features working on the web
+  first; Android uses the same services.
+- Phones draw pages under the status bar (Android 15 edge-to-edge): both
+  shells' top bars add `MediaQuery.viewPaddingOf(context).top` (0 on web and
+  desktop).
 - An **ongoing duty** (`taskDuties/{id}`, `TaskDuty`) has no due date. On a
   day a Student Assistant has clocked in they log it
   (`AppState.logDutyWork`), which makes one task per duty per day with the

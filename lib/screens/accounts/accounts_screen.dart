@@ -103,7 +103,7 @@ class _AccountsScreenState extends State<AccountsScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ΓöÇΓöÇ Header ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+        // ── Header ──────────────────────────────────────────
         Padding(
           padding: EdgeInsets.fromLTRB(
             MediaQuery.of(context).size.width < 700 ? 16.0 : 28.0,
@@ -113,7 +113,10 @@ class _AccountsScreenState extends State<AccountsScreen>
           ),
           child: Row(
             children: [
-              Column(
+              // Takes what the button leaves, so the subtitle wraps on a
+              // phone instead of pushing the button off the screen.
+              Expanded(
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
@@ -147,7 +150,8 @@ class _AccountsScreenState extends State<AccountsScreen>
                   ),
                 ],
               ),
-              const Spacer(),
+              ),
+              const SizedBox(width: 12),
               ElevatedButton.icon(
                 onPressed: () => _showUserDialog(context, state),
                 icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
@@ -173,7 +177,7 @@ class _AccountsScreenState extends State<AccountsScreen>
         ),
         const SizedBox(height: 16),
 
-        // ΓöÇΓöÇ Content ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+        // ── Content ──────────────────────────────────────────
         Expanded(
           child: _buildAccountsTab(
             context,
@@ -189,9 +193,9 @@ class _AccountsScreenState extends State<AccountsScreen>
     );
   }
 
-  // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ─────────────────────────────────────────────────────
   // ACCOUNTS TAB (original content)
-  // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ─────────────────────────────────────────────────────
   Widget _buildAccountsTab(
     BuildContext context,
     AppState state,
@@ -231,7 +235,7 @@ class _AccountsScreenState extends State<AccountsScreen>
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ΓöÇΓöÇ Stat cards ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+          // ── Stat cards ──────────────────────────────────────
           const SizedBox(height: 4),
           isMobile
               // FIX: GridView.count with a fixed childAspectRatio forced each
@@ -329,7 +333,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                 ),
           const SizedBox(height: 20),
 
-          // ΓöÇΓöÇ Filters row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+          // ── Filters row ──────────────────────────────────────
           if (isMobile) ...[
             TextField(
               onChanged: (v) => setState(() => _search = v),
@@ -704,7 +708,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                     ),
                   ),
                 ),
-                // Table header ΓÇö the 4-column layout only makes sense on
+                // Table header — the 4-column layout only makes sense on
                 // wider screens; on mobile the rows below switch to a
                 // stacked card layout so a matching header isn't needed.
                 if (!isMobile)
@@ -903,9 +907,9 @@ class _AccountsScreenState extends State<AccountsScreen>
     );
   } // end _buildAccountsTab
 
-  // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ─────────────────────────────────────────────────────
   // ANNOUNCEMENTS TAB
-  // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ─────────────────────────────────────────────────────
   // ignore: unused_element
   Widget _buildAnnouncementsTab(BuildContext context, AppState state) {
     final anns = state.announcements;
@@ -964,9 +968,9 @@ class _AccountsScreenState extends State<AccountsScreen>
     );
   }
 
-  // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ─────────────────────────────────────────────────────
   // APPLICATIONS TAB
-  // ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ─────────────────────────────────────────────────────
   // ignore: unused_element
   Widget _buildApplicationsTab(BuildContext context, AppState state) {
     final apps = state.applications;
@@ -2170,7 +2174,7 @@ class _AccountsScreenState extends State<AccountsScreen>
   }
 }
 
-// ΓöÇΓöÇ Stat card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ── Stat card ─────────────────────────────────────────────────────────
 class _StatCard extends StatelessWidget {
   final String label;
   final int count;
@@ -2221,15 +2225,20 @@ class _StatCard extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: AppTheme.slate500,
-                      letterSpacing: 0.8,
+                  // One word: it shrinks a little on a narrow phone instead
+                  // of being cut ("SUPERVIS…").
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.slate500,
+                        letterSpacing: 0.8,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 2),
@@ -2252,7 +2261,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-// ΓöÇΓöÇ Col header ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ── Col header ────────────────────────────────────────────────────────
 
 class _ColHeader extends StatelessWidget {
   final String text;
@@ -2325,7 +2334,7 @@ class _NameGuessNote extends StatelessWidget {
   );
 }
 
-// ΓöÇΓöÇ Account row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ── Account row ───────────────────────────────────────────────────────
 /// Runs [work] with the row's [action] ('archive' or 'delete') shown as
 /// waiting: a spinner in that button, and both buttons off until it is done.
 typedef _RunBusy =
@@ -2680,7 +2689,7 @@ class _AccountRowState extends State<_AccountRow> {
             Expanded(
               flex: 2,
               child: Text(
-                u.campus?.replaceAll(' Campus', '') ?? 'ΓÇö',
+                u.campus?.replaceAll(' Campus', '') ?? '—',
                 style: const TextStyle(fontSize: 13, color: AppTheme.slate600),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -2788,10 +2797,10 @@ class _AccountRowState extends State<_AccountRow> {
     );
   }
 
-  // ΓöÇΓöÇ Mobile: stacked card instead of the 4-column table row ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Mobile: stacked card instead of the 4-column table row ─────────
   // FIX: cramming USER/ROLE/DEPARTMENT/ACTIONS into Expanded flex columns
   // on a ~320px-wide screen left no room for the role dropdown or
-  // department text ΓÇö that was the overlapping "ROLE / DEPARTMENT /
+  // department text — that was the overlapping "ROLE / DEPARTMENT /
   // ACTIONS" overflow in the screenshot. A stacked layout gives each
   // piece of info its own full-width line instead.
   Widget _buildMobileCard(User u, bool isSelf) {
@@ -2849,10 +2858,12 @@ class _AccountRowState extends State<_AccountRow> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Flexible(
                           child: Text(
                             u.name,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontWeight: FontWeight.w700,
@@ -2908,6 +2919,7 @@ class _AccountRowState extends State<_AccountRow> {
                     const SizedBox(height: 2),
                     Text(
                       u.email,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 12,
@@ -2922,87 +2934,20 @@ class _AccountRowState extends State<_AccountRow> {
                   ],
                 ),
               ),
-              if (isSelf)
-                IconButton(
-                  onPressed: widget.onView,
-                  icon: const Icon(
-                    Icons.visibility_outlined,
-                    size: 17,
-                    color: AppTheme.slate400,
-                  ),
-                  tooltip: 'View profile',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
-                )
-              else ...[
-                IconButton(
-                  onPressed: widget.onView,
-                  icon: const Icon(
-                    Icons.visibility_outlined,
-                    size: 17,
-                    color: AppTheme.slate400,
-                  ),
-                  tooltip: 'View profile',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
+              IconButton(
+                onPressed: widget.onView,
+                icon: const Icon(
+                  Icons.visibility_outlined,
+                  size: 17,
+                  color: AppTheme.slate400,
                 ),
-                IconButton(
-                  onPressed: widget.onEdit,
-                  icon: const Icon(
-                    Icons.edit_outlined,
-                    size: 17,
-                    color: AppTheme.slate400,
-                  ),
-                  tooltip: 'Edit account',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
+                tooltip: 'View profile',
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(
+                  minWidth: 28,
+                  minHeight: 28,
                 ),
-                IconButton(
-                  onPressed: _onArchive,
-                  icon: BusyIcon(
-                    busy: _busyAction == 'archive',
-                    icon: u.status == 'Archived'
-                        ? Icons.unarchive_outlined
-                        : Icons.archive_outlined,
-                    size: 18,
-                    color: u.status == 'Archived'
-                        ? AppTheme.emerald500
-                        : AppTheme.slate300,
-                  ),
-                  tooltip: u.status == 'Archived'
-                      ? 'Restore account'
-                      : 'Archive account',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 28,
-                    minHeight: 28,
-                  ),
-                ),
-                IconButton(
-                  onPressed: _onDelete,
-                  icon: BusyIcon(
-                    busy: _busyAction == 'delete',
-                    icon: Icons.delete_outline_rounded,
-                    size: 17,
-                    color: AppTheme.red500,
-                  ),
-                  tooltip: 'Delete account permanently',
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(
-                    minWidth: 40,
-                    minHeight: 40,
-                  ),
-                ),
-              ],
+              ),
             ],
           ),
           const SizedBox(height: 12),
@@ -3076,7 +3021,7 @@ class _AccountRowState extends State<_AccountRow> {
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
-                  u.campus ?? 'ΓÇö',
+                  u.campus ?? '—',
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12.5,
@@ -3086,13 +3031,73 @@ class _AccountRowState extends State<_AccountRow> {
               ),
             ],
           ),
+          // On their own line, so the name and email above get the
+          // card's full width on a phone.
+          if (!isSelf) ...[
+            const SizedBox(height: 6),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                IconButton(
+                  onPressed: widget.onEdit,
+                  icon: const Icon(
+                    Icons.edit_outlined,
+                    size: 17,
+                    color: AppTheme.slate400,
+                  ),
+                  tooltip: 'Edit account',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                ),
+                IconButton(
+                  onPressed: _onArchive,
+                  icon: BusyIcon(
+                    busy: _busyAction == 'archive',
+                    icon: u.status == 'Archived'
+                        ? Icons.unarchive_outlined
+                        : Icons.archive_outlined,
+                    size: 18,
+                    color: u.status == 'Archived'
+                        ? AppTheme.emerald500
+                        : AppTheme.slate300,
+                  ),
+                  tooltip: u.status == 'Archived'
+                      ? 'Restore account'
+                      : 'Archive account',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 28,
+                    minHeight: 28,
+                  ),
+                ),
+                IconButton(
+                  onPressed: _onDelete,
+                  icon: BusyIcon(
+                    busy: _busyAction == 'delete',
+                    icon: Icons.delete_outline_rounded,
+                    size: 17,
+                    color: AppTheme.red500,
+                  ),
+                  tooltip: 'Delete account permanently',
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(
+                    minWidth: 40,
+                    minHeight: 40,
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-// ΓöÇΓöÇ Role Dropdown ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ── Role Dropdown ─────────────────────────────────────────────────────
 class _RoleDropdown extends StatefulWidget {
   final User user;
   final AppState state;
@@ -3262,7 +3267,7 @@ void _showProblem(BuildContext context, String message) {
   );
 }
 
-// ΓöÇΓöÇ Admin Announcement Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ── Admin Announcement Card ───────────────────────────────────────────
 class _AdminAnnouncementCard extends StatelessWidget {
   final Announcement ann;
   final AppState state;
@@ -3520,7 +3525,7 @@ class _Chip extends StatelessWidget {
   );
 }
 
-// ΓöÇΓöÇ Admin Application Card ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+// ── Admin Application Card ────────────────────────────────────────────
 class _AdminApplicationCard extends StatelessWidget {
   final Application app;
   final AppState state;
@@ -4018,7 +4023,7 @@ class _AdminApplicationCard extends StatelessWidget {
                                             MainAxisAlignment.spaceBetween,
                                         children: [
                                           Text(
-                                            '${(doc.fileSize ?? 0).toStringAsFixed(2)} MB ΓÇó ${doc.uploadedAt}',
+                                            '${(doc.fileSize ?? 0).toStringAsFixed(2)} MB • ${doc.uploadedAt}',
                                             style: const TextStyle(
                                               fontSize: 9,
                                               color: AppTheme.slate500,

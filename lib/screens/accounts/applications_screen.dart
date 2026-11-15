@@ -480,15 +480,18 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
                         }
                       }),
               ),
-              Text(
-                count == 0
-                    ? 'Tick the applicants to screen '
-                          '(${pendingShown.length} pending shown)'
-                    : '$count selected for screening',
-                style: const TextStyle(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.slate700,
+              // Wraps on a phone instead of running past the edge.
+              Flexible(
+                child: Text(
+                  count == 0
+                      ? 'Tick the applicants to screen '
+                            '(${pendingShown.length} pending shown)'
+                      : '$count selected for screening',
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate700,
+                  ),
                 ),
               ),
             ],

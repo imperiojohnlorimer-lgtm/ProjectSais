@@ -340,7 +340,7 @@ class _OfficeRow extends StatelessWidget {
                   Flexible(
                     child: Text(
                       office.name,
-                      maxLines: 2,
+                      maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         fontSize: 14.5,
@@ -1370,7 +1370,7 @@ class _TaskTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(task.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                Text(task.title, maxLines: 3, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slate900)),
                 const SizedBox(height: 2),
                 Text('Due: ${task.dueDate}', style: const TextStyle(fontSize: 11, color: AppTheme.slate500)),
@@ -1405,7 +1405,7 @@ class _ReportTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(report.title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                Text(report.title, maxLines: 3, overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slate900)),
                 if (report.submittedAt != null) ...[
                   const SizedBox(height: 2),
@@ -2713,7 +2713,7 @@ class _AttendanceTile extends StatelessWidget {
               children: [
                 Text(
                   record.studentName,
-                  maxLines: 1,
+                  maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13, color: AppTheme.slate900),
                 ),

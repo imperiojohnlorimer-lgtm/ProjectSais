@@ -2,6 +2,7 @@ import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'payroll_requirements.dart';
 import 'person_name.dart';
+import '../utils/philippine_dates.dart';
 export 'dtr_accomplishment_report.dart';
 export 'payroll_requirements.dart';
 export 'payroll_sheet.dart';
@@ -92,6 +93,19 @@ class Office {
     for (final name in headNames)
       if (name.trim().isNotEmpty) name.trim(),
   }.toList();
+
+  /// Each supervisor with their account id ('' when saved without one), in
+  /// the order of [supervisorNames]: the same blanks and repeats are left out.
+  List<({String id, String name})> get supervisorEntries {
+    final seen = <String>{};
+    final entries = <({String id, String name})>[];
+    for (var i = 0; i < headNames.length; i++) {
+      final name = headNames[i].trim();
+      if (name.isEmpty || !seen.add(name)) continue;
+      entries.add((id: i < headIds.length ? headIds[i] : '', name: name));
+    }
+    return entries;
+  }
 
   /// Whether the user [userId] (named [name]) is one of this office's
   /// student assistants. The id lists decide it — two people can share a
@@ -1350,6 +1364,10 @@ class Announcement {
   });
 
   bool get hasAttachment => attachmentUrl != null && attachmentUrl!.isNotEmpty;
+
+  /// When it was posted, as "Nov 13, 2026" (the saved text itself when it
+  /// can't be read as a time).
+  String get postedOn => philippineDayText(postedAt) ?? postedAt;
 
   bool get isPending => approvalStatus == 'Pending';
   bool get isApproved => approvalStatus == 'Approved';

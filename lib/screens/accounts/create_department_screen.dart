@@ -258,12 +258,14 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                                               color: AppTheme.slate400,
                                             ),
                                             const SizedBox(width: 4),
-                                            const Text(
-                                              'Active Department',
-                                              style: TextStyle(
-                                                fontSize: 11,
-                                                color: AppTheme.slate500,
-                                                fontWeight: FontWeight.w500,
+                                            const Flexible(
+                                              child: Text(
+                                                'Active Department',
+                                                style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: AppTheme.slate500,
+                                                  fontWeight: FontWeight.w500,
+                                                ),
                                               ),
                                             ),
                                           ],

@@ -608,12 +608,13 @@ class _AdminAnnouncementCard extends StatelessWidget {
                           const SizedBox(width: 4),
                           Flexible(
                             child: Text(
-                              '${ann.postedBy} · ${ann.postedAt}',
+                              '${ann.postedBy} · ${ann.postedOn}',
                               style: const TextStyle(
                                 fontSize: 11.5,
                                 color: AppTheme.slate500,
                                 fontWeight: FontWeight.w500,
                               ),
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -657,12 +658,16 @@ class _AdminAnnouncementCard extends StatelessWidget {
                       color: AppTheme.maroon,
                     ),
                     const SizedBox(width: 6),
-                    Text(
-                      ann.officeName!,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.maroon,
+                    // A long office name wraps instead of running off a
+                    // phone's screen.
+                    Flexible(
+                      child: Text(
+                        ann.officeName!,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.maroon,
+                        ),
                       ),
                     ),
                   ],
@@ -1116,7 +1121,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         Text(
-                          ann.postedAt,
+                          ann.postedOn,
                           style: const TextStyle(
                             fontSize: 12,
                             color: AppTheme.slate500,

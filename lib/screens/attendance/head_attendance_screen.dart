@@ -609,7 +609,7 @@ class _AssistantRow extends StatelessWidget {
                                 row.officeLabel,
                                 if (department.isNotEmpty) department,
                               ].join(' · '),
-                              maxLines: 2,
+                              maxLines: 3,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                 fontSize: 12,

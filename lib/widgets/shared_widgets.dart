@@ -1,9 +1,126 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../theme/app_snackbar.dart';
 import '../theme/app_theme.dart';
+
+/// The bytes of a `data:image/...;base64,` URL (how profile pictures are
+/// stored), or null when it isn't a usable one.
+Uint8List? decodeDataImage(String dataUrl) {
+  try {
+    final prefixEnd = dataUrl.indexOf(',');
+    if (prefixEnd < 0) return null;
+    final payload = dataUrl
+        .substring(prefixEnd + 1)
+        .replaceAll(RegExp(r'\s+'), '');
+    if (payload.isEmpty) return null;
+    final bytes = base64Decode(payload);
+    return bytes.isEmpty ? null : bytes;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// Shows a picture larger, in a dialog: [pictureUrl] is a `data:image` URL
+/// (a profile picture) or a web address. It zooms with a pinch or the
+/// scroll wheel, and closes with the button, a tap outside or Esc. [title]
+/// (the person's name) captions it and names it for a screen reader.
+Future<void> showPictureViewer(
+  BuildContext context, {
+  required String pictureUrl,
+  required String title,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (dialogContext) {
+      final size = MediaQuery.of(dialogContext).size;
+      Widget failed() => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 48, horizontal: 16),
+        child: Text(
+          "Couldn't show the picture.",
+          textAlign: TextAlign.center,
+          style: TextStyle(color: AppTheme.slate500),
+        ),
+      );
+      final bytes = pictureUrl.startsWith('data:image')
+          ? decodeDataImage(pictureUrl)
+          : null;
+      final Widget picture = pictureUrl.startsWith('data:image')
+          ? (bytes == null
+                ? failed()
+                : Image.memory(
+                    bytes,
+                    fit: BoxFit.contain,
+                    semanticLabel: title,
+                    errorBuilder: (_, _, _) => failed(),
+                  ))
+          : Image.network(
+              pictureUrl,
+              fit: BoxFit.contain,
+              semanticLabel: title,
+              errorBuilder: (_, _, _) => failed(),
+            );
+      return Dialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        insetPadding: const EdgeInsets.all(20),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 520,
+            maxHeight: size.height * 0.86,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 8, 0),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.slate900,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      onPressed: () => Navigator.of(dialogContext).pop(),
+                      icon: const Icon(Icons.close_rounded),
+                      color: AppTheme.slate600,
+                    ),
+                  ],
+                ),
+              ),
+              Flexible(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(14),
+                    child: InteractiveViewer(
+                      minScale: 1,
+                      maxScale: 5,
+                      child: Center(child: picture),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
 
 // ─── Avatar Widget ──────────────────────────────────
 class UserAvatar extends StatelessWidget {
@@ -54,27 +171,17 @@ class UserAvatar extends StatelessWidget {
   }
 
   Widget _buildDataImage(String dataUrl) {
-    try {
-      final prefixEnd = dataUrl.indexOf(',');
-      if (prefixEnd < 0) return _initials();
-      final payload = dataUrl
-          .substring(prefixEnd + 1)
-          .replaceAll(RegExp(r'\s+'), '');
-      if (payload.isEmpty) return _initials();
-      final bytes = base64Decode(payload);
-      if (bytes.isEmpty) return _initials();
-      return Image.memory(
-        bytes,
-        width: size,
-        height: size,
-        fit: BoxFit.cover,
-        gaplessPlayback: true,
-        excludeFromSemantics: true,
-        errorBuilder: (_, __, ___) => _initials(),
-      );
-    } catch (_) {
-      return _initials();
-    }
+    final bytes = decodeDataImage(dataUrl);
+    if (bytes == null) return _initials();
+    return Image.memory(
+      bytes,
+      width: size,
+      height: size,
+      fit: BoxFit.cover,
+      gaplessPlayback: true,
+      excludeFromSemantics: true,
+      errorBuilder: (_, __, ___) => _initials(),
+    );
   }
 
   Widget _initials() => Center(
@@ -120,6 +227,53 @@ class AppLogo extends StatelessWidget {
         'assets/images/logo.jpg',
         fit: BoxFit.cover,
         semanticLabel: 'SAIS logo',
+      ),
+    );
+  }
+}
+
+/// The SAIS logo: the university's maroon and gold badge with the system's
+/// name, a torch, a book and a few linked nodes. It is the app's own
+/// branding (sidebar, sign-in, landing page, icons). [AppLogo], the
+/// university's seal, stays on printed forms.
+class SaisLogo extends StatelessWidget {
+  final double size;
+  final List<BoxShadow>? shadow;
+
+  /// Set where a wordmark beside it already says "SAIS", so a screen reader
+  /// doesn't read it twice.
+  final bool excludeFromSemantics;
+
+  const SaisLogo({
+    super.key,
+    this.size = 52,
+    this.shadow,
+    this.excludeFromSemantics = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        boxShadow:
+            shadow ??
+            [
+              BoxShadow(
+                color: AppTheme.maroon.withValues(alpha: 0.3),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
+              ),
+            ],
+      ),
+      child: Image.asset(
+        'assets/images/sais_logo.png',
+        fit: BoxFit.contain,
+        filterQuality: FilterQuality.medium,
+        semanticLabel: 'SAIS logo',
+        excludeFromSemantics: excludeFromSemantics,
       ),
     );
   }
@@ -1298,12 +1452,15 @@ class ProgressStrip extends StatelessWidget {
         children: [
           Icon(icon, size: 15, color: AppTheme.maroon),
           const SizedBox(width: 8),
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12.5,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.slate700,
+          // May wrap on a narrow phone rather than push the count off.
+          Flexible(
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate700,
+              ),
             ),
           ),
           const SizedBox(width: 14),

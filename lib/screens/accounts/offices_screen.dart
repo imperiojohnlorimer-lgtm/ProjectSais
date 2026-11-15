@@ -268,31 +268,43 @@ class _OfficesScreenState extends State<OfficesScreen> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  flex: 3,
-                                  child: TextField(
-                                    controller: nameController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Office name *',
-                                      prefixIcon: Icon(Icons.business_outlined),
-                                    ),
+                            // Side by side when there's room; on a phone the
+                            // code goes under the name, so neither label is
+                            // cut ("Offic…").
+                            LayoutBuilder(
+                              builder: (context, box) {
+                                final name = TextField(
+                                  controller: nameController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Office name *',
+                                    prefixIcon: Icon(Icons.business_outlined),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  flex: 2,
-                                  child: TextField(
-                                    controller: codeController,
-                                    decoration: const InputDecoration(
-                                      labelText: 'Office code *',
-                                      prefixIcon: Icon(Icons.tag_outlined),
-                                    ),
+                                );
+                                final code = TextField(
+                                  controller: codeController,
+                                  decoration: const InputDecoration(
+                                    labelText: 'Office code *',
+                                    prefixIcon: Icon(Icons.tag_outlined),
                                   ),
-                                ),
-                              ],
+                                );
+                                if (box.maxWidth < 420) {
+                                  return Column(
+                                    children: [
+                                      name,
+                                      const SizedBox(height: 14),
+                                      code,
+                                    ],
+                                  );
+                                }
+                                return Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(flex: 3, child: name),
+                                    const SizedBox(width: 12),
+                                    Expanded(flex: 2, child: code),
+                                  ],
+                                );
+                              },
                             ),
                             const SizedBox(height: 14),
                             TextField(
@@ -1284,7 +1296,7 @@ class _OfficeCardState extends State<_OfficeCard> {
                               Expanded(
                                 child: Text(
                                   office.location,
-                                  maxLines: 1,
+                                  maxLines: 3,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
                                     fontSize: 11.5,
@@ -2673,7 +2685,9 @@ class _LocationPictureField extends StatelessWidget {
             title: officeName.isEmpty ? 'office' : officeName,
             height: 140,
           ),
-        Row(
+        // Wraps on a phone, so "Replace picture" and "Remove" never run
+        // off the side.
+        Wrap(
           children: [
             TextButton.icon(
               onPressed: enabled ? onPick : null,

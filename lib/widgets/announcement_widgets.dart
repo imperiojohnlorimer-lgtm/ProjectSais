@@ -193,7 +193,7 @@ class AnnouncementCard extends StatelessWidget {
                             ),
                             const SizedBox(height: 6),
                             Text(
-                              'Posted by ${announcement.postedBy} · ${announcement.postedAt}',
+                              'Posted by ${announcement.postedBy} · ${announcement.postedOn}',
                               style: const TextStyle(
                                 fontSize: 11,
                                 color: AppTheme.slate500,
@@ -300,7 +300,7 @@ class AnnouncementCard extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          'Submitted ${announcement.postedAt}',
+                          'Submitted ${announcement.postedOn}',
                           style: const TextStyle(
                             fontSize: 11,
                             color: AppTheme.slate500,
@@ -441,7 +441,7 @@ class AnnouncementDetailsDialog extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          announcement.postedAt,
+                          announcement.postedOn,
                           style: const TextStyle(
                             fontSize: 12,
                             color: AppTheme.slate500,
@@ -830,12 +830,16 @@ class _Chip extends StatelessWidget {
         children: [
           Icon(icon, size: 14, color: color),
           const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: color,
+          // A long label (an office's full name) wraps instead of running
+          // off a phone's screen.
+          Flexible(
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: color,
+              ),
             ),
           ),
         ],
