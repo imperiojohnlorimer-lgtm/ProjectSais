@@ -18,7 +18,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:projectsais/models/app_state.dart';
-import 'package:projectsais/models/models.dart';
 import 'package:projectsais/screens/app_shell.dart';
 import 'package:projectsais/screens/auth/login_screen.dart';
 import 'package:projectsais/screens/auth/register_screen.dart';
