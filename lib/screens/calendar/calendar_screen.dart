@@ -8,6 +8,7 @@ import '../../models/schedule_event.dart';
 import '../../services/recurring_schedule_repository.dart';
 import '../../services/schedule_service.dart';
 import '../../widgets/shared_widgets.dart';
+import 'class_schedule_card.dart';
 
 /// Displays a user's schedule. Admins and Supervisors can additionally
 /// browse other people's schedules via [_ScheduleOwnerSelector].
@@ -40,6 +41,12 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final state = context.watch<AppState>();
     final scheduleService = context.watch<ScheduleService>();
     scheduleService.activeAcademicYear = state.academicYear;
+    // Approved class schedules are drawn on every class day of the year.
+    scheduleService.setCalendarRange(
+      state.academicYearStart,
+      state.academicYearEnd,
+      state.isHoliday,
+    );
 
     final isSupervisor = state.role == 'Supervisor';
     final isAdmin = state.role == 'Head';
@@ -126,6 +133,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
             name: state.currentUser?.name ?? '',
           );
 
+    // A Student Assistant's subjects come from their approved class
+    // schedule: only the Head changes them, from the card below.
+    final ownerRole = _viewingName == null
+        ? state.role
+        : viewableUsers
+                  .where((u) => u.name == _viewingName)
+                  .map((u) => u.role)
+                  .firstOrNull ??
+              '';
+    final ownerIsAssistant = ownerRole == 'Student Assistant';
+
     // Kick off a load for this owner if we haven't fetched their events yet.
     // ScheduleService caches per-owner, so this is a no-op once loaded.
     if (owner.id.isNotEmpty) {
@@ -203,6 +221,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 owner: owner,
                 isViewingOther: isViewingOther,
                 isMobile: isMobile,
+                ownerIsAssistant: ownerIsAssistant,
               ),
             ],
           ),
@@ -220,6 +239,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 _selectedDay = null;
                 _focusedDay = DateTime.now();
               }),
+            ),
+          ],
+
+          if (ownerIsAssistant && owner.id.isNotEmpty) ...[
+            SizedBox(height: isMobile ? 12 : 16),
+            ClassScheduleCard(
+              ownerId: owner.id,
+              ownerName: owner.name,
+              isOwn: !isViewingOther,
             ),
           ],
 
@@ -504,7 +532,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 ),
                 child: _EventTile(
                   event: e.value,
-                  onDelete: () async {
+                  // A class from the approved schedule isn't stored: it
+                  // changes only with the schedule.
+                  onDelete: e.value.computed ? null : () async {
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (dialogContext) => AlertDialog(
@@ -698,12 +728,17 @@ class _CalendarScreenState extends State<CalendarScreen> {
   /// rules, keyed by whichever account is being viewed here. "Add Event" (a
   /// personal one-off entry, never pulled into the DTR report) stays
   /// limited to your own calendar.
+  ///
+  /// A Student Assistant's subjects come from their class schedule file,
+  /// approved by the Head ([ClassScheduleCard]), so "Add Subject" isn't
+  /// offered on their calendar.
   Widget _actionBar({
     required BuildContext context,
     required ScheduleService scheduleService,
     required _Owner owner,
     required bool isViewingOther,
     required bool isMobile,
+    bool ownerIsAssistant = false,
   }) {
     final chips = <Widget>[
       _actionChip(
@@ -712,13 +747,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
         dense: isMobile,
         onTap: () => _showAddScheduleDialog(context, scheduleService, owner),
       ),
-      SizedBox(width: isMobile ? 8 : 10),
-      _actionChip(
-        icon: Icons.menu_book_outlined,
-        label: 'Add Subject',
-        dense: isMobile,
-        onTap: () => _showAddSubjectDialog(context, scheduleService, owner),
-      ),
+      if (!ownerIsAssistant) ...[
+        SizedBox(width: isMobile ? 8 : 10),
+        _actionChip(
+          icon: Icons.menu_book_outlined,
+          label: 'Add Subject',
+          dense: isMobile,
+          onTap: () => _showAddSubjectDialog(context, scheduleService, owner),
+        ),
+      ],
       if (!isViewingOther) ...[
         SizedBox(width: isMobile ? 8 : 10),
         _actionChip(

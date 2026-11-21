@@ -151,6 +151,8 @@ Application _application(AppState state) => Application(
   applicantName: _student.name,
   appliedAt: '2026-09-27',
   academicYear: state.academicYear,
+  studentIdCheckedBy: 'Hana Head',
+  studentIdCheckedAt: '2026-09-28T02:00:00.000Z',
 );
 
 final _student = User(

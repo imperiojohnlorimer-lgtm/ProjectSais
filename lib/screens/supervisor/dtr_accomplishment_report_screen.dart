@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../models/recurring_schedule.dart';
+import '../../models/schedule_event.dart';
 import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/shared_widgets.dart';
@@ -547,18 +548,25 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   }
 
   /// Loads this student's recurring schedule rules from every
-  /// [_scheduleOwnerIds] account, merged (deduped by rule id).
+  /// [_scheduleOwnerIds] account, merged (deduped by rule id). The subjects
+  /// are those of the class schedule in effect at the end of this report's
+  /// month (or today, for the month under way), so an earlier month's report
+  /// keeps the classes of that time after a newer schedule is approved.
   Future<List<RecurringScheduleRule>> _loadAllRulesForStudent(
     AppState state,
   ) async {
     const repo = RecurringScheduleRepository();
-    final merged = <String, RecurringScheduleRule>{};
-    for (final id in _scheduleOwnerIds(state)) {
-      for (final rule in await repo.loadRules(id)) {
-        merged[rule.id] = rule;
-      }
-    }
-    return merged.values.toList();
+    final schedules = [
+      for (final id in _scheduleOwnerIds(state)) await repo.loadSchedule(id),
+    ];
+    final monthEnd = DateTime(widget.month.year, widget.month.month + 1, 0);
+    final today = state.philippineClock();
+    final day = monthEnd.isAfter(today) ? today : monthEnd;
+    return OwnerSchedule.mergedRules(
+      schedules,
+      day,
+      academicYear: state.academicYear,
+    );
   }
 
   @override
@@ -811,8 +819,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                   ? 'This student isn\'t linked to an account, so there is '
                         'no schedule to sync. Link the roster entry to their '
                         'account first.'
-                  : 'No "Add Subject" entries found on this student\'s '
-                        'schedule yet.',
+                  : 'This student has no class schedule yet. It comes from '
+                        'the schedule file the Head approves.',
             ),
             backgroundColor: AppTheme.blue500,
             duration: const Duration(seconds: 6),
@@ -1181,9 +1189,11 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       );
     }
 
+    // Work times come from a work schedule ("Add Schedule"), never from a
+    // class: a class is when the student is not on duty.
     RecurringScheduleRule? rule;
     for (final r in _rules) {
-      if (r.weekday == weekday) {
+      if (!r.isSubject && r.weekday == weekday) {
         rule = r;
         break;
       }
@@ -1247,11 +1257,22 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         .map((r) => r.id)
         .toSet();
 
+    // A day from a rule that no longer exists (a subject typed in before
+    // the class schedule was approved) doesn't count either, nor does a
+    // class worked out from the approved schedule.
+    final ruleIds = _rules.map((r) => r.id).toSet();
+    bool counts(ScheduleEvent e) {
+      if (e.computed) return false;
+      final ruleId = _ruleIdFromEventId(e.id);
+      if (ruleId == null) return true;
+      return ruleIds.contains(ruleId) && !subjectRuleIds.contains(ruleId);
+    }
+
     final scheduleService = context.read<ScheduleService>();
     for (final ownerId in _scheduleOwnerIds(state)) {
       final todaysEvents = scheduleService
           .eventsForDay(ownerId, date)
-          .where((e) => !subjectRuleIds.contains(_ruleIdFromEventId(e.id)))
+          .where(counts)
           .toList();
       if (todaysEvents.isNotEmpty) {
         final e = todaysEvents.first;
@@ -1264,11 +1285,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     final hasAnySchedule = _scheduleOwnerIds(state).any(
       (ownerId) => scheduleService
           .eventsFor(ownerId)
-          .any(
-            (e) =>
-                e.id.startsWith('rule_') &&
-                !subjectRuleIds.contains(_ruleIdFromEventId(e.id)),
-          ),
+          .any((e) => e.id.startsWith('rule_') && counts(e)),
     );
     return hasAnySchedule ? '' : 'Class Schedule';
   }

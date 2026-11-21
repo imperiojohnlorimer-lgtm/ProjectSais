@@ -33,6 +33,7 @@ import './student_portal/announcements_screen.dart';
 import './accounts/admin_notifications_screen.dart';
 import './accounts/head_forwards_screen.dart';
 import './accounts/staff_requests_screen.dart';
+import './accounts/schedule_requests_screen.dart';
 import './accounts/student_documents_screen.dart';
 import './student_portal/sp_notifications_screen.dart';
 import '../widgets/backup_health_banner.dart';
@@ -337,6 +338,13 @@ class _AppShellState extends State<AppShell> {
       roles: ['Head'],
     ),
     (
+      id: 'schedule_requests',
+      label: 'Schedule Requests',
+      icon: Icons.edit_calendar_outlined,
+      activeIcon: Icons.edit_calendar,
+      roles: ['Head'],
+    ),
+    (
       id: 'head_forwards',
       label: 'Sent to Head',
       icon: Icons.forward_to_inbox_outlined,
@@ -462,6 +470,8 @@ class _AppShellState extends State<AppShell> {
         return const AdminNotificationsScreen();
       case 'staff_requests':
         return const StaffRequestsScreen();
+      case 'schedule_requests':
+        return const ScheduleRequestsScreen();
       case 'head_forwards':
         return const HeadForwardsScreen();
       case 'student_documents':
@@ -529,6 +539,8 @@ class _AppShellState extends State<AppShell> {
         return 'Notifications';
       case 'staff_requests':
         return 'Staff Requests';
+      case 'schedule_requests':
+        return 'Schedule Requests';
       case 'head_forwards':
         return 'Sent to Head';
       case 'student_documents':

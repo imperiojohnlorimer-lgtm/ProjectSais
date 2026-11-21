@@ -21,6 +21,10 @@ class ScheduleEvent {
   final IconData icon;
   final String? academicYear;
 
+  /// A class worked out from an approved class schedule, not a stored
+  /// entry: it can't be edited or deleted on its own (ScheduleService).
+  final bool computed;
+
   const ScheduleEvent({
     required this.id,
     this.ownerId,
@@ -31,6 +35,7 @@ class ScheduleEvent {
     required this.color,
     required this.icon,
     this.academicYear,
+    this.computed = false,
   });
 
   /// Normalized UTC day key (strips time), used for calendar lookups.
@@ -54,6 +59,7 @@ class ScheduleEvent {
       color: color ?? this.color,
       icon: icon ?? this.icon,
       academicYear: academicYear ?? this.academicYear,
+      computed: computed,
     );
   }
 

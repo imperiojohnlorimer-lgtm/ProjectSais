@@ -8,8 +8,10 @@ import '../../models/app_state.dart';
 import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../utils/input_formats.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/application_status.dart';
+import '../../widgets/class_schedule_editor.dart';
 import 'student_page_widgets.dart';
 
 /// The student's page: one application to be a Student Assistant, then
@@ -195,17 +197,23 @@ class _ApplyCard extends StatelessWidget {
               spacing: 8,
               runSpacing: 8,
               children: [
+                // The Head checks one against the other before screening.
+                const _Step(
+                  icon: Icons.badge_outlined,
+                  label: 'Student ID + school ID photo',
+                ),
                 const _Step(
                   icon: Icons.psychology_outlined,
                   label: 'Your skills',
                 ),
-                if (call.requirements.isEmpty)
-                  const _Step(
-                    icon: Icons.description_outlined,
-                    label: 'No documents needed',
-                  )
-                else
-                  for (final req in call.requirements)
+                // Every call asks for it: it becomes the Calendar and DTR
+                // schedule of those approved.
+                const _Step(
+                  icon: Icons.calendar_month_outlined,
+                  label: 'Your class schedule',
+                ),
+                for (final req in call.requirements)
+                  if (!Application.isSchoolIdRequirement(req))
                     RequirementChip(label: req),
               ],
             ),
@@ -831,9 +839,10 @@ class _NoticeCard extends StatelessWidget {
   }
 }
 
-/// The application form: the student's skills (picked from the Head's
-/// list or typed in) and a file for each of the hiring call's
-/// requirements. No office is asked for.
+/// The application form: the student's Student ID with a photo of their
+/// school ID (the Head checks one against the other), their skills (picked
+/// from the Head's list or typed in), their class schedule, and a file for
+/// each of the hiring call's requirements. No office is asked for.
 class ApplyDialog extends StatefulWidget {
   final Announcement call;
 
@@ -863,29 +872,90 @@ class _ApplyDialogState extends State<ApplyDialog> {
   /// Requirements still holding the file from the rejected application.
   final _kept = <String>{};
 
+  /// The Student ID typed here. Locked to the profile's when the profile
+  /// already holds one in the 23B0626 shape (the rules allow only that).
+  final _studentIdCtrl = TextEditingController();
+  String? _lockedStudentId;
+
+  /// Where the photo of the school ID is kept among [_uploaded]: the call's
+  /// own "School ID" requirement when it lists one, else its own entry
+  /// (which isn't one of the call's requirements, so it isn't counted
+  /// with them).
+  late final String _schoolIdKey = call.requirements.firstWhere(
+    Application.isSchoolIdRequirement,
+    orElse: () => Application.schoolIdDocument,
+  );
+
+  /// The call's requirements other than the school ID, which has its own
+  /// place at the top of the form.
+  List<String> get _otherRequirements => call.requirements
+      .where((r) => !Application.isSchoolIdRequirement(r))
+      .toList();
+
+  /// The class schedule: its file and the classes read from it. Asked on
+  /// every application; approved, it becomes the student's schedule on the
+  /// Calendar and in the DTR/Accomplishment Report.
+  late final ClassScheduleController _schedule = ClassScheduleController(
+    rows: [
+      for (final r in widget.previous?.classSchedule?.subjects ?? const [])
+        ClassMeetingRow.fromRule(r),
+    ],
+    fileName: widget.previous?.classSchedule?.fileName,
+    filePath: widget.previous?.classSchedule?.filePath,
+  );
+  List<String> _scheduleProblems = const [];
+
   @override
   void initState() {
     super.initState();
+    _schedule.addListener(_onScheduleChanged);
+    final saved = (context.read<AppState>().currentUser?.studentId ?? '')
+        .trim()
+        .toUpperCase();
+    if (isValidStudentId(saved)) {
+      _lockedStudentId = saved;
+      _studentIdCtrl.text = saved;
+    }
     final previous = widget.previous;
     if (previous == null) return;
+    if (_lockedStudentId == null) {
+      _studentIdCtrl.text = previous.studentNumber ?? saved;
+    }
     _selectedSkills.addAll(previous.skills);
     for (final doc in previous.submittedDocuments) {
-      if (!call.requirements.contains(doc.requirementName)) continue;
-      _uploaded[doc.requirementName] = {
+      // The school ID photo, whatever it was listed as, goes back in its
+      // place; other files only for requirements the call still asks for.
+      final key = Application.isSchoolIdRequirement(doc.requirementName)
+          ? _schoolIdKey
+          : doc.requirementName;
+      if (key != _schoolIdKey && !call.requirements.contains(key)) continue;
+      _uploaded[key] = {
         'fileName': doc.fileName,
         // Saved in MB; the form counts bytes.
         'fileSize': doc.fileSize == null ? null : doc.fileSize! * 1024 * 1024,
         'storagePath': doc.storagePath,
         'downloadUrl': doc.downloadUrl,
       };
-      _kept.add(doc.requirementName);
+      _kept.add(key);
     }
   }
 
   @override
   void dispose() {
+    _schedule.removeListener(_onScheduleChanged);
+    _schedule.dispose();
     _skillsCtrl.dispose();
+    _studentIdCtrl.dispose();
     super.dispose();
+  }
+
+  void _onScheduleChanged() {
+    // Problems shown after a try clear as they are fixed.
+    if (_scheduleProblems.isNotEmpty) {
+      setState(() => _scheduleProblems = _schedule.problems());
+    } else {
+      setState(() {});
+    }
   }
 
   void _addTypedSkills() {
@@ -909,25 +979,31 @@ class _ApplyDialogState extends State<ApplyDialog> {
     });
   }
 
+  /// File types the school ID photo may be: a photo or a scan.
+  static const _schoolIdTypes = ['jpg', 'jpeg', 'png', 'pdf'];
+
   Future<void> _upload(String req, AppState state) async {
     final spec = RequirementSpec.parse(req);
+    // The school ID photo takes a photo or a PDF, whatever its spec says.
+    final allowed = req == _schoolIdKey
+        ? _schoolIdTypes
+        : spec.allowedExtensions;
     var uploadStarted = false;
     try {
       final result = await FilePicker.platform.pickFiles(
-        type: spec.allowedExtensions.isEmpty ? FileType.any : FileType.custom,
-        allowedExtensions: spec.allowedExtensions.isEmpty
-            ? null
-            : spec.allowedExtensions,
+        type: allowed.isEmpty ? FileType.any : FileType.custom,
+        allowedExtensions: allowed.isEmpty ? null : allowed,
         allowMultiple: false,
         withData: true,
       );
       if (result == null || result.files.isEmpty) return;
       final file = result.files.single;
       final extension = (file.extension ?? '').toLowerCase();
-      if (spec.allowedExtensions.isNotEmpty &&
-          !spec.allowedExtensions.contains(extension)) {
+      if (allowed.isNotEmpty && !allowed.contains(extension)) {
         throw Exception(
-          'Only ${spec.fileTypeLabel} files are accepted for this requirement.',
+          req == _schoolIdKey
+              ? 'The school ID must be a JPG, PNG or PDF file.'
+              : 'Only ${spec.fileTypeLabel} files are accepted for this requirement.',
         );
       }
       final fileBytes = file.bytes;
@@ -993,7 +1069,39 @@ class _ApplyDialogState extends State<ApplyDialog> {
       });
       return;
     }
-    if (_uploaded.length < call.requirements.length) {
+    if (_schedule.busy) {
+      setState(() {
+        _noticeIsError = true;
+        _notice =
+            'Wait for your class schedule to finish uploading and reading.';
+      });
+      return;
+    }
+    final scheduleProblems = _schedule.problems();
+    if (scheduleProblems.isNotEmpty) {
+      setState(() {
+        _scheduleProblems = scheduleProblems;
+        _noticeIsError = true;
+        _notice = 'Check your class schedule: ${scheduleProblems.first}';
+      });
+      return;
+    }
+    final studentId = _studentIdCtrl.text.trim().toUpperCase();
+    if (!isValidStudentId(studentId)) {
+      setState(() {
+        _noticeIsError = true;
+        _notice = 'Enter your Student ID, e.g. 23B0626.';
+      });
+      return;
+    }
+    if (!_uploaded.containsKey(_schoolIdKey)) {
+      setState(() {
+        _noticeIsError = true;
+        _notice = 'Upload a photo of your school ID (the front).';
+      });
+      return;
+    }
+    if (!call.requirements.every(_uploaded.containsKey)) {
       setState(() {
         _noticeIsError = true;
         _notice = 'Please upload all required documents before submitting.';
@@ -1005,6 +1113,21 @@ class _ApplyDialogState extends State<ApplyDialog> {
       _submitting = true;
       _notice = null;
     });
+    // Another account holding this ID: the Head would have to sort it out,
+    // so say so now rather than after the Head looks.
+    if (_lockedStudentId == null &&
+        await state.studentIdTakenByAnother(studentId)) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _noticeIsError = true;
+        _notice =
+            'This Student ID is already registered to another account. If '
+            "it's yours, contact the Head of Student Assistantship.";
+      });
+      return;
+    }
+    if (!mounted) return;
     final user = state.currentUser!;
     final now = DateTime.now();
     const months = [
@@ -1023,7 +1146,16 @@ class _ApplyDialogState extends State<ApplyDialog> {
     ];
     final today = '${months[now.month - 1]} ${now.day}, ${now.year}';
     final id = Application.idFor(user.id, state.academicYear);
+    final scheduleName = _schedule.fileName ?? 'Class schedule';
     final app = Application(
+      classSchedule: ClassScheduleSubmission(
+        fileName: scheduleName,
+        filePath: _schedule.filePath!,
+        subjects: _schedule.subjects(
+          ownerName: user.name,
+          academicYear: state.academicYear,
+        ),
+      ),
       id: id,
       announcementId: call.id,
       announcementTitle: Application.generalTitle,
@@ -1032,6 +1164,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
       appliedAt: today,
       skills: _selectedSkills.toList(),
       academicYear: state.academicYear,
+      studentNumber: studentId,
       submittedDocuments: [
         for (final e in _uploaded.entries)
           ApplicationDocument(
@@ -1045,6 +1178,17 @@ class _ApplyDialogState extends State<ApplyDialog> {
             storagePath: e.value['storagePath'],
             downloadUrl: e.value['downloadUrl'],
           ),
+        // The schedule file too, so it opens wherever the Head sees the
+        // other documents.
+        ApplicationDocument(
+          id: 'appdoc_${now.millisecondsSinceEpoch}_schedule',
+          applicationId: id,
+          requirementName: ClassScheduleSubmission.requirementName,
+          fileName: scheduleName,
+          uploadedAt: today,
+          fileSize: (_schedule.fileBytes?.length ?? 0) / 1024 / 1024,
+          storagePath: _schedule.filePath,
+        ),
       ],
     );
     final submitted = await state.submitApplication(app);
@@ -1074,7 +1218,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final busy = _uploading.isNotEmpty || _submitting;
+    final busy = _uploading.isNotEmpty || _submitting || _schedule.busy;
     final reason = widget.previous?.remarks?.trim() ?? '';
     return AnnouncementDialog(
       title: widget.previous == null
@@ -1149,6 +1293,58 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ),
         ),
         const SizedBox(height: 18),
+        const StudentSectionLabel('YOUR STUDENT ID'),
+        const SizedBox(height: 4),
+        const Text(
+          'Type your Student ID and upload a clear photo of the front of your '
+          'school ID. The Head checks that they match before screening.',
+          style: TextStyle(fontSize: 11, color: AppTheme.slate500, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _studentIdCtrl,
+          readOnly: _lockedStudentId != null,
+          enabled: !_submitting,
+          textCapitalization: TextCapitalization.characters,
+          inputFormatters: [StudentIdFormatter()],
+          style: const TextStyle(
+            fontSize: 13,
+            color: AppTheme.slate800,
+            fontWeight: FontWeight.w600,
+          ),
+          decoration: InputDecoration(
+            labelText: 'Student ID',
+            hintText: 'e.g. 23B0626',
+            helperText: _lockedStudentId != null
+                ? "From your profile. If it's wrong, ask the Admin to correct it."
+                : null,
+            helperMaxLines: 2,
+            filled: true,
+            fillColor: _lockedStudentId != null
+                ? AppTheme.slate100
+                : Colors.white,
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.slate200),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.slate200),
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 14,
+              vertical: 13,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        _requirementTile(
+          _schoolIdKey,
+          state,
+          title: 'Photo of your school ID (front)',
+          hint: 'JPG, PNG or PDF, up to 10 MB',
+        ),
+        const SizedBox(height: 10),
         const StudentSectionLabel('YOUR SKILLS'),
         const SizedBox(height: 4),
         const Text(
@@ -1268,15 +1464,45 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ],
         ),
         const SizedBox(height: 22),
+        const StudentSectionLabel('YOUR CLASS SCHEDULE'),
+        const SizedBox(height: 4),
+        const Text(
+          'Upload your class schedule (a screenshot, a PDF or a photo of the '
+          'printed copy). Your classes are read from it on this device: check '
+          'each one and add the units. If you are approved, it becomes your '
+          'schedule in SAIS.',
+          style: TextStyle(fontSize: 11, color: AppTheme.slate500, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        ClassScheduleEditor(
+          controller: _schedule,
+          // The account id is the Firebase uid the upload is checked
+          // against.
+          ownerId: state.currentUser?.id ?? '',
+          enabled: !_submitting,
+        ),
+        if (_scheduleProblems.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              _scheduleProblems.take(4).join('\n'),
+              style: const TextStyle(
+                fontSize: 11.5,
+                color: AppTheme.red500,
+                height: 1.4,
+              ),
+            ),
+          ),
+        const SizedBox(height: 22),
         const StudentSectionLabel('REQUIREMENTS'),
         const SizedBox(height: 10),
-        if (call.requirements.isEmpty)
+        if (_otherRequirements.isEmpty)
           const Text(
-            'No documents are needed for this call.',
+            'No other documents are needed for this call.',
             style: TextStyle(fontSize: 12, color: AppTheme.slate500),
           )
         else ...[
-          for (final req in call.requirements) _requirementTile(req, state),
+          for (final req in _otherRequirements) _requirementTile(req, state),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -1294,8 +1520,8 @@ class _ApplyDialogState extends State<ApplyDialog> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    '${_uploaded.length}/${call.requirements.length} '
-                    'required documents uploaded',
+                    '${_otherRequirements.where(_uploaded.containsKey).length}'
+                    '/${_otherRequirements.length} required documents uploaded',
                     style: const TextStyle(
                       fontSize: 11,
                       color: AppTheme.blue500,
@@ -1328,8 +1554,10 @@ class _ApplyDialogState extends State<ApplyDialog> {
               Text(
                 _submitting
                     ? 'Submitting...'
-                    : _uploading.isNotEmpty
+                    : _uploading.isNotEmpty || _schedule.uploading
                     ? 'Uploading file...'
+                    : _schedule.reading
+                    ? 'Reading schedule...'
                     : 'Submit Application',
                 style: const TextStyle(
                   fontSize: 15,
@@ -1394,8 +1622,18 @@ class _ApplyDialogState extends State<ApplyDialog> {
     );
   }
 
-  Widget _requirementTile(String req, AppState state) {
+  Widget _requirementTile(
+    String req,
+    AppState state, {
+    String? title,
+    String? hint,
+  }) {
     final spec = RequirementSpec.parse(req);
+    final typesNote =
+        hint ??
+        (spec.fileTypeLabel == null
+            ? null
+            : 'Only ${spec.fileTypeLabel} accepted');
     final uploaded = _uploaded[req];
     final uploading = _uploading.contains(req);
     final kept = _kept.contains(req);
@@ -1422,18 +1660,18 @@ class _ApplyDialogState extends State<ApplyDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        spec.label,
+                        title ?? spec.label,
                         style: const TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
                           color: AppTheme.slate800,
                         ),
                       ),
-                      if (spec.fileTypeLabel != null)
+                      if (typesNote != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
                           child: Text(
-                            'Only ${spec.fileTypeLabel} accepted',
+                            typesNote,
                             style: const TextStyle(
                               fontSize: 10.5,
                               color: AppTheme.slate500,

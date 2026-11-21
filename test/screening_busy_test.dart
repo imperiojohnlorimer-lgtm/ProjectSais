@@ -12,6 +12,18 @@ import 'package:projectsais/theme/app_theme.dart';
 /// A Firestore whose writes wait for the test, then fail. The test makes
 /// [gate] itself, so it lives in the test's own clock.
 class _Store extends FirestoreService {
+  // Approving checks who holds the Student ID; nobody else does here.
+  @override
+  Future<String?> studentIdHolder(String key) async => null;
+
+  @override
+  Future<String?> verifyStudentId(
+    String uid,
+    String key, {
+    required String verifiedBy,
+    required String verifiedAt,
+  }) async => null;
+
   late Completer<void> gate;
 
   @override
@@ -66,6 +78,8 @@ final _waitlisted = Application(
   applicantName: 'Kristel Macutong',
   appliedAt: '2026-09-01T00:00:00.000',
   status: 'Waitlisted',
+  studentIdCheckedBy: 'Hana Head',
+  studentIdCheckedAt: '2026-09-02T02:00:00.000Z',
 );
 
 final _record = ScreeningRecord(

@@ -197,7 +197,6 @@ void main() {
         'Email address',
         'Password',
         'Phone number',
-        'Student ID',
         'Course/Program',
         'Year level',
         'Department',
@@ -205,6 +204,8 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: 'missing $label');
       }
+      // Asked when applying, with a photo of the school ID.
+      expect(find.text('Student ID'), findsNothing);
     });
 
     testWidgets('password checklist appears and counts met rules', (
@@ -254,7 +255,7 @@ void main() {
       expect(find.text('Please fill in all required fields.'), findsOneWidget);
     });
 
-    testWidgets('phone and Student ID only take their own shape', (
+    testWidgets('the phone number only takes its own shape', (
       tester,
     ) async {
       await pumpScreen(
@@ -267,14 +268,10 @@ void main() {
           tester.widget<TextFormField>(fields.at(i)).controller!.text;
 
       await tester.enterText(fields.at(5), '12345678912');
-      await tester.enterText(fields.at(6), 'ABC123');
       expect(textOf(5), '');
-      expect(textOf(6), '');
 
       await tester.enterText(fields.at(5), '09171234567');
-      await tester.enterText(fields.at(6), '23b0626');
       expect(textOf(5), '0917 123 4567');
-      expect(textOf(6), '23B0626');
     });
 
     testWidgets('asks for a first and a last name', (tester) async {
@@ -311,29 +308,6 @@ void main() {
       expect(
         tester.widget<TextFormField>(fields.at(2)).controller!.text,
         "O'Brien-Dela Cruz",
-      );
-    });
-
-    testWidgets('an unfinished Student ID is refused', (tester) async {
-      await pumpScreen(
-        tester,
-        RegisterScreen(onBackToLogin: () {}),
-        const Size(1440, 1200),
-      );
-      final fields = find.byType(TextFormField);
-      await tester.enterText(fields.at(0), 'Juan');
-      await tester.enterText(fields.at(2), 'Dela Cruz');
-      await tester.enterText(fields.at(3), 'juan@marsu.edu.ph');
-      await tester.enterText(fields.at(4), 'Str0ng!Pass');
-      await tester.enterText(fields.at(5), '09171234567');
-      await tester.enterText(fields.at(6), '23B06');
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Create Account'));
-      await tester.tap(find.text('Create Account'));
-      await tester.pumpAndSettle();
-      expect(
-        find.text('Enter a valid Student ID, e.g. 23B0626.'),
-        findsOneWidget,
       );
     });
   });
@@ -424,7 +398,9 @@ void main() {
       expect(field(5).autofillHints, contains(AutofillHints.telephoneNumber));
       // Every text field moves on; "done" never submits past the dropdowns
       // and the consent box.
-      for (var i = 0; i < 7; i++) {
+      final count = find.byType(TextFormField).evaluate().length;
+      expect(count, greaterThanOrEqualTo(6));
+      for (var i = 0; i < count; i++) {
         expect(field(i).textInputAction, TextInputAction.next);
       }
     });

@@ -1108,6 +1108,37 @@ class FirestoreService {
 
   Future<void> releaseStudentId(String key) => _studentIds.doc(key).delete();
 
+  /// The account holding the Student ID [key], or null when it's free.
+  /// Any signed-in account may ask about one ID (the rules).
+  Future<String?> studentIdHolder(String key) async {
+    final holder = (await _studentIds.doc(key).get()).data()?['uid'];
+    return holder is String ? holder : null;
+  }
+
+  /// Puts the checked Student ID [key] on [uid]'s profile, marked verified,
+  /// and reserves it, in one transaction, unless another account holds it.
+  /// Returns that account's id, or null when it's done. The Head's, on
+  /// approving an application.
+  Future<String?> verifyStudentId(
+    String uid,
+    String key, {
+    required String verifiedBy,
+    required String verifiedAt,
+  }) {
+    final claim = _studentIds.doc(key);
+    return _db.runTransaction((transaction) async {
+      final holder = (await transaction.get(claim)).data()?['uid'];
+      if (holder is String && holder != uid) return holder;
+      if (holder == null) transaction.set(claim, {'uid': uid});
+      transaction.update(_users.doc(uid), {
+        'studentId': key,
+        'studentIdVerifiedAt': verifiedAt,
+        'studentIdVerifiedBy': verifiedBy,
+      });
+      return null;
+    });
+  }
+
   /// Every reservation, Student ID key → account id. Admin and Head only.
   Future<Map<String, String>> getStudentIdClaims() async {
     final snapshot = await _studentIds.get();
@@ -1239,6 +1270,119 @@ class FirestoreService {
 
   Future<void> updateAttendance(String id, Map<String, dynamic> data) async {
     await _attendance.doc(id).update(data);
+  }
+
+  // ── Approved class schedules and requests to change them ──
+  //
+  // The approved ones live beside the weekly rules in
+  // `recurringSchedules/{account id}` (`classSchedules`, which only a Head
+  // may write); a Student Assistant's change waits in `scheduleRequests`.
+
+  CollectionReference get _scheduleRequests =>
+      _db.collection('scheduleRequests');
+
+  DocumentReference<Map<String, dynamic>> _ownerSchedule(String ownerId) =>
+      _db.collection('recurringSchedules').doc(ownerId);
+
+  /// Saves a Student Assistant's new request, stamped with the server's time.
+  Future<void> createScheduleRequest(ScheduleRequest request) =>
+      _scheduleRequests.doc(request.id).set({
+        ...request.toNewJson(),
+        'submittedAt': FieldValue.serverTimestamp(),
+      });
+
+  Future<void> updateScheduleRequest(String id, Map<String, dynamic> fields) =>
+      _scheduleRequests.doc(id).update(fields);
+
+  Future<OwnerSchedule> getOwnerSchedule(String ownerId) async {
+    final snap = await _ownerSchedule(ownerId).get();
+    return OwnerSchedule.fromJson(snap.data());
+  }
+
+  /// Adds [version] to [ownerId]'s approved class schedules and drops the
+  /// subjects typed into their weekly rules, in one transaction, so two
+  /// Heads approving at once can't lose one. With [requestId], the request
+  /// is decided in the same transaction, and only while it is still
+  /// Pending.
+  ///
+  /// Returns 'saved', 'not-pending' (the request was cancelled or decided
+  /// meanwhile; nothing written) or 'already' (a version from the same
+  /// source is there; nothing written). Never throws its own errors from
+  /// inside the transaction: on the web they come back wrapped.
+  Future<String> addClassScheduleVersion({
+    required String ownerId,
+    required String ownerName,
+    required ClassScheduleVersion version,
+    String? requestId,
+    Map<String, dynamic>? requestFields,
+  }) {
+    return _db.runTransaction<String>((tx) async {
+      final ownerRef = _ownerSchedule(ownerId);
+      final requestRef = requestId == null
+          ? null
+          : _scheduleRequests.doc(requestId);
+      final ownerSnap = await tx.get(ownerRef);
+      if (requestRef != null) {
+        final requestSnap = await tx.get(requestRef);
+        final data = requestSnap.data() as Map<String, dynamic>?;
+        if (data == null || data['status'] != ScheduleRequest.pending) {
+          return 'not-pending';
+        }
+      }
+      final data = ownerSnap.data() ?? const <String, dynamic>{};
+      final versions = List<dynamic>.from(
+        data['classSchedules'] as List? ?? const [],
+      );
+      if (version.sourceId.isNotEmpty &&
+          versions.any(
+            (v) =>
+                v is Map &&
+                v['source'] == version.source &&
+                v['sourceId'] == version.sourceId,
+          )) {
+        return 'already';
+      }
+      final rules = [
+        for (final r in (data['rules'] as List? ?? const []))
+          if (r is Map && r['isSubject'] != true &&
+              !(r['isSubject'] == null &&
+                  (r['units']?.toString() ?? '').isNotEmpty))
+            r,
+      ];
+      tx.set(ownerRef, {
+        'ownerId': ownerId,
+        'ownerName': ownerName,
+        'rules': rules,
+        'classSchedules': [...versions, version.toJson()],
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+      if (requestRef != null) tx.update(requestRef, requestFields ?? {});
+      return 'saved';
+    });
+  }
+
+  /// Deletes [ownerId]'s calendar entries whose id starts with one of
+  /// [prefixes] (the days the old typed subjects filled in), in batches.
+  Future<int> deleteScheduleEventsWithPrefixes(
+    String ownerId,
+    List<String> prefixes,
+  ) async {
+    if (prefixes.isEmpty) return 0;
+    final snap = await _db
+        .collection('schedule_events')
+        .where('ownerId', isEqualTo: ownerId)
+        .get();
+    final doomed = snap.docs
+        .where((d) => prefixes.any((p) => d.id.startsWith(p)))
+        .toList();
+    for (var offset = 0; offset < doomed.length; offset += 400) {
+      final batch = _db.batch();
+      for (final doc in doomed.skip(offset).take(400)) {
+        batch.delete(doc.reference);
+      }
+      await batch.commit();
+    }
+    return doomed.length;
   }
 
   // Class Schedule
@@ -1854,6 +1998,11 @@ class FirestoreService {
           .map((document) => document.toJson())
           .toList(),
       'academicYear': a.academicYear,
+      'classSchedule': a.classSchedule?.toJson(),
+      // A full save: these must be listed, or a status change erases them.
+      'studentNumber': a.studentNumber,
+      'studentIdCheckedBy': a.studentIdCheckedBy,
+      'studentIdCheckedAt': a.studentIdCheckedAt,
     }..removeWhere((k, v) => v == null);
     if (a.id.isNotEmpty) {
       await _applications.doc(a.id).set(data);

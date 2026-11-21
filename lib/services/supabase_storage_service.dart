@@ -305,7 +305,8 @@ class SupabaseStorageService {
     if (!validPathShape ||
         (pathParts[0] != 'reports' &&
             pathParts[0] != 'applications' &&
-            pathParts[0] != 'announcements') ||
+            pathParts[0] != 'announcements' &&
+            pathParts[0] != 'schedules') ||
         pathParts.any((part) => part.isEmpty || part == '.' || part == '..') ||
         pathParts
             .skip(1)

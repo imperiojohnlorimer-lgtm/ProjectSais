@@ -33,6 +33,11 @@ class RecurringScheduleRule {
   /// in it either.
   final bool isSubject;
 
+  /// The instructor and the room as read from an approved class schedule
+  /// ("K. Santos", "CL4"); empty when not known. Shown on the calendar only.
+  final String instructor;
+  final String room;
+
   const RecurringScheduleRule({
     required this.id,
     required this.ownerName,
@@ -46,6 +51,8 @@ class RecurringScheduleRule {
     this.mode = 'Face-to-Face',
     this.units = '',
     this.isSubject = false,
+    this.instructor = '',
+    this.room = '',
   });
 
   static const _weekdayNames = [
@@ -79,6 +86,8 @@ class RecurringScheduleRule {
     String? mode,
     String? units,
     bool? isSubject,
+    String? instructor,
+    String? room,
   }) => RecurringScheduleRule(
     id: id,
     ownerName: ownerName,
@@ -92,6 +101,8 @@ class RecurringScheduleRule {
     mode: mode ?? this.mode,
     units: units ?? this.units,
     isSubject: isSubject ?? this.isSubject,
+    instructor: instructor ?? this.instructor,
+    room: room ?? this.room,
   );
 
   Map<String, dynamic> toJson() => {
@@ -109,6 +120,8 @@ class RecurringScheduleRule {
     'mode': mode,
     'units': units,
     'isSubject': isSubject,
+    if (instructor.isNotEmpty) 'instructor': instructor,
+    if (room.isNotEmpty) 'room': room,
   };
 
   factory RecurringScheduleRule.fromJson(Map<String, dynamic> json) =>
@@ -136,6 +149,8 @@ class RecurringScheduleRule {
         units: json['units'] as String? ?? '',
         isSubject:
             json['isSubject'] as bool? ?? ((json['units'] as String? ?? '').isNotEmpty),
+        instructor: json['instructor'] as String? ?? '',
+        room: json['room'] as String? ?? '',
       );
 
   static IconData _iconFromCodePoint(int codePoint) {

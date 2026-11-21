@@ -65,7 +65,10 @@ function validPathParts(path: string) {
     // to be downloadable by every signed-in user (any Student/Student
     // Assistant the announcement is visible to), not just the uploader
     // or Head/Supervisor staff — see isPublicAnnouncementPath below.
-    parts[0] === "announcements";
+    parts[0] === "announcements" ||
+    // Class schedules: a student's own, read by the Head (who approves
+    // them) and by Supervisors (who see them on the Calendar).
+    parts[0] === "schedules";
 
   const safeParts = parts.every(
     (part) =>
@@ -81,15 +84,17 @@ function validPathParts(path: string) {
 // Where staff (not the file's owner) may ask for a download link. The Head
 // reads applicants' documents and the archived copies of past years; a
 // Supervisor only the reports their students send, plus announcement
-// attachments (public to every signed-in user). Every part must be a real
-// name: no empty parts, "." or "..", and a bounded length.
+// attachments (public to every signed-in user); both read students' class
+// schedules. Every part must be a real name: no empty parts, "." or "..",
+// and a bounded length.
 const headRoots = [
   "reports",
   "applications",
   "announcements",
   "academic_year_archives",
+  "schedules",
 ];
-const supervisorRoots = ["reports", "announcements"];
+const supervisorRoots = ["reports", "announcements", "schedules"];
 
 export function staffMayRead(path: string, role: string | undefined) {
   if (path.length > 400) return false;

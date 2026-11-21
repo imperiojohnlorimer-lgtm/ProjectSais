@@ -12,6 +12,7 @@ import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
 import '../../widgets/application_status.dart';
+import '../../widgets/class_schedule_summary.dart';
 import '../../widgets/document_preview.dart';
 import '../../utils/list_print.dart';
 import '../../widgets/export_list_button.dart';
@@ -576,7 +577,40 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
   }
 
   Future<void> _sendSelected(AppState state) async {
-    final ids = _selected.toList();
+    // Only applicants whose Student ID was checked against their school ID
+    // can go; the rest stay ticked and Pending.
+    final picked = _selected.toList();
+    final ids = [
+      for (final id in picked)
+        if (state.applications
+                .where((a) => a.id == id)
+                .firstOrNull
+                ?.isStudentIdChecked ==
+            true)
+          id,
+    ];
+    final unchecked = picked.length - ids.length;
+    final messenger = ScaffoldMessenger.of(context);
+    if (ids.isEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            unchecked == 1
+                ? 'Check this applicant\'s Student ID first ("Student ID '
+                      'checked" on their card).'
+                : 'Check these applicants\' Student IDs first ("Student ID '
+                      'checked" on their cards).',
+          ),
+          backgroundColor: AppTheme.amber500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+      return;
+    }
     final confirmed = await showConfirmDialog(
       context,
       title:
@@ -584,27 +618,32 @@ class _ApplicationsPanelState extends State<ApplicationsPanel> {
           'screening?',
       message:
           'They will be told they were selected for screening and will show '
-          'in Applicant Screening. Everyone else stays Pending.',
+          'in Applicant Screening. Everyone else stays Pending.'
+          '${unchecked == 0 ? '' : ' $unchecked ticked applicant${unchecked == 1 ? '' : 's'} '
+                    'whose Student ID is not checked yet will stay Pending.'}',
       confirmLabel: 'Send to Screening',
       confirmColor: AppTheme.violet500,
     );
     if (!confirmed || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
     setState(() => _sending = true);
     final sent = await state.sendToScreening(ids);
     if (!mounted) return;
     setState(() {
       _sending = false;
-      _selected.clear();
+      _selected.removeAll(ids);
     });
     final failed = ids.length - sent;
+    final waiting = unchecked == 0
+        ? ''
+        : ' $unchecked still need${unchecked == 1 ? 's' : ''} the Student ID '
+              'check.';
     messenger.showSnackBar(
       SnackBar(
         content: Text(
           failed == 0
-              ? '$sent sent to screening'
+              ? '$sent sent to screening.$waiting'
               : '$sent sent to screening; $failed could not be saved. '
-                    'Try those again.',
+                    'Try those again.$waiting',
         ),
         backgroundColor: failed == 0 ? AppTheme.violet500 : AppTheme.amber500,
         behavior: SnackBarBehavior.floating,
@@ -882,8 +921,9 @@ class EndorsementSummaryButton extends StatelessWidget {
     final noProfile = <Application>[];
     try {
       for (final app in approved) {
-        final id = (await state.ensureStudentAssistantId(app.applicantId))
-            ?.trim();
+        final id = (await state.ensureStudentAssistantId(
+          app.applicantId,
+        ))?.trim();
         if (id == null || id.isEmpty) {
           noProfile.add(app);
         } else {
@@ -1294,6 +1334,76 @@ class EndorsementSummaryButton extends StatelessWidget {
   }
 }
 
+/// The class schedule sent with an application, beside its file.
+class _ClassScheduleSection extends StatefulWidget {
+  final ClassScheduleSubmission schedule;
+  const _ClassScheduleSection({required this.schedule});
+
+  @override
+  State<_ClassScheduleSection> createState() => _ClassScheduleSectionState();
+}
+
+class _ClassScheduleSectionState extends State<_ClassScheduleSection> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final schedule = widget.schedule;
+    final count = ClassScheduleSummary.grouped(schedule.subjects).length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'CLASS SCHEDULE',
+          style: TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.slate500,
+            letterSpacing: 0.5,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '$count ${count == 1 ? 'subject' : 'subjects'}, read from the file. '
+          'Compare them with it: approved, they become the student\'s '
+          'schedule on the Calendar and in the DTR.',
+          style: const TextStyle(fontSize: 12, color: AppTheme.slate600),
+        ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: schedule.filePath.isEmpty
+                  ? null
+                  : () => showDocumentPreview(
+                      context,
+                      fileName: schedule.fileName,
+                      storagePath: schedule.filePath,
+                    ),
+              icon: const Icon(Icons.image_outlined, size: 16),
+              label: const Text('View file'),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => setState(() => _open = !_open),
+              icon: Icon(
+                _open ? Icons.expand_less : Icons.expand_more,
+                size: 16,
+              ),
+              label: Text(_open ? 'Hide classes' : 'See classes'),
+            ),
+          ],
+        ),
+        if (_open) ...[
+          const SizedBox(height: 10),
+          ClassScheduleSummary(subjects: schedule.subjects),
+        ],
+      ],
+    );
+  }
+}
+
 class _AdminApplicationCard extends StatefulWidget {
   final Application app;
   final AppState state;
@@ -1334,6 +1444,12 @@ class _AdminApplicationCard extends StatefulWidget {
 class _AdminApplicationCardState extends State<_AdminApplicationCard> {
   Application get app => widget.app;
   AppState get state => widget.state;
+
+  /// The documents other than the school ID photo, which has its own place
+  /// in the STUDENT ID part.
+  List<ApplicationDocument> get _otherDocuments => app.submittedDocuments
+      .where((d) => !Application.isSchoolIdRequirement(d.requirementName))
+      .toList();
   BuildContext get ctx => widget.ctx;
 
   bool generatingContract = false;
@@ -1621,8 +1737,19 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                     ],
                     const SizedBox(height: 16),
                   ],
+                  // The Student ID next to the photo of the school ID, to
+                  // check one against the other before screening.
+                  _studentIdSection(applicant),
+                  const SizedBox(height: 16),
+                  // The class schedule: the classes read from the file,
+                  // to compare with it. They become the student's schedule
+                  // when the application is approved.
+                  if (app.classSchedule != null) ...[
+                    _ClassScheduleSection(schedule: app.classSchedule!),
+                    const SizedBox(height: 16),
+                  ],
                   // Documents
-                  if (app.submittedDocuments.isNotEmpty) ...[
+                  if (_otherDocuments.isNotEmpty) ...[
                     const Text(
                       'SUBMITTED DOCUMENTS',
                       style: TextStyle(
@@ -1633,12 +1760,12 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                       ),
                     ),
                     const SizedBox(height: 10),
-                    ...app.submittedDocuments.asMap().entries.map((e) {
+                    ..._otherDocuments.asMap().entries.map((e) {
                       final index = e.key;
                       final doc = e.value;
                       return Padding(
                         padding: EdgeInsets.only(
-                          bottom: index < app.submittedDocuments.length - 1
+                          bottom: index < _otherDocuments.length - 1
                               ? 10
                               : 0,
                         ),
@@ -1741,6 +1868,204 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         ],
       ),
     );
+  }
+
+  /// The typed Student ID and name beside the photo of the school ID, and
+  /// the Head's check. Nobody goes to screening or is approved unchecked.
+  Widget _studentIdSection(User? applicant) {
+    final photo = app.schoolIdPhoto;
+    final typed =
+        app.studentNumber ??
+        ((applicant?.studentId ?? '').trim().isEmpty
+            ? null
+            : applicant!.studentId!.trim());
+    final clash = state.studentIdClashFor(app);
+    final checked = app.isStudentIdChecked;
+    final canCheck =
+        !checked &&
+        (app.status == Application.pending ||
+            app.status == Application.forScreening ||
+            app.status == Application.waitlisted);
+    final checkedOn = philippineDayText(app.studentIdCheckedAt);
+    final tone = checked ? AppTheme.emerald500 : AppTheme.amber500;
+    Widget line(String label, String value) => Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$label  ',
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.slate500,
+              ),
+            ),
+            TextSpan(
+              text: value,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate900,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(Icons.badge_outlined, size: 14, color: AppTheme.maroon),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'STUDENT ID',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate500,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          line('Name', app.applicantName),
+          line('Student ID', typed ?? 'Not given'),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 10,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (photo != null)
+                OutlinedButton.icon(
+                  onPressed: _canOpen(photo)
+                      ? () => _openDocument(photo)
+                      : null,
+                  icon: const Icon(Icons.image_outlined, size: 15),
+                  label: const Text('Open school ID photo'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppTheme.maroon,
+                    side: const BorderSide(color: AppTheme.maroon200),
+                  ),
+                )
+              else
+                const Text(
+                  'No school ID photo (sent before it was asked for).',
+                  style: TextStyle(fontSize: 12, color: AppTheme.slate600),
+                ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: tone.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  checked
+                      ? 'Checked by ${app.studentIdCheckedBy ?? 'the Head'}'
+                            '${checkedOn == null ? '' : ' on $checkedOn'}'
+                      : 'Not checked yet',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                    color: tone,
+                  ),
+                ),
+              ),
+              if (canCheck)
+                FilledButton.icon(
+                  onPressed: _deciding != null
+                      ? null
+                      : () => _checkStudentId(photo != null),
+                  icon: _decisionIcon(
+                    'check_id',
+                    Icons.verified_outlined,
+                    Colors.white,
+                  ),
+                  label: Text(
+                    _deciding == 'check_id'
+                        ? 'Saving...'
+                        : 'Student ID checked',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppTheme.emerald500,
+                    textStyle: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          if (clash != null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'This Student ID is also used by $clash. Sort that out before '
+              'approving.',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: AppTheme.red500,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _checkStudentId(bool hasPhoto) async {
+    final confirmed = await showConfirmDialog(
+      context,
+      title: hasPhoto
+          ? 'Mark the Student ID as checked?'
+          : 'No school ID photo. Mark it checked anyway?',
+      message: hasPhoto
+          ? 'Confirm that the photo shows ${app.applicantName}\'s school ID '
+                'and that its Student ID matches '
+                '${app.studentNumber ?? 'the one given'}.'
+          : '${app.applicantName} applied before the photo was asked for. '
+                'Mark it checked only if you have seen their school ID '
+                'another way; otherwise reject it with "No school ID photo" '
+                'so they apply again with the photo.',
+      confirmLabel: 'Student ID checked',
+      confirmColor: AppTheme.emerald500,
+    );
+    if (!confirmed || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _deciding = 'check_id');
+    try {
+      await state.markStudentIdChecked(app.id);
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Could not save the check. Try again.'),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _deciding = null);
+    }
   }
 
   /// How the applicant's skills meet what supervisors asked for. Everyone
@@ -1909,11 +2234,28 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         padding: padding,
       ),
     );
+    final waitingOnCheck =
+        !app.isStudentIdChecked &&
+        (app.status == Application.pending ||
+            app.status == Application.forScreening ||
+            app.status == Application.waitlisted);
     Widget buttons(List<Widget> children) => Wrap(
       alignment: WrapAlignment.end,
+      crossAxisAlignment: WrapCrossAlignment.center,
       spacing: 10,
       runSpacing: 10,
-      children: children,
+      children: [
+        if (waitingOnCheck)
+          const Text(
+            'Check the Student ID first',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.amber500,
+            ),
+          ),
+        ...children,
+      ],
     );
 
     switch (app.status) {
@@ -1921,7 +2263,11 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         return buttons([
           reject,
           ElevatedButton.icon(
-            onPressed: _deciding != null ? null : _sendToScreening,
+            // Not before the Student ID is checked (the card's STUDENT ID
+            // part says so).
+            onPressed: _deciding != null || !app.isStudentIdChecked
+                ? null
+                : _sendToScreening,
             icon: _decisionIcon(
               'screen',
               Icons.how_to_reg_outlined,
@@ -1963,7 +2309,7 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
         return buttons([
           assess(primary: false),
           ElevatedButton.icon(
-            onPressed: _deciding != null
+            onPressed: _deciding != null || !app.isStudentIdChecked
                 ? null
                 : () => _approveApplication(context, offices),
             icon: _decisionIcon(
@@ -2416,6 +2762,8 @@ class _RejectDialogState extends State<_RejectDialog> {
     'A wrong document was uploaded',
     "A file can't be opened or read",
     'A requirement is incomplete',
+    "The classes listed don't match the class schedule file",
+    "The Student ID doesn't match the school ID photo",
   ];
 
   @override
@@ -2473,6 +2821,13 @@ class _RejectDialogState extends State<_RejectDialog> {
                   for (final text in _quickReasons) chip(text, text),
                   for (final label in documents)
                     chip('Wrong file: $label', 'Wrong file for "$label"'),
+                  // Sent before the photo was asked for.
+                  if (app.schoolIdPhoto == null)
+                    chip(
+                      'No school ID photo',
+                      'No photo of your school ID. Apply again with a photo '
+                          'of its front',
+                    ),
                 ],
               ),
               const SizedBox(height: 12),

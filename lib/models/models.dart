@@ -1,6 +1,9 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'class_schedule.dart';
 import 'payroll_requirements.dart';
+
+export 'class_schedule.dart';
 import 'person_name.dart';
 import '../utils/philippine_dates.dart';
 export 'dtr_accomplishment_report.dart';
@@ -455,6 +458,18 @@ class User {
   /// themselves may change it (the rules).
   final bool? emailNotifications;
 
+  /// When the Head checked [studentId] against a photo of the school ID
+  /// (an ISO time in UTC), and who did: set when an application with that
+  /// ID is approved. Null for an ID nobody has checked (typed at
+  /// registration before the check existed, or entered by the Admin). Only
+  /// the Head or the Admin may set it (the rules).
+  final String? studentIdVerifiedAt;
+  final String? studentIdVerifiedBy;
+
+  /// Whether [studentId] was checked against the school ID.
+  bool get isStudentIdVerified =>
+      (studentId ?? '').trim().isNotEmpty && studentIdVerifiedAt != null;
+
   /// Email notifications are on unless the person turned them off.
   bool get emailsOn => emailNotifications != false;
 
@@ -488,6 +503,8 @@ class User {
     consentVersion: consentVersion,
     requestedRole: requestedRole,
     emailNotifications: value,
+    studentIdVerifiedAt: studentIdVerifiedAt,
+    studentIdVerifiedBy: studentIdVerifiedBy,
   );
 
   User({
@@ -516,6 +533,8 @@ class User {
     this.consentVersion,
     this.requestedRole,
     this.emailNotifications,
+    this.studentIdVerifiedAt,
+    this.studentIdVerifiedBy,
   });
 
   User copyWith({
@@ -538,6 +557,10 @@ class User {
     bool? isDeleted,
     bool? emailNotifications,
     bool clearRequestedRole = false,
+    String? studentIdVerifiedAt,
+    String? studentIdVerifiedBy,
+    // A changed Student ID hasn't been checked, whatever the old one was.
+    bool clearStudentIdVerification = false,
   }) => User(
     id: id ?? this.id,
     name: name ?? nameParts?.display ?? this.name,
@@ -564,6 +587,12 @@ class User {
     consentVersion: consentVersion,
     requestedRole: clearRequestedRole ? null : requestedRole,
     emailNotifications: emailNotifications ?? this.emailNotifications,
+    studentIdVerifiedAt: clearStudentIdVerification
+        ? null
+        : studentIdVerifiedAt ?? this.studentIdVerifiedAt,
+    studentIdVerifiedBy: clearStudentIdVerification
+        ? null
+        : studentIdVerifiedBy ?? this.studentIdVerifiedBy,
   );
 
   factory User.fromJson(Map<String, dynamic> json) => User(
@@ -596,6 +625,8 @@ class User {
     emailNotifications: json['emailNotifications'] is bool
         ? json['emailNotifications'] as bool
         : null,
+    studentIdVerifiedAt: json['studentIdVerifiedAt']?.toString(),
+    studentIdVerifiedBy: json['studentIdVerifiedBy']?.toString(),
   );
 
   Map<String, dynamic> toJson() => {
@@ -631,6 +662,10 @@ class User {
     // Left off until the person chooses, so an older profile saves exactly
     // as it was (and an Admin's edit of it doesn't add the field).
     if (emailNotifications != null) 'emailNotifications': emailNotifications,
+    // Left off until the Head checks the ID, so an older profile saves as
+    // it was.
+    if (studentIdVerifiedAt != null) 'studentIdVerifiedAt': studentIdVerifiedAt,
+    if (studentIdVerifiedBy != null) 'studentIdVerifiedBy': studentIdVerifiedBy,
   };
 
   /// Whether the name has been split into parts. Older accounts have only
@@ -1500,6 +1535,38 @@ class Application {
   final List<ApplicationDocument> submittedDocuments;
   final String? academicYear;
 
+  /// The class schedule sent with it: the file and the subjects read from
+  /// it. Becomes the Student Assistant's schedule when approved. Null for
+  /// applications made before schedules were asked for.
+  final ClassScheduleSubmission? classSchedule;
+
+  /// The Student ID the applicant typed (e.g. "23B0626"), sent with a photo
+  /// of their school ID (the document named [schoolIdDocument]). Null on
+  /// applications made before the Student ID moved here from registration.
+  final String? studentNumber;
+
+  /// Who checked the Student ID against the photo (a Head's name), and
+  /// when (an ISO time in UTC). Nobody is sent to screening or approved
+  /// before this is set.
+  final String? studentIdCheckedBy;
+  final String? studentIdCheckedAt;
+
+  /// The name the school ID photo is listed under among the documents.
+  static const schoolIdDocument = 'School ID';
+
+  /// Whether [requirement] (as saved, maybe "label::type") is the school
+  /// ID: by its label, in any case.
+  static bool isSchoolIdRequirement(String requirement) =>
+      RequirementSpec.parse(requirement).label.trim().toLowerCase() ==
+      schoolIdDocument.toLowerCase();
+
+  /// The photo of the school ID, or null when none was sent.
+  ApplicationDocument? get schoolIdPhoto => submittedDocuments
+      .where((d) => isSchoolIdRequirement(d.requirementName))
+      .firstOrNull;
+
+  bool get isStudentIdChecked => studentIdCheckedAt != null;
+
   Application({
     required this.id,
     required this.announcementId,
@@ -1512,6 +1579,10 @@ class Application {
     this.skills = const [],
     this.submittedDocuments = const [],
     this.academicYear,
+    this.classSchedule,
+    this.studentNumber,
+    this.studentIdCheckedBy,
+    this.studentIdCheckedAt,
   });
 
   /// 'Accepted' is how some older approvals were saved.
@@ -1541,14 +1612,33 @@ class Application {
             .toList() ??
         const [],
     academicYear: json['academicYear']?.toString(),
+    classSchedule: json['classSchedule'] is Map
+        ? ClassScheduleSubmission.fromJson(
+            Map<String, dynamic>.from(json['classSchedule'] as Map),
+          )
+        : null,
+    studentNumber: _textOrNull(json['studentNumber']),
+    studentIdCheckedBy: _textOrNull(json['studentIdCheckedBy']),
+    studentIdCheckedAt: _textOrNull(json['studentIdCheckedAt']),
   );
+
+  static String? _textOrNull(Object? value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
 
   Application copyWith({
     String? status,
     String? remarks,
     String? academicYear,
     List<ApplicationDocument>? submittedDocuments,
+    String? studentIdCheckedBy,
+    String? studentIdCheckedAt,
   }) => Application(
+    classSchedule: classSchedule,
+    studentNumber: studentNumber,
+    studentIdCheckedBy: studentIdCheckedBy ?? this.studentIdCheckedBy,
+    studentIdCheckedAt: studentIdCheckedAt ?? this.studentIdCheckedAt,
     id: id,
     announcementId: announcementId,
     announcementTitle: announcementTitle,

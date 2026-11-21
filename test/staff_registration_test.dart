@@ -417,7 +417,7 @@ void main() {
       expect(find.text('Student'), findsOneWidget);
       expect(find.text('Staff'), findsOneWidget);
       expect(find.text('STUDENT DETAILS'), findsOneWidget);
-      expect(find.text('Student ID'), findsOneWidget);
+      expect(find.text('Course/Program'), findsOneWidget);
       expect(find.text('STAFF DETAILS'), findsNothing);
     });
 
@@ -455,7 +455,7 @@ void main() {
       );
       await tester.tap(find.text('Student'));
       await tester.pumpAndSettle();
-      expect(find.text('Student ID'), findsOneWidget);
+      expect(find.text('Course/Program'), findsOneWidget);
       expect(find.text('STAFF DETAILS'), findsNothing);
     });
 

@@ -1691,7 +1691,10 @@ class _AccountsScreenState extends State<AccountsScreen>
                         );
                 String? error;
                 if (isEditing) {
-                  await state.updateManagedUser(managedUser);
+                  await state.updateManagedUser(
+                    managedUser,
+                    opened: (studentId: user.studentId),
+                  );
                 } else {
                   error = await state.createManagedUser(
                     User(

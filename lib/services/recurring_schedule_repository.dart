@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/foundation.dart';
 
+import '../models/class_schedule.dart';
 import '../models/recurring_schedule.dart';
 
 /// Reads/writes each owner's recurring weekly [RecurringScheduleRule]s
@@ -59,6 +60,9 @@ class RecurringScheduleRepository {
     }
   }
 
+  /// Saves the weekly rules only. Merged into the document, so the approved
+  /// class schedules kept beside them (`classSchedules`, which only the Head
+  /// may change) are left as they are.
   Future<void> saveRules(
     String ownerId,
     String ownerName,
@@ -69,6 +73,25 @@ class RecurringScheduleRepository {
       'ownerName': ownerName,
       'rules': rules.map((r) => r.toJson()).toList(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
   }
+
+  /// [ownerId]'s whole document: the weekly rules and the approved class
+  /// schedules. Empty when there is none or it can't be read (logged).
+  Future<OwnerSchedule> loadSchedule(String ownerId) async {
+    if (ownerId.isEmpty) return const OwnerSchedule();
+    try {
+      final snap = await _collection.doc(ownerId).get();
+      return OwnerSchedule.fromJson(snap.data());
+    } catch (e) {
+      debugPrint('RecurringScheduleRepository.loadSchedule("$ownerId") failed: $e');
+      return const OwnerSchedule();
+    }
+  }
+
+  /// [loadSchedule], again whenever the document changes.
+  Stream<OwnerSchedule> watchSchedule(String ownerId) => _collection
+      .doc(ownerId)
+      .snapshots()
+      .map((snap) => OwnerSchedule.fromJson(snap.data()));
 }

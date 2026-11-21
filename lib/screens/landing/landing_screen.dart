@@ -920,8 +920,8 @@ class _LandingScreenState extends State<LandingScreen> {
       (
         Icons.badge_outlined,
         'Your details',
-        'Your name, program and year level, and your Student ID if you have it '
-            'at hand.',
+        'Your name, program and year level, your Student ID, and a photo of '
+            'your school ID (front) for the Head to check.',
       ),
     ];
 

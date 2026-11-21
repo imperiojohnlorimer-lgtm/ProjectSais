@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
+import 'package:projectsais/models/recurring_schedule.dart';
 import 'package:projectsais/screens/accounts/applicant_screening_screen.dart';
 import 'package:projectsais/screens/student_portal/announcements_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
@@ -104,6 +105,8 @@ Application _application(
   List<String> skills = const [],
   String status = Application.pending,
   String year = '2026-2027',
+  // The Head's Student ID check (student_id_check_test.dart covers it).
+  bool checked = true,
 }) => Application(
   id: Application.idFor(user.id, year),
   announcementId: 'call1',
@@ -114,6 +117,8 @@ Application _application(
   status: status,
   skills: skills,
   academicYear: year,
+  studentIdCheckedBy: checked ? 'Helen Head' : null,
+  studentIdCheckedAt: checked ? '2026-10-02T02:00:00.000Z' : null,
 );
 
 void main() {
@@ -461,7 +466,8 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('Only PDF accepted'), findsOneWidget);
-      expect(find.text('Upload Document'), findsOneWidget);
+      // The school ID photo and the call's one requirement.
+      expect(find.text('Upload Document'), findsNWidgets(2));
       expect(find.byType(DropdownButtonFormField<String>), findsNothing);
     });
 
@@ -582,6 +588,7 @@ void main() {
       expect(find.text('Rita Reyes'), findsOneWidget);
       expect(find.text('Send to Screening'), findsWidgets);
 
+      await tester.ensureVisible(find.text('Conduct Interview & Assessment'));
       await tester.tap(find.text('Conduct Interview & Assessment'));
       await tester.pumpAndSettle();
 
@@ -698,7 +705,34 @@ void main() {
             remarks: 'Wrong file for "Resume"',
             skills: const ['Typing'],
             academicYear: '2026-2027',
+            classSchedule: ClassScheduleSubmission(
+              fileName: 'schedule.png',
+              filePath: 'schedules/stu1/1/schedule.png',
+              subjects: [
+                RecurringScheduleRule(
+                  id: 's1',
+                  ownerName: 'Sam Student',
+                  label: 'Math 1',
+                  weekday: 1,
+                  startTime: const TimeOfDay(hour: 8, minute: 0),
+                  endTime: const TimeOfDay(hour: 10, minute: 0),
+                  color: Colors.blue,
+                  icon: Icons.school_outlined,
+                  isSubject: true,
+                ),
+              ],
+            ),
+            studentNumber: '23B0626',
             submittedDocuments: [
+              ApplicationDocument(
+                id: 'd0',
+                applicationId: 'app_stu1_2026-2027',
+                requirementName: 'School ID',
+                fileName: 'id.jpg',
+                uploadedAt: 'Oct 2, 2026',
+                fileSize: 0.4,
+                storagePath: 'applications/stu1/1/id.jpg',
+              ),
               ApplicationDocument(
                 id: 'd1',
                 applicationId: 'app_stu1_2026-2027',
@@ -731,7 +765,8 @@ void main() {
       await tester.pumpAndSettle();
 
       // The form starts from what they sent: the skill and the file.
-      expect(find.text('From last time'), findsOneWidget);
+      // The resume and the school ID photo.
+      expect(find.text('From last time'), findsNWidgets(2));
       expect(find.textContaining('resume.pdf'), findsOneWidget);
       final submit = find.text('Submit Application');
       await tester.ensureVisible(submit);
@@ -743,8 +778,17 @@ void main() {
       expect(saved.remarks, isNull);
       expect(saved.skills, ['Typing']);
       expect(
-        saved.submittedDocuments.single.storagePath,
+        saved.submittedDocuments
+            .firstWhere((d) => d.requirementName == 'Resume::pdf')
+            .storagePath,
         'applications/stu1/1/resume.pdf',
+      );
+      // The class schedule sent last time goes again, with its file listed.
+      expect(saved.classSchedule!.filePath, 'schedules/stu1/1/schedule.png');
+      expect(saved.classSchedule!.subjects.single.label, 'Math 1');
+      expect(
+        saved.submittedDocuments.last.requirementName,
+        ClassScheduleSubmission.requirementName,
       );
       expect(
         store.sentTo('head1').single['message'],

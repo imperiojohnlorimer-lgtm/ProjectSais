@@ -23,6 +23,7 @@ import 'assistant_attendance.dart';
 import 'backup_info.dart';
 import 'models.dart';
 import 'program_batch.dart';
+import 'recurring_schedule.dart';
 import 'supervisor_card.dart';
 import 'task_duty.dart';
 import 'task_template.dart';
@@ -39,6 +40,7 @@ part 'app_state/load_problems.dart';
 part 'app_state/backups.dart';
 part 'app_state/staff_requests.dart';
 part 'app_state/supervisor_cards.dart';
+part 'app_state/class_schedules.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
@@ -323,6 +325,11 @@ class AppState extends ChangeNotifier {
   List<Student> students = [];
   List<AttendanceRecord> attendance = [];
   List<ClassScheduleEntry> classSchedules = [];
+
+  /// Requests to change a class schedule: every one for the Head, a Student
+  /// Assistant's own for them (see class_schedules.dart).
+  List<ScheduleRequest> scheduleRequests = [];
+  bool _sendingScheduleRequest = false;
 
   /// The class schedule save under way for each student (see
   /// [saveClassScheduleForStudent]).
@@ -946,6 +953,22 @@ class AppState extends ChangeNotifier {
         'Reports',
         fs.collectionStream('reports'),
         (list) => reports = list.map(Report.fromJson).toList(),
+      );
+    }
+
+    // Class schedule changes wait for the Head; a Student Assistant follows
+    // their own.
+    if (isHead) {
+      listen(
+        'Schedule requests',
+        fs.collectionStream('scheduleRequests'),
+        (list) => scheduleRequests = list.map(ScheduleRequest.fromJson).toList(),
+      );
+    } else if (role == 'Student Assistant') {
+      listen(
+        'My schedule requests',
+        fs.whereStream('scheduleRequests', 'studentId', user.id),
+        (list) => scheduleRequests = list.map(ScheduleRequest.fromJson).toList(),
       );
     }
 
@@ -1960,6 +1983,7 @@ class AppState extends ChangeNotifier {
     students = [];
     attendance = [];
     classSchedules = [];
+    scheduleRequests = [];
     tasks = [];
     taskDuties = [];
     reports = [];
@@ -4629,7 +4653,11 @@ class AppState extends ChangeNotifier {
     // academic years are left alone so screening history is preserved.
     final normalizedName = record.fullName.trim().toLowerCase();
     final normalizedStudentNumber = record.studentNumber.trim().toLowerCase();
-    final duplicates = (await _firestoreService!.getAllScreeningRecords())
+    // With no Student ID, a name alone could match a different applicant
+    // with the same name: leave those alone.
+    final duplicates = normalizedStudentNumber.isEmpty
+        ? <ScreeningRecord>[]
+        : (await _firestoreService!.getAllScreeningRecords())
         .where(
           (candidate) =>
               candidate.id != stableRecord.id &&
@@ -4900,6 +4928,10 @@ class AppState extends ChangeNotifier {
       ('attendance', 'Student Assistant') => 'attendance',
       // A returned or missing DTR is sent again from there.
       ('payroll_requirement', 'Supervisor') => 'dtr_accomplishment_report',
+      // Class schedules: the Head decides on Schedule Requests; the others
+      // see the schedule on the Calendar.
+      ('schedule', 'Head') => 'schedule_requests',
+      ('schedule', 'Supervisor' || 'Student Assistant') => 'calendar',
       // Role changes: the profile shows the new role.
       ('system', _) => 'profile',
       _ => null,
@@ -6604,14 +6636,41 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<void> updateManagedUser(User user) async {
+  /// Saves the Admin's edit of [user]. [opened] holds the Student ID the
+  /// edit dialog opened with (maybe none), to tell an ID the Admin changed
+  /// from one the Head verified while the dialog was open. Without it, an
+  /// ID that differs from the latest counts as the Admin's change.
+  Future<void> updateManagedUser(
+    User user, {
+    ({String? studentId})? opened,
+  }) async {
     // The edit dialog's copy may be older than the person's own choice of
     // email notifications, which only they may change (the rules): carry
     // the latest one along rather than their old one.
     final latest = users.where((u) => u.id == user.id).firstOrNull;
-    final toSave = latest == null
+    var toSave = latest == null
         ? user
         : user.withEmailNotifications(latest.emailNotifications);
+    if (latest != null) {
+      final changedByAdmin =
+          AppState.studentIdKey(user.studentId) !=
+          AppState.studentIdKey(
+            opened == null ? latest.studentId : opened.studentId,
+          );
+      if (changedByAdmin) {
+        // A Student ID the Admin changed hasn't been checked against the
+        // school ID, whatever the old one was.
+        toSave = toSave.copyWith(clearStudentIdVerification: true);
+      } else if (latest.studentId != null) {
+        // Untouched in the dialog: keep the latest, which the Head may have
+        // verified on approval meanwhile.
+        toSave = toSave.copyWith(
+          studentId: latest.studentId,
+          studentIdVerifiedAt: latest.studentIdVerifiedAt,
+          studentIdVerifiedBy: latest.studentIdVerifiedBy,
+        );
+      }
+    }
     await _upsertUser(toSave);
     await _saveUserProfile(toSave);
     notifyListeners();

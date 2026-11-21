@@ -21,6 +21,11 @@ office), **Student Assistant** and **Student** (applicant).
 Both services stay on their free plans. See `AGENTS.md` for the code map and
 the conventions to follow when changing things.
 
+Class schedules are read from the student's file on their own device
+(`web/schedule-reader/`, see its README): the reading libraries come from the
+jsDelivr CDN on first use, pinned and hash-checked, so they don't count
+against Firebase Hosting's free download allowance.
+
 ## Running it
 
 You need the Flutter SDK (3.41 or newer, which bundles Dart 3.11).
@@ -39,6 +44,8 @@ flutter test                                   # app tests
 (cd test_rules && npm ci && npm test)          # Firestore rules, on the emulator (needs Java)
 (cd supabase/functions/clock-attendance && node --test records.test.ts sessions.test.ts)
 (cd supabase/functions/upload-document && node --test paths.test.ts)
+(cd tool/schedule_reader_check && npm test)     # class schedule reader, layout logic
+(cd tool/schedule_reader_check && npm install && npm run check)   # reader in headless Chrome (needs internet)
 (cd supabase/functions/clockout-reminders && node --test reminders.test.ts pushtext.test.ts email.test.ts email-core.test.ts)
 ```
 

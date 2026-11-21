@@ -242,13 +242,73 @@ extension AppStateApplicationsAndFolders on AppState {
     );
   }
 
+  /// The Head marks [id]'s Student ID as checked against the photo of the
+  /// school ID. Nobody goes to screening or is approved before this. Saved
+  /// first; a failed save throws and changes nothing.
+  Future<void> markStudentIdChecked(String id) async {
+    final original = applications.where((a) => a.id == id).firstOrNull;
+    if (original == null || original.isStudentIdChecked) return;
+    if (currentUser?.role != 'Head') return;
+    final checked = original.copyWith(
+      studentIdCheckedBy: currentUser?.name ?? 'Head',
+      studentIdCheckedAt: DateTime.now().toUtc().toIso8601String(),
+    );
+    _firestoreService ??= FirestoreService();
+    await _firestoreService!.setApplication(checked);
+    applications = [for (final a in applications) a.id == id ? checked : a];
+    _notify();
+  }
+
+  /// Whether another account holds [studentId] in `studentIds`, for the
+  /// apply form. A failed look-up says no: the Head checks it anyway.
+  Future<bool> studentIdTakenByAnother(String studentId) async {
+    final key = AppState.studentIdKey(studentId);
+    final me = currentUser?.id;
+    if (key == null || me == null) return false;
+    _firestoreService ??= FirestoreService();
+    try {
+      final holder = await _firestoreService!.studentIdHolder(key);
+      return holder != null && holder != me;
+    } catch (error) {
+      debugPrint('Failed to look up Student ID $key: $error');
+      return false;
+    }
+  }
+
+  /// Another account holding [app]'s Student ID, by name, or null: on a
+  /// profile in the roster, or on another application this year. Shown on
+  /// the Head's card, and approval refuses it.
+  String? studentIdClashFor(Application app) {
+    final key = AppState.studentIdKey(app.studentNumber);
+    if (key == null) return null;
+    for (final user in users) {
+      if (user.id != app.applicantId &&
+          AppState.studentIdKey(user.studentId) == key) {
+        return user.isDeleted ? '${user.name} (a deleted account)' : user.name;
+      }
+    }
+    for (final other in currentApplications) {
+      if (other.applicantId != app.applicantId &&
+          other.status != Application.rejected &&
+          AppState.studentIdKey(other.studentNumber) == key) {
+        return '${other.applicantName} (another application)';
+      }
+    }
+    return null;
+  }
+
   /// Picks the Pending applications [ids] for screening, one save each.
-  /// Returns how many were saved.
+  /// Only those whose Student ID the Head has checked go. Returns how many
+  /// were saved.
   Future<int> sendToScreening(Iterable<String> ids) async {
     var saved = 0;
     for (final id in ids.toSet()) {
       final app = applications.where((a) => a.id == id).firstOrNull;
-      if (app == null || app.status != Application.pending) continue;
+      if (app == null ||
+          app.status != Application.pending ||
+          !app.isStudentIdChecked) {
+        continue;
+      }
       try {
         await updateApplicationStatus(id, Application.forScreening);
         saved++;
@@ -275,11 +335,56 @@ extension AppStateApplicationsAndFolders on AppState {
   }) async {
     final original = applications.where((a) => a.id == id).firstOrNull;
     if (original == null) return;
+    final approving = status == Application.approved || status == 'Accepted';
+    // Nobody goes to screening or is approved before the Head checks their
+    // Student ID against the photo. Saving an approval again (to finish a
+    // cut-short one, or an older one saved as 'Accepted') is no new move, so
+    // it passes.
+    if ((status == Application.forScreening || approving) &&
+        status != original.status &&
+        !(approving && original.isApproved) &&
+        !original.isStudentIdChecked) {
+      throw StateError(
+        'Check ${original.applicantName}\'s Student ID against their school '
+        'ID photo first ("Student ID checked").',
+      );
+    }
+    _firestoreService ??= FirestoreService();
+    // Approving puts the Student ID on their profile, so it mustn't be
+    // another account's. Checked before anything is saved. An application
+    // from before the ID moved here has none: the profile's, when the Head
+    // checked it, is the one verified.
+    final profileId = users
+        .where((u) => u.id == original.applicantId)
+        .firstOrNull
+        ?.studentId;
+    final idKey =
+        AppState.studentIdKey(original.studentNumber) ??
+        (original.isStudentIdChecked
+            ? AppState.studentIdKey(profileId)
+            : null);
+    if (approving && idKey != null) {
+      final clash = studentIdClashFor(original);
+      if (clash != null) {
+        throw StateError(
+          'Student ID $idKey is already used by $clash. Sort that out '
+          'before approving.',
+        );
+      }
+      final holder = await _firestoreService!.studentIdHolder(idKey);
+      if (holder != null && holder != original.applicantId) {
+        final name = users.where((u) => u.id == holder).firstOrNull?.name;
+        throw StateError(
+          'Student ID $idKey is already registered to '
+          '${name ?? 'another account'}. If that account was deleted, the '
+          'Admin can free the ID; sort that out before approving.',
+        );
+      }
+    }
     final updatedApplication = original.copyWith(
       status: status,
       remarks: remarks,
     );
-    _firestoreService ??= FirestoreService();
     await _firestoreService!.setApplication(updatedApplication);
     // By id: the live list may have changed while it saved.
     applications = [
@@ -347,7 +452,30 @@ extension AppStateApplicationsAndFolders on AppState {
           if (problem != null) throw StateError(problem);
         }
         await ensureStudentAssistantId(updatedApplication.applicantId);
-        if (original.status != status &&
+        // The checked Student ID goes on their profile, marked verified and
+        // reserved. Before the documents: the Endorsement Letter prints it.
+        // Saving the decision again retries it.
+        if (idKey != null) {
+          final idProblem = await _adoptCheckedStudentId(
+            updatedApplication,
+            idKey,
+          );
+          if (idProblem != null) {
+            _notify();
+            throw StateError(
+              'Approved, but the Student ID was not saved: $idProblem Save '
+              'the decision again to retry.',
+            );
+          }
+        }
+        // Made on the first save of the approval, or on a later one that
+        // finishes an approval cut short before they were made.
+        final hasAppointmentDocuments = original.submittedDocuments.any(
+          (d) =>
+              d.requirementName == 'Contract of Appointment' ||
+              d.requirementName == 'Endorsement Letter',
+        );
+        if ((original.status != status || !hasAppointmentDocuments) &&
             officesForUser(updatedApplicant).isNotEmpty) {
           // The approval stands either way; the Head can make them again
           // from Applications.
@@ -357,9 +485,62 @@ extension AppStateApplicationsAndFolders on AppState {
             debugPrint('Failed to generate appointment documents: $error');
           }
         }
+        // The class schedule sent with the application becomes theirs, on
+        // the Calendar and in the DTR. Last, so a failure here stops
+        // nothing else; saving the decision again retries it (once saved it
+        // isn't added twice).
+        final scheduleProblem = await _adoptApplicationSchedule(
+          updatedApplication,
+        );
+        if (scheduleProblem != null) {
+          _notify();
+          throw StateError(
+            'Approved, but the class schedule was not saved: $scheduleProblem '
+            'Save the decision again to retry.',
+          );
+        }
       }
     }
     _notify();
+  }
+
+  /// Puts [app]'s checked Student ID ([key]) on the applicant's profile,
+  /// marked verified, and reserves it. Returns what went wrong, or null.
+  /// Safe to run again.
+  Future<String?> _adoptCheckedStudentId(Application app, String key) async {
+    final index = users.indexWhere((u) => u.id == app.applicantId);
+    if (index < 0) return 'their account is not loaded.';
+    final applicant = users[index];
+    final verifiedAt =
+        app.studentIdCheckedAt ?? DateTime.now().toUtc().toIso8601String();
+    final verifiedBy = app.studentIdCheckedBy ?? currentUser?.name ?? 'Head';
+    if (AppState.studentIdKey(applicant.studentId) == key &&
+        applicant.isStudentIdVerified) {
+      return null;
+    }
+    try {
+      final holder = await _firestoreService!.verifyStudentId(
+        applicant.id,
+        key,
+        verifiedBy: verifiedBy,
+        verifiedAt: verifiedAt,
+      );
+      if (holder != null) {
+        final name = users.where((u) => u.id == holder).firstOrNull?.name;
+        return 'Student ID $key is registered to ${name ?? 'another account'}.';
+      }
+    } catch (error) {
+      debugPrint('Failed to save the checked Student ID: $error');
+      return 'it could not be saved.';
+    }
+    final updated = applicant.copyWith(
+      studentId: key,
+      studentIdVerifiedAt: verifiedAt,
+      studentIdVerifiedBy: verifiedBy,
+    );
+    await _upsertUser(updated);
+    if (currentUser?.id == updated.id) currentUser = updated;
+    return null;
   }
 
   /// Assigns a unique, sequential Student Assistant Program ID (e.g.

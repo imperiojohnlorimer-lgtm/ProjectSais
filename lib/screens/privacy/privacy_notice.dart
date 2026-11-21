@@ -32,10 +32,11 @@ abstract final class PrivacyNotice {
     (
       heading: 'What SAIS collects',
       body: [
-        'When you register: your name, email address, mobile number, Student '
-            'ID (if you give one), campus, department, course/program and '
-            'year level.',
-        'When you apply or work as a Student Assistant: your skills, the '
+        'When you register: your name, email address, mobile number, '
+            'campus, department, course/program and year level.',
+        'When you apply or work as a Student Assistant: your Student ID and '
+            'a photo of your school ID (only the Head sees it, to check that '
+            'the Student ID is yours), your skills, the '
             'documents you upload for your requirements, your screening and '
             'evaluation results, your duty schedule, the times you clock in '
             'and out, your tasks and reports, and the hours and pay worked '

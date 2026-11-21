@@ -344,7 +344,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
         if (isStudentRole) ...[
           ProfileFieldData(
             'Student ID',
-            orDash(user.studentId),
+            // Checked by the Head against the school ID when approved.
+            user.isStudentIdVerified
+                ? '${user.studentId} · Verified'
+                : orDash(user.studentId),
             Icons.badge_outlined,
           ),
           ProfileFieldData(

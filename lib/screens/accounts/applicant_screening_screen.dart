@@ -683,6 +683,10 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   /// applicant directly from the queue, without re-running the whole
   /// screening form.
   Future<bool> _confirmApproveWaitlisted(Application app) async {
+    if (!_studentIdChecked(app)) {
+      _sayCheckFirst(app);
+      return false;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -2190,7 +2194,9 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
       );
       _resetAssessment();
       name.text = app.applicantName;
-      studentNumber.text = user?.studentId ?? '';
+      // The one typed on the application, checked by the Head; older
+      // applications have only the profile's.
+      studentNumber.text = app.studentNumber ?? user?.studentId ?? '';
       program.text = defaults.program;
       address.text = user?.address ?? '';
       contact.text = '${user?.phone ?? ''} / ${user?.email ?? ''}';
@@ -2367,8 +2373,29 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   bool get _savingDecides =>
       activeApplication != null && !activeApplication!.isApproved;
 
+  /// Whether the Head has checked [app]'s Student ID against the school ID
+  /// photo, by its live copy (the check is made on the Applicants tab).
+  bool _studentIdChecked(Application app) =>
+      context
+          .read<AppState>()
+          .applications
+          .where((a) => a.id == app.id)
+          .firstOrNull
+          ?.isStudentIdChecked ??
+      app.isStudentIdChecked;
+
+  /// Says why a decision has to wait for the Student ID check.
+  void _sayCheckFirst(Application app) => _say(
+    'Check ${app.applicantName}\'s Student ID against their school ID photo '
+    'first ("Student ID checked" on their card in Applicants).',
+  );
+
   /// Asks before a save that decides the application; true when none does.
   Future<bool> _confirmSave() async {
+    if (_savingDecides && !_studentIdChecked(activeApplication!)) {
+      _sayCheckFirst(activeApplication!);
+      return false;
+    }
     if (_savingDecides) {
       final applicant = activeApplication!.applicantName;
       final (title, message, label, color) = switch (recommendation) {

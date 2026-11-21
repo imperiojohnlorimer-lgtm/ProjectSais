@@ -33,7 +33,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final _emailCtrl = TextEditingController();
   final _passwordCtrl = TextEditingController();
   final _phoneCtrl = TextEditingController();
-  final _studentIdCtrl = TextEditingController();
   // The chosen program's code, from the programs under [_department].
   String? _program;
   final String _role = 'Student';
@@ -108,13 +107,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       return;
     }
 
-    // Optional, but it must be a whole ID when given. Staff have none.
-    final studentId = _staff ? '' : _studentIdCtrl.text.trim().toUpperCase();
-    if (studentId.isNotEmpty && !isValidStudentId(studentId)) {
-      setState(() => _error = 'Enter a valid Student ID, e.g. 23B0626.');
-      return;
-    }
-
     final appState = context.read<AppState>();
     final department = _departmentIn(appState);
     final offered = appState.programsForDepartment(department);
@@ -165,7 +157,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
       department: department,
       campus: _campus,
       phone: _phoneCtrl.text.trim(),
-      studentId: studentId.isEmpty ? null : studentId,
       courseProgram: _staff ? null : program,
       yearLevel: _staff ? null : _yearLevel,
       consentAt: DateTime.now().toUtc().toIso8601String(),
@@ -220,7 +211,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _emailCtrl.dispose();
     _passwordCtrl.dispose();
     _phoneCtrl.dispose();
-    _studentIdCtrl.dispose();
     super.dispose();
   }
 
@@ -396,21 +386,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const AuthSectionHeading(label: 'Student details'),
         const SizedBox(height: 18),
 
-        AuthFieldPair(
-          left: _phoneField(),
-          right: AuthField(
-            label: 'Student ID',
-            child: TextFormField(
-              controller: _studentIdCtrl,
-              textCapitalization: TextCapitalization.characters,
-              // Moves on to the dropdowns; it never submits the form.
-              textInputAction: TextInputAction.next,
-              inputFormatters: [StudentIdFormatter()],
-              onChanged: _clearError,
-              decoration: const InputDecoration(hintText: 'e.g. 23B0626'),
-            ),
-          ),
-        ),
+        // The Student ID is asked when applying, with a photo of the
+        // school ID for the Head to check, not here.
+        _phoneField(),
         const SizedBox(height: 18),
 
         AuthFieldPair(

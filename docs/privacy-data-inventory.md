@@ -21,15 +21,16 @@ Google). Removed only in the Firebase console, under Authentication.
 
 | Collection | What it holds about a person | Who can read it |
 |---|---|---|
-| `users` | Name (and its parts), email, phone, address, photo, skills, Student ID, SA ID, the date they were accepted as a Student Assistant, course/program, year level, department, campus, role, status, consent time and version, whether they get notification emails | The person; Head, Supervisor, Admin |
+| `users` | Name (and its parts), email, phone, address, photo, skills, Student ID (and who checked it against the school ID, and when), SA ID, the date they were accepted as a Student Assistant, course/program, year level, department, campus, role, status, consent time and version, whether they get notification emails | The person; Head, Supervisor, Admin |
 | `studentIds` | Which account holds a Student ID | Any signed-in account (one ID at a time) |
 | `students` | Roster record: name, email, department, campus, hours, phone, address, photo | Head, Supervisor, Admin, the person |
 | `officeAssignments`, `offices` | Which office a person is in; names of supervisors and assistants; the office's About text, Location and the path of its location picture (not personal) | `offices`: everyone signed in. `officeAssignments`: Head |
 | `announcements` | Name of whoever posted; attachments | Everyone signed in |
-| `applications` | Applicant name, skills, answers, uploaded requirement documents, screening remarks, decisions | The applicant; Head |
+| `applications` | Applicant name, Student ID, a photo of the school ID (a document), skills, answers, uploaded requirement documents, screening remarks, decisions, who checked the Student ID | The applicant; Head |
 | `screeningRecords` | Interview ratings and remarks about an applicant | Head |
 | `attendance` | Clock-in and clock-out times by date, hours | The person; Head, Supervisor, Admin |
-| `classSchedules`, `recurringSchedules`, `schedule_events` | Class and duty schedules | The person; Head, Supervisor |
+| `classSchedules`, `recurringSchedules`, `schedule_events` | Class and duty schedules (approved class schedules with their instructors and rooms) | The person; Head, Supervisor |
+| `scheduleRequests` | New class schedules sent for the Head's approval | The person; Head |
 | `tasks`, `taskDuties` | Tasks assigned, completion and review notes | The person; Head, Supervisor |
 | `reports` | Accomplishment reports and attachments | The person; Head, Supervisor, Admin |
 | `evaluations` | Performance ratings and comments | Head, Supervisor |
@@ -46,7 +47,8 @@ Google). Removed only in the Firebase console, under Authentication.
 
 ### Supabase Storage (private bucket `Documents`)
 Files people upload, under `reports/<account id>/`, `applications/<account
-id>/` and `announcements/<account id>/` (the Head's announcement
+id>/`, `schedules/<account id>/` (class schedules: the Head and Supervisors
+can open them) and `announcements/<account id>/` (the Head's announcement
 attachments and the offices' location pictures; any signed-in account can open
 these), and the archived copies under
 `academic_year_archives/<year>/`. Since October 2026 new files are stored under
@@ -93,13 +95,14 @@ accounting needs.
    - remove them from `offices` (`assistantIds`/`assistantNames`, `headIds`/
      `headNames`) if the Head's session has not already;
    - delete `applications`, `screeningRecords`, `tasks`, `taskDuties`,
-     `classSchedules`, `recurringSchedules` and `schedule_events` for them;
+     `classSchedules`, `recurringSchedules`, `scheduleRequests` and
+     `schedule_events` for them;
    - for records the school keeps (`attendance`, `reports`, `evaluations`,
      `payrollRecords`, `payrollSheets`, `rehireRecords`, `headForwards`, and the
      yearly archives): replace the name with "Erased user" and delete free-text
      comments and attachments, keeping dates and hours.
 4. **Supabase → Storage → Documents**: delete the person's folders under
-   `reports/U/`, `applications/U/` and `announcements/U/`, and any archived
+   `reports/U/`, `applications/U/`, `schedules/U/` and `announcements/U/`, and any archived
    copies under `academic_year_archives/` that name them.
 5. **Backups**: note the date; copies up to 22 days old still hold the data and
    expire by themselves. Never restore a backup over live data without
@@ -107,6 +110,10 @@ accounting needs.
 6. **Tell the person** what was done, and what was kept and why.
 
 ## Known limits
+
+- A class schedule file picked and then replaced, or one sent with a form that
+  was never submitted, stays in `schedules/<account id>/` (no cleanup job);
+  the erase procedure above removes the whole folder.
 - Staff roles can read every profile (the app matches people across screens).
 - Files uploaded before October 2026 carry the person's own file name in the
   path.

@@ -20,6 +20,7 @@ import 'screens/startup_failed_screen.dart';
 import 'widgets/idle_sign_out_guard.dart';
 import 'services/schedule_service.dart';
 import 'services/firestore_schedule_repository.dart';
+import 'services/recurring_schedule_repository.dart';
 
 void main() async {
   // Addresses like /tasks rather than /#/tasks. Firebase Hosting serves the
@@ -69,6 +70,27 @@ class SAISApp extends StatefulWidget {
 
 class _SAISAppState extends State<SAISApp> {
   final _state = AppState()..init();
+
+  /// The calendar's data. Emptied when the signed-in account changes, so
+  /// the next person doesn't see the last one's schedules.
+  final _schedules = ScheduleService(
+    FirestoreScheduleRepository(),
+    scheduleWatcher: const RecurringScheduleRepository().watchSchedule,
+  );
+  String? _scheduleAccount;
+
+  @override
+  void initState() {
+    super.initState();
+    _state.addListener(_onAccount);
+  }
+
+  void _onAccount() {
+    final account = _state.currentUser?.id;
+    if (account == _scheduleAccount) return;
+    _scheduleAccount = account;
+    _schedules.reset();
+  }
   late final _router = AppRouterDelegate(
     _state,
     home: (waitingForSession) =>
@@ -77,6 +99,8 @@ class _SAISAppState extends State<SAISApp> {
 
   @override
   void dispose() {
+    _state.removeListener(_onAccount);
+    _schedules.dispose();
     _router.dispose();
     _state.dispose();
     super.dispose();
@@ -87,9 +111,7 @@ class _SAISAppState extends State<SAISApp> {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: _state),
-        ChangeNotifierProvider(
-          create: (_) => ScheduleService(FirestoreScheduleRepository()),
-        ),
+        ChangeNotifierProvider.value(value: _schedules),
       ],
       child: MaterialApp.router(
         title: 'SAIS',

@@ -1,0 +1,13 @@
+{
+  "name": "schedule-reader-check",
+  "private": true,
+  "type": "module",
+  "description": "Checks of web/schedule-reader/ (npm test: layout unit tests; npm run check: real-browser read of a made-up schedule)",
+  "scripts": {
+    "test": "node --test layout.test.cjs",
+    "check": "node check.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

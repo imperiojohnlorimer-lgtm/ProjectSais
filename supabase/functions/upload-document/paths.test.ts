@@ -51,6 +51,17 @@ test("a Supervisor reads reports and announcements only", () => {
   );
 });
 
+test("class schedules: the owner uploads, the Head and Supervisors read", () => {
+  assert.equal(ownedPath("schedules/u1/1700000000/a.png", "u1"), true);
+  assert.equal(ownedPath("schedules/u1/1700000000/a.png", "u2"), false);
+  assert.equal(staffMayRead("schedules/u1/1700000000/a.png", "Head"), true);
+  assert.equal(staffMayRead("schedules/u1/1700000000/a.png", "Supervisor"), true);
+  for (const role of ["Student", "Student Assistant", "Admin", undefined]) {
+    assert.equal(staffMayRead("schedules/u1/1700000000/a.png", role), false);
+  }
+  assert.equal(isPublicAnnouncementPath("schedules/u1/1700000000/a.png"), false);
+});
+
 test("nobody else reads other people's files, and odd paths are refused", () => {
   for (const role of ["Student", "Student Assistant", "Admin", undefined]) {
     assert.equal(staffMayRead("reports/u1/1700000000/a.pdf", role), false);

@@ -1021,3 +1021,292 @@ test('the Head and the Admin keep any Supervisor card in step, and may remove on
 test('a Student Assistant still cannot read a supervisor profile', async () => {
   await assertFails(getDoc(doc(as('sa'), 'users', 'sup')));
 });
+
+// ── class schedules ───────────────────────────────────────────────────
+
+const subject = { id: 's1', label: 'Math 1', weekday: 1, startHour: 8, startMinute: 0, endHour: 9, endMinute: 0, isSubject: true };
+const version = { id: 'cs1', effectiveFrom: '2026-11-01', subjects: [subject], filePath: 'schedules/sa/1/a.png', source: 'request' };
+
+const scheduleRequest = (over = {}) => ({
+  id: 'sa_1700000000000',
+  studentId: 'sa',
+  studentName: 'Sia Assistant',
+  academicYear: '2026-2027',
+  fileName: 'sched.png',
+  filePath: 'schedules/sa/1700000000000/abc.png',
+  subjects: [subject],
+  effectiveFrom: '2026-11-20',
+  note: '',
+  status: 'Pending',
+  submittedAt: serverTimestamp(),
+  ...over,
+});
+
+test('an assistant and their Supervisor still save weekly rules (keeps working)', async () => {
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'recurringSchedules', 'sa'), { ownerId: 'sa', ownerName: 'Sia Assistant', rules: [] }),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('sup'), 'recurringSchedules', 'sa'), { ownerId: 'sa', ownerName: 'Sia Assistant', rules: [subject] }, { merge: true }),
+  );
+});
+
+test('only the Head writes approved class schedules', async () => {
+  // Not on a new document...
+  await assertFails(
+    setDoc(doc(as('sa'), 'recurringSchedules', 'sa'), { ownerId: 'sa', classSchedules: [version] }),
+  );
+  await assertFails(
+    setDoc(doc(as('sup'), 'recurringSchedules', 'sa'), { ownerId: 'sa', classSchedules: [version] }),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('head'), 'recurringSchedules', 'sa'), { ownerId: 'sa', ownerName: 'Sia Assistant', rules: [], classSchedules: [version] }),
+  );
+  // ...nor by changing them on one that has them, nor deleting it.
+  await assertFails(
+    updateDoc(doc(as('sa'), 'recurringSchedules', 'sa'), { classSchedules: [] }),
+  );
+  await assertFails(
+    updateDoc(doc(as('sup'), 'recurringSchedules', 'sa'), { classSchedules: [] }),
+  );
+  await assertFails(deleteDoc(doc(as('sa'), 'recurringSchedules', 'sa')));
+  await assertFails(deleteDoc(doc(as('sup'), 'recurringSchedules', 'sa')));
+  // Saving the weekly rules beside them still works.
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'recurringSchedules', 'sa'), { ownerId: 'sa', ownerName: 'Sia Assistant', rules: [] }, { merge: true }),
+  );
+  // A whole-document save (an older app) would drop them: refused.
+  await assertFails(
+    setDoc(doc(as('sa'), 'recurringSchedules', 'sa'), { ownerId: 'sa', ownerName: 'Sia Assistant', rules: [] }),
+  );
+  await assertSucceeds(
+    updateDoc(doc(as('head'), 'recurringSchedules', 'sa'), { classSchedules: [version, { ...version, id: 'cs2' }] }),
+  );
+});
+
+test('an assistant sends a new schedule for themselves only', async () => {
+  await assertSucceeds(setDoc(doc(as('sa'), 'scheduleRequests', 'sa_1700000000000'), scheduleRequest()));
+  // Not for someone else, not as a Student, not already decided, not with
+  // a file outside their own folder, not with a made-up time or extra field.
+  await assertFails(
+    setDoc(doc(as('sa'), 'scheduleRequests', 'stu_1700000000001'), scheduleRequest({ id: 'stu_1700000000001', studentId: 'stu' })),
+  );
+  await assertFails(
+    setDoc(doc(as('stu'), 'scheduleRequests', 'stu_1700000000002'), scheduleRequest({ id: 'stu_1700000000002', studentId: 'stu', studentName: 'Stu Student', filePath: 'schedules/stu/1/a.png' })),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'scheduleRequests', 'sa_1700000000003'), scheduleRequest({ id: 'sa_1700000000003', status: 'Approved' })),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'scheduleRequests', 'sa_1700000000004'), scheduleRequest({ id: 'sa_1700000000004', filePath: 'schedules/stu/1/a.png' })),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'scheduleRequests', 'sa_1700000000005'), scheduleRequest({ id: 'sa_1700000000005', submittedAt: '2020-01-01' })),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'scheduleRequests', 'sa_1700000000006'), scheduleRequest({ id: 'sa_1700000000006', reviewedBy: 'Me' })),
+  );
+  // Read by the student and the Head, not by others.
+  await assertSucceeds(getDoc(doc(as('sa'), 'scheduleRequests', 'sa_1700000000000')));
+  await assertSucceeds(getDoc(doc(as('head'), 'scheduleRequests', 'sa_1700000000000')));
+  await assertFails(getDoc(doc(as('sup'), 'scheduleRequests', 'sa_1700000000000')));
+  await assertFails(getDoc(doc(as('stu'), 'scheduleRequests', 'sa_1700000000000')));
+});
+
+test('the student withdraws a waiting request; only the Head decides one', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'scheduleRequests', 'r1'), scheduleRequest({ id: 'r1', submittedAt: '2026-11-19' }));
+    await setDoc(doc(ctx.firestore(), 'scheduleRequests', 'r2'), scheduleRequest({ id: 'r2', submittedAt: '2026-11-19' }));
+  });
+  await assertFails(updateDoc(doc(as('sa'), 'scheduleRequests', 'r1'), { status: 'Approved' }));
+  await assertFails(updateDoc(doc(as('sup'), 'scheduleRequests', 'r1'), { status: 'Approved' }));
+  await assertFails(updateDoc(doc(as('head'), 'scheduleRequests', 'r1'), { status: 'Approved', subjects: [] }));
+  await assertSucceeds(updateDoc(doc(as('sa'), 'scheduleRequests', 'r1'), { status: 'Cancelled' }));
+  // Withdrawn: nobody decides it now.
+  await assertFails(updateDoc(doc(as('head'), 'scheduleRequests', 'r1'), { status: 'Approved' }));
+  await assertSucceeds(
+    updateDoc(doc(as('head'), 'scheduleRequests', 'r2'), { status: 'Rejected', reviewNote: 'Wrong file', reviewedBy: 'Hana Head', reviewedAt: '2026-11-19T00:00:00Z' }),
+  );
+  await assertFails(updateDoc(doc(as('sa'), 'scheduleRequests', 'r2'), { status: 'Cancelled' }));
+  await assertFails(deleteDoc(doc(as('head'), 'scheduleRequests', 'r2')));
+});
+
+test('the Head approves a request and the schedule in one transaction', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'scheduleRequests', 'r3'), scheduleRequest({ id: 'r3', submittedAt: '2026-11-19' }));
+  });
+  const db = as('head');
+  await assertSucceeds(
+    runTransaction(db, async (tx) => {
+      await tx.get(doc(db, 'recurringSchedules', 'sa'));
+      await tx.get(doc(db, 'scheduleRequests', 'r3'));
+      tx.set(doc(db, 'recurringSchedules', 'sa'), { ownerId: 'sa', ownerName: 'Sia Assistant', rules: [], classSchedules: [version] }, { merge: true });
+      tx.update(doc(db, 'scheduleRequests', 'r3'), { status: 'Approved', reviewedBy: 'Hana Head', reviewedAt: '2026-11-19T00:00:00Z' });
+    }),
+  );
+});
+
+test('an assistant tells the Head about a new schedule', async () => {
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'notifications', 'n_sched'), {
+      userId: 'head', title: 'Schedule Change Request', message: 'Sia Assistant sent a new class schedule for approval.', type: 'schedule', isRead: false,
+    }),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'notifications', 'n_sched2'), {
+      userId: 'stu', title: 'x', message: 'y', type: 'schedule', isRead: false,
+    }),
+  );
+});
+
+test('an application carries its class schedule from the applicant\'s own folder', async () => {
+  const schedule = { fileName: 'a.png', filePath: 'schedules/stu/1700/a.png', subjects: [subject] };
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { classSchedule: schedule })),
+  );
+});
+
+test('an application\'s class schedule must be the applicant\'s own file', async () => {
+  await assertFails(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', { classSchedule: { fileName: 'a.png', filePath: 'schedules/sa/1700/a.png', subjects: [] } }),
+    ),
+  );
+  await assertFails(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', { classSchedule: { fileName: 'a.png', filePath: 'schedules/stu/1700/a.png', subjects: [], extra: 1 } }),
+    ),
+  );
+});
+
+// ── Student ID on the application, checked by the Head ─────────────────
+
+test('an application carries a Student ID in the 23B0626 shape', async () => {
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '23B0626' })),
+  );
+});
+
+test('a badly shaped Student ID is refused', async () => {
+  for (const studentNumber of ['23b0626', '230626', '23B06266', '', 7]) {
+    await assertFails(
+      setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber })),
+    );
+  }
+});
+
+test('the applicant cannot mark their own Student ID as checked', async () => {
+  await assertFails(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', { studentNumber: '23B0626', studentIdCheckedBy: 'Stu Student' }),
+    ),
+  );
+  await assertFails(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', { studentNumber: '23B0626', studentIdCheckedAt: '2026-11-21T00:00:00Z' }),
+    ),
+  );
+});
+
+test('a profile with a valid Student ID applies with that one only', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), 'users', 'stu'), { studentId: '23b0626 ' });
+  });
+  await assertFails(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '24C1111' })),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '23B0626' })),
+  );
+});
+
+test('an older Student ID in another shape does not block applying', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), 'users', 'stu'), { studentId: '2023-0626' });
+  });
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '23B0626' })),
+  );
+});
+
+test('the Head marks the Student ID as checked', async () => {
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '23B0626' })),
+  );
+  await assertSucceeds(
+    updateDoc(doc(as('head'), 'applications', 'app_stu_2026-2027'), {
+      studentIdCheckedBy: 'Hana Head',
+      studentIdCheckedAt: '2026-11-21T00:00:00Z',
+    }),
+  );
+});
+
+test('nobody verifies their own Student ID on their profile', async () => {
+  await assertFails(
+    updateDoc(doc(as('stu'), 'users', 'stu'), { studentIdVerifiedAt: '2026-11-21T00:00:00Z' }),
+  );
+  await assertFails(
+    updateDoc(doc(as('stu'), 'users', 'stu'), { studentIdVerifiedBy: 'Stu Student' }),
+  );
+});
+
+test('a verified student still edits their own contact details', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), 'users', 'stu'), {
+      studentId: '23B0626',
+      studentIdVerifiedAt: '2026-11-21T00:00:00Z',
+      studentIdVerifiedBy: 'Hana Head',
+    });
+  });
+  await assertSucceeds(updateDoc(doc(as('stu'), 'users', 'stu'), { phone: '0917 123 4567' }));
+});
+
+test('a new account cannot arrive with a verified Student ID', async () => {
+  const profile = {
+    name: 'New Person',
+    email: 'newbie@example.com',
+    role: 'Student',
+    status: 'Active',
+    consentAt: '2026-11-21T00:00:00Z',
+    consentVersion: '2026-11-draft',
+    studentIdVerifiedAt: '2026-11-21T00:00:00Z',
+  };
+  const db = env
+    .authenticatedContext('newbie', { email: 'newbie@example.com', email_verified: false })
+    .firestore();
+  await assertFails(setDoc(doc(db, 'users', 'newbie'), profile));
+  delete profile.studentIdVerifiedAt;
+  await assertSucceeds(setDoc(doc(db, 'users', 'newbie'), profile));
+});
+
+test('the Head puts a checked Student ID on the profile and reserves it, in one transaction', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), 'users', 'stu'), { role: 'Student Assistant' });
+  });
+  const db = as('head');
+  await assertSucceeds(
+    runTransaction(db, async (tx) => {
+      const claim = doc(db, 'studentIds', '23B0626');
+      await tx.get(claim);
+      tx.set(claim, { uid: 'stu' });
+      tx.update(doc(db, 'users', 'stu'), {
+        studentId: '23B0626',
+        studentIdVerifiedAt: '2026-11-21T00:00:00Z',
+        studentIdVerifiedBy: 'Hana Head',
+      });
+    }),
+  );
+});
+
+test('a profile saved with no Student ID (null) applies with any well-shaped one', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await updateDoc(doc(ctx.firestore(), 'users', 'stu'), { studentId: null });
+  });
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '23B0626' })),
+  );
+});

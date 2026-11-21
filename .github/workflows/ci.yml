@@ -42,6 +42,9 @@ jobs:
       - name: clockout-reminders
         working-directory: supabase/functions/clockout-reminders
         run: node --test reminders.test.ts pushtext.test.ts email.test.ts email-core.test.ts
+      - name: class schedule reader (layout)
+        working-directory: tool/schedule_reader_check
+        run: node --test layout.test.cjs
 
   rules:
     name: Firestore rules tests

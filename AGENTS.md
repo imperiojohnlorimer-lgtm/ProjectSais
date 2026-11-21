@@ -79,7 +79,10 @@ Students apply **to be a Student Assistant**, never to an office.
    Students apply through the newest approved one this academic year
    (`AppState.currentHiringCall`); closing it closes applications. A
    "Notice" is information only.
-3. The **student** (portal page "Apply") fills one form: skills (from the
+3. The **student** (portal page "Apply") fills one form: their **Student
+   ID** (no longer asked at registration; locked to the profile's when it
+   has a valid one) with a **photo of their school ID** (document
+   "School ID", Head-only like the other files), skills (from the
    Head's list or typed; typed ones take the Head's spelling) and one file
    per requirement. One application per student per year, id
    `app_<uid>_<academicYear>` (`Application.idFor`); the rules enforce the
@@ -95,6 +98,10 @@ Students apply **to be a Student Assistant**, never to an office.
    to screening (`sendToScreening`) or **rejects** an application with a
    reason (a wrong document, say); the student can then **apply again**,
    replacing it (the rules allow that update only from `Rejected`).
+   Nobody goes to screening or is approved before the Head presses
+   **"Student ID checked"** (`markStudentIdChecked`; `updateApplicationStatus`
+   refuses otherwise). Approval writes the ID to the profile, verified and
+   reserved in `studentIds`, in one transaction (`verifyStudentId`).
 5. The **interview and assessment form** decides it: Highly Recommended or
    Recommended → `Approved`; With Reservations or Not Recommended →
    `Waitlisted` (the Head can still "Approve Anyway"). Approved makes them
@@ -304,6 +311,47 @@ Not on the Android app.
   that attendance record. A day with no clock-in makes nothing, so nothing is
   overdue. Duty logs are left out of the DTR's schedule fallback.
 
+### Class schedules (read from the file, approved by the Head)
+
+Every application includes the student's **class schedule**: a JPG, PNG or
+PDF of MarSU's schedule grid, stored under `schedules/<uid>/<ms>/<random>`
+(Supabase `upload-document`: owner uploads; Head and Supervisors read). The
+classes are **read on the student's device** by `web/schedule-reader/`
+(Tesseract OCR for pictures and scanned PDFs, pdf.js text for real PDFs,
+loaded from jsDelivr on first use with pinned versions and hashes; layout
+logic in `sais-schedule-layout.js`, unit tests and a headless-Chrome check
+in `tool/schedule_reader_check/`). The student checks and fixes the rows in
+`ClassScheduleEditor` (rows marked "Check" are doubtful; units are typed)
+before sending. Without a browser (the Android app) the rows are typed.
+
+- Saved on the application as `classSchedule {fileName, filePath,
+  subjects}` (`ClassScheduleSubmission`); the file is also listed among its
+  documents as "Class schedule".
+- **Approving the application** adds it as the student's first approved
+  version (`_adoptApplicationSchedule`, once per application).
+- Approved versions live in `recurringSchedules/{uid}.classSchedules`
+  (`ClassScheduleVersion`: `effectiveFrom` day, subjects, file). Only a Head
+  writes that field (rules); Student Assistants and Supervisors still save
+  the weekly `rules` beside it (merge writes). The version in effect on a
+  day is the newest started by then in that academic year
+  (`ClassScheduleVersion.inEffect`). Once any version exists, subjects typed
+  into `rules` the old way no longer count (`OwnerSchedule.mergedRules`).
+- The **Calendar** draws the classes from the version in effect each day
+  (`ScheduleService`, `ScheduleEvent.computed`, ids `class_...`; nothing is
+  stored per day) and shows `ClassScheduleCard`. "Add Subject" is gone from
+  a Student Assistant's calendar.
+- A Student Assistant sends a **new schedule** from the card ("Upload new
+  schedule", with a start day): `scheduleRequests/{uid}_{ms}` Pending; an
+  older waiting one is cancelled; they may withdraw it. The **Head** decides
+  on the **Schedule Requests** page (`/schedule-requests`): Approve (one
+  transaction adds the version and decides the request, then the old typed
+  subjects' calendar days are deleted) or Reject with a reason. The Head can
+  also "Edit classes" on a student's calendar (a new version from the day
+  picked, same file). Notification type `schedule`.
+- The **DTR** Class Schedule table syncs from the version in effect at the
+  end of the report's month (or today), so older months keep their
+  classes; time in/out defaults come only from work rules, never classes.
+
 ### Skills
 
 Skill documents are keyed by name. Names are unique whatever their case
@@ -387,6 +435,7 @@ flutter pub get
 flutter analyze
 flutter test
 (cd test_rules && npm test)   # after any firestore.rules change
+(cd tool/schedule_reader_check && npm test)   # schedule reader layout logic
 flutter build web --release     # after adding a plugin, delete .dart_tool/flutter_build first
 firebase deploy --only firestore:rules   # the project owner deploys
 firebase deploy --only hosting
