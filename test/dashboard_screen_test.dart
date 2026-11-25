@@ -246,9 +246,7 @@ void main() {
     });
 
     for (final width in [320.0, 380.0]) {
-      testWidgets('fits long names at ${width.toInt()}px', (
-        tester,
-      ) async {
+      testWidgets('fits long names at ${width.toInt()}px', (tester) async {
         await pumpDashboard(
           tester,
           'Student Assistant',
@@ -322,6 +320,152 @@ void main() {
       );
       // Nothing checked yet.
       expect(find.text('Not checked yet'), findsNWidgets(4));
+      // The amount those hours come to (UAT: "may also show the amount").
+      expect(find.text('Estimated pay so far: ₱362.50'), findsOneWidget);
+      expect(
+        find.textContaining('14.50 hours × ₱25.00 an hour.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('estimates pay for at most 40 hours a month', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 30), verified('b', 15)],
+      );
+      expect(find.text('Estimated pay so far: ₱1000.00'), findsOneWidget);
+      expect(
+        find.textContaining('40.00 of 45.00 hours counted × ₱25.00 an hour.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('counts exactly 40 hours in full', (tester) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 25), verified('b', 15)],
+      );
+      expect(find.text('Estimated pay so far: ₱1000.00'), findsOneWidget);
+      expect(
+        find.textContaining('40.00 hours × ₱25.00 an hour.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('shows hours the server saved in minutes so the sum adds up', (
+      tester,
+    ) async {
+      // 3 h 25 m is saved as 205 / 60 hours.
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 205 / 60)],
+      );
+      expect(find.text('Estimated pay so far: ₱85.42'), findsOneWidget);
+      expect(
+        find.textContaining('3.42 hours × ₱25.00 an hour.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('estimates pay for hours archived with their year, as payroll '
+        'pays them', (tester) async {
+      final archived = AttendanceRecord(
+        id: 'old',
+        studentName: 'Juan dela Cruz',
+        studentId: 'u_1',
+        date: verified('x', 0).date,
+        timeIn: '1:00 PM',
+        timeOut: '3:00 PM',
+        totalHours: 2,
+        isArchived: true,
+        archivedAcademicYear: '2025-2026',
+      );
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 10), archived],
+      );
+      // The hours line leaves archived records out, like other totals.
+      expect(
+        find.text('10.0 of 25 hours verified · 15.0 to go'),
+        findsOneWidget,
+      );
+      expect(find.text('Estimated pay so far: ₱300.00'), findsOneWidget);
+    });
+
+    testWidgets('gives no estimate once this month is in an approved payroll', (
+      tester,
+    ) async {
+      String iso(DateTime d) =>
+          '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 10)],
+        payments: [
+          PayrollRecord(
+            id: 'p1',
+            studentId: 'u_1',
+            studentName: 'Juan dela Cruz',
+            office: 'Library',
+            periodStart: iso(DateTime(today.year, today.month, 1)),
+            periodEnd: iso(DateTime(today.year, today.month + 1, 0)),
+            periodLabel: 'This month',
+            monthlyBreakdown: [
+              PayrollMonthBreakdown(
+                month: today.month,
+                year: today.year,
+                hoursWorked: 10,
+                payableHours: 10,
+              ),
+            ],
+            dtrVerified: true,
+            reportVerified: true,
+            status: 'Approved',
+          ),
+        ],
+      );
+      expect(find.textContaining('Estimated pay so far'), findsNothing);
+      expect(
+        find.text('Approved, being released: This month · ₱250.00'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('gives no estimate when the Head left them out of the term', (
+      tester,
+    ) async {
+      await pumpDashboard(
+        tester,
+        'Student Assistant',
+        const Size(1440, 2400),
+        attendance: [verified('a', 10)],
+        checks: const [
+          PayrollCheck(
+            studentId: 'u_1',
+            exclusions: {
+              '1st Semester, AY 2026-2027': PayrollExclusion(
+                reason: 'Resigned',
+                by: 'Hana Head',
+                at: '2026-10-01T09:00:00.000',
+              ),
+            },
+          ),
+        ],
+      );
+      expect(find.textContaining('Estimated pay so far'), findsNothing);
+      expect(
+        find.textContaining('left you out of this term\'s payroll'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('says what the Head checked and returned, and why', (

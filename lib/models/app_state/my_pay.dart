@@ -30,18 +30,43 @@ class MyPaySummary {
   /// Pay the Admin approved that isn't released yet.
   final PayrollRecord? approved;
 
+  /// This month's hours as payroll counts them ([AttendanceRecord.countsTowardPay]):
+  /// like [hoursThisMonth], plus records archived along with their year.
+  final double payHoursThisMonth;
+
+  /// The Head left them out of this term's payroll: nothing to estimate.
+  final bool leftOut;
+
+  /// Today falls in a pay period that is already approved or released, so
+  /// its amount is shown instead of an estimate.
+  final bool monthAlreadyInPayroll;
+
   const MyPaySummary({
     required this.monthLabel,
     required this.hoursThisMonth,
     required this.items,
     this.lastReleased,
     this.approved,
-  });
+    double? payHoursThisMonth,
+    this.leftOut = false,
+    this.monthAlreadyInPayroll = false,
+  }) : payHoursThisMonth = payHoursThisMonth ?? hoursThisMonth;
 
   double get minimumHours => PayrollRecord.minimumMonthlyHours;
   double get maximumHours => PayrollRecord.maximumMonthlyHours;
   bool get reachedMinimum => hoursThisMonth >= minimumHours;
   double get hoursToGo => reachedMinimum ? 0 : minimumHours - hoursThisMonth;
+
+  /// This month's hours that would be paid: payroll caps each month at
+  /// [maximumHours].
+  double get payableHoursThisMonth =>
+      payHoursThisMonth.clamp(0, maximumHours).toDouble();
+  bool get overMaximum => payHoursThisMonth > maximumHours;
+
+  /// What this month's verified hours come to at the payroll rate. Only an
+  /// estimate: the amount is fixed when the Admin approves the payroll.
+  double get estimatedPay => payableHoursThisMonth * PayrollRecord.ratePerHour;
+  bool get showsEstimate => !leftOut && !monthAlreadyInPayroll;
   int get returnedCount => items.where((i) => i.isReturned).length;
   int get checkedCount => items.where((i) => i.isChecked).length;
 }
@@ -71,13 +96,17 @@ extension AppStateMyPay on AppState {
     ];
     final today = philippineClock();
     var hours = 0.0;
+    var payHours = 0.0;
     for (final record in filteredAttendance) {
-      if (!record.countsTowardHours) continue;
+      if (!record.countsTowardPay) continue;
       final day = _parseFormattedDate(record.date);
       if (day == null || day.year != today.year || day.month != today.month) {
         continue;
       }
-      hours += record.totalHours ?? 0;
+      // Payroll also pays records archived along with their academic year;
+      // the hours line, like every other current total, leaves them out.
+      payHours += record.totalHours ?? 0;
+      if (record.countsTowardHours) hours += record.totalHours ?? 0;
     }
 
     final check = payrollChecks.cast<PayrollCheck?>().firstWhere(
@@ -122,12 +151,32 @@ extension AppStateMyPay on AppState {
     }
     final approved = mine.where((p) => p.status == 'Approved').toList();
 
+    final day = DateTime(today.year, today.month, today.day);
+    bool covers(PayrollRecord p) {
+      final start = DateTime.tryParse(p.periodStart);
+      final end = DateTime.tryParse(p.periodEnd);
+      return start != null &&
+          end != null &&
+          !day.isBefore(start) &&
+          !day.isAfter(end);
+    }
+
     return MyPaySummary(
       monthLabel: '${monthNames[today.month - 1]} ${today.year}',
       hoursThisMonth: hours,
+      payHoursThisMonth: payHours,
       items: items,
       lastReleased: newestRelease,
       approved: approved.isEmpty ? null : approved.last,
+      leftOut:
+          check?.exclusions[RehireRecord.termLabelFor(
+            academicYear,
+            academicSemester,
+          )] !=
+          null,
+      monthAlreadyInPayroll: mine.any(
+        (p) => (p.status == 'Approved' || p.status == 'Released') && covers(p),
+      ),
     );
   }
 }

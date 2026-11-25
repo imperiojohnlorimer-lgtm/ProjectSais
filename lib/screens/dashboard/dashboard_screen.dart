@@ -485,6 +485,32 @@ class _MyPayCard extends StatelessWidget {
             'and archived records don\'t count.',
             style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
           ),
+          if (pay.showsEstimate) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Estimated pay so far: ₱${pay.estimatedPay.toStringAsFixed(2)}',
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w700,
+                color: AppTheme.slate800,
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              // Two decimals, so the sum shown adds up to the amount.
+              '${pay.overMaximum ? '${pay.maximumHours.toStringAsFixed(2)} of ${pay.payHoursThisMonth.toStringAsFixed(2)} hours counted' : '${pay.payHoursThisMonth.toStringAsFixed(2)} hours'}'
+              ' × ₱${PayrollRecord.ratePerHour.toStringAsFixed(2)} an hour. '
+              'The final amount is set when the payroll is approved.',
+              style: const TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+            ),
+          ] else if (pay.leftOut) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'The Head left you out of this term\'s payroll, so no pay is '
+              'estimated.',
+              style: TextStyle(fontSize: 12, color: AppTheme.slate600),
+            ),
+          ],
           const SizedBox(height: 14),
           const Text(
             'Checked by the Head before your pay is approved',
