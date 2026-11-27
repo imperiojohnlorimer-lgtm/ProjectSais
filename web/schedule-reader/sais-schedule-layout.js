@@ -370,6 +370,9 @@
   function fixRoom(text) {
     const m = /^(CL|LAB|RM|ROOM)(\s?-?\s?)([0-9SOIlZB]{1,4})$/i.exec(text.trim());
     if (!m) return text;
+    // Leave plural English words ("ROOMS", "LABS") and letter-only words
+    // glued directly to ROOM/LAB alone; keep "CLS", "ROOM S", "ROOM1O1".
+    if (!m[2] && /^(ROOM|LAB)$/i.test(m[1]) && !/\d/.test(m[3])) return text;
     const digits = m[3].replace(/[SOIlZB]/g, (c) => ({ S: '5', O: '0', I: '1', l: '1', Z: '2', B: '8' })[c]);
     return m[1] + m[2] + digits;
   }
@@ -683,7 +686,7 @@
         end <= start ||
         start < 6 * 60 ||
         end > 21 * 60;
-      if (start != null && end != null && (end <= start || start < 0)) {
+      if (start != null && end != null && (end <= start || start < 0 || end >= 24 * 60)) {
         start = null;
         end = null;
       }

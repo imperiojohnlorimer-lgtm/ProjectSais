@@ -357,6 +357,19 @@ void main() {
       expect(rules.first.room, 'CL5');
       // The same subject on two days keeps one colour.
       expect(rules[0].color, rules[1].color);
+
+      // Times outside 0..1439 are cleared instead of wrapping past midnight.
+      final wrapped = ClassMeetingRow.fromMeeting(
+        const ScheduleMeeting(
+          title: 'Late',
+          weekday: 1,
+          start: -30,
+          end: 1440,
+          check: true,
+        ),
+      );
+      expect(wrapped.start, isNull);
+      expect(wrapped.end, isNull);
     });
 
     test('the reader result is read from the browser JSON', () {

@@ -29,5 +29,52 @@ void main() {
       expect(whitespaceResult.isValid, isFalse);
       expect(whitespaceResult.errors, contains('Password must not contain whitespace.'));
     });
+
+    test('does not false-positive across ASCII letter or digit boundaries', () {
+      for (final password in [
+        'Str0ng10/Pass!',
+        'SafePass0/.X',
+        'MyKey89:Valid!',
+        'Guard9:;Pass1',
+        'Valid#\$%Pass1',
+        'Alpha<=>Beta1!',
+        'Strong`abPass1!',
+        'Strongyz{Pass1!',
+      ]) {
+        final result = PasswordValidator.validate(password);
+        expect(result.isValid, isTrue, reason: '$password: ${result.errors}');
+        expect(result.errors, isEmpty);
+      }
+    });
+
+    test('reports numerical and alphabetical sequences separately', () {
+      final numResult = PasswordValidator.validate('StrongPass123!');
+      expect(numResult.isValid, isFalse);
+      expect(
+        numResult.errors,
+        equals(['Password should not contain a common numerical sequence.']),
+      );
+
+      final descNumResult = PasswordValidator.validate('StrongPass987!');
+      expect(descNumResult.isValid, isFalse);
+      expect(
+        descNumResult.errors,
+        equals(['Password should not contain a common numerical sequence.']),
+      );
+
+      final alphaResult = PasswordValidator.validate('StrongabcPass1!');
+      expect(alphaResult.isValid, isFalse);
+      expect(
+        alphaResult.errors,
+        equals(['Password should not contain a common alphabetical sequence.']),
+      );
+
+      final descAlphaResult = PasswordValidator.validate('StrongzyxPass1!');
+      expect(descAlphaResult.isValid, isFalse);
+      expect(
+        descAlphaResult.errors,
+        equals(['Password should not contain a common alphabetical sequence.']),
+      );
+    });
   });
 }

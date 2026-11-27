@@ -150,6 +150,14 @@ test('room numbers misread as letters are put right', () => {
   assert.equal(L.fixRoom('Rm l2'), 'Rm 12');
   assert.equal(L.fixRoom('Tech Room'), 'Tech Room');
   assert.equal(L.fixRoom('CLASS'), 'CLASS');
+  assert.equal(L.fixRoom('ROOMS'), 'ROOMS');
+  assert.equal(L.fixRoom('LABS'), 'LABS');
+  assert.equal(L.fixRoom('Rooms'), 'Rooms');
+  assert.equal(L.fixRoom('LABO'), 'LABO');
+  assert.equal(L.fixRoom('ROOM S'), 'ROOM 5');
+  assert.equal(L.fixRoom('LAB-S'), 'LAB-5');
+  assert.equal(L.fixRoom('ROOM1O1'), 'ROOM101');
+  assert.equal(L.fixRoom('LAB1O'), 'LAB10');
 });
 
 test('groups words into lines', () => {
@@ -264,4 +272,39 @@ test('light print on a dark cell is turned dark on light for reading', () => {
   const at = (x, y) => crop.pixels[(y * crop.width + x) * 4];
   assert.ok(at(2, 2) > 200, 'the cell becomes light');
   assert.ok(at(20, 10) < 60, 'the print becomes dark');
+});
+
+test('blocks ending at or past midnight do not wrap into early AM', async () => {
+  const image = picture(960, 820, [
+    { x0: 190, y0: 601, x1: 312, y1: 749, rgb: YELLOW }, // Monday 8:00 PM - 12:00 AM (1440)
+    { x0: 542, y0: 619, x1: 656, y1: 768, rgb: GREEN },  // Thursday 8:30 PM - 12:30 AM (1470)
+  ]);
+  const header = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(
+    (d, i) => word(d, 214 + i * 115, 95, 282 + i * 115, 120),
+  );
+  const times = [];
+  for (let t = 450; t <= 1200; t += 30) {
+    const h = Math.floor(t / 60) % 12 || 12;
+    const y = 135.5 + ((t - 450) / 30) * 18.6;
+    times.push(word(`${h}:${String(t % 60).padStart(2, '0')}`, 90, y - 5, 115, y + 5));
+  }
+  const all = [
+    ...header,
+    ...times,
+    word('Evening', 210, 660, 270, 670),
+    word('Night', 560, 680, 620, 690),
+  ];
+  const result = await L.readSchedule(image, async (_, rect) =>
+    all.filter((w) => {
+      const cx = (w.x0 + w.x1) / 2;
+      const cy = (w.y0 + w.y1) / 2;
+      return cx >= rect.x0 && cx <= rect.x1 && cy >= rect.y0 && cy <= rect.y1;
+    }),
+  );
+  assert.equal(result.meetings.length, 2);
+  for (const m of result.meetings) {
+    assert.equal(m.start, null);
+    assert.equal(m.end, null);
+    assert.equal(m.check, true);
+  }
 });

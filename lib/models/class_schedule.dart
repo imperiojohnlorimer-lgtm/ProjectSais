@@ -157,9 +157,10 @@ class ClassMeetingRow {
   });
 
   factory ClassMeetingRow.fromMeeting(ScheduleMeeting m) {
-    TimeOfDay? time(int? minutes) => minutes == null
-        ? null
-        : TimeOfDay(hour: (minutes ~/ 60) % 24, minute: minutes % 60);
+    TimeOfDay? time(int? minutes) =>
+        minutes == null || minutes < 0 || minutes >= 24 * 60
+            ? null
+            : TimeOfDay(hour: minutes ~/ 60, minute: minutes % 60);
     return ClassMeetingRow(
       title: m.title,
       instructor: m.instructor,

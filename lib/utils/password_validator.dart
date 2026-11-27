@@ -91,12 +91,19 @@ class PasswordValidator {
     return PasswordValidationResult(isValid: errors.isEmpty, errors: errors);
   }
 
+  static bool _isAsciiLower(int c) => c >= 0x61 && c <= 0x7A;
+
+  static bool _isAsciiDigit(int c) => c >= 0x30 && c <= 0x39;
+
   static bool _containsAlphabeticalSequence(String password) {
     final normalized = password.toLowerCase();
     for (var i = 0; i < normalized.length - 2; i++) {
       final a = normalized.codeUnitAt(i);
       final b = normalized.codeUnitAt(i + 1);
       final c = normalized.codeUnitAt(i + 2);
+      if (!_isAsciiLower(a) || !_isAsciiLower(b) || !_isAsciiLower(c)) {
+        continue;
+      }
       if ((b == a + 1 && c == b + 1) || (b == a - 1 && c == b - 1)) {
         return true;
       }
@@ -105,15 +112,14 @@ class PasswordValidator {
   }
 
   static bool _containsNumericSequence(String password) {
-    final normalized = password.toLowerCase();
-    for (var i = 0; i < normalized.length - 2; i++) {
-      final a = normalized.codeUnitAt(i);
-      final b = normalized.codeUnitAt(i + 1);
-      final c = normalized.codeUnitAt(i + 2);
-      if (a >= 48 && a <= 57 && b == a + 1 && c == b + 1) {
-        return true;
+    for (var i = 0; i < password.length - 2; i++) {
+      final a = password.codeUnitAt(i);
+      final b = password.codeUnitAt(i + 1);
+      final c = password.codeUnitAt(i + 2);
+      if (!_isAsciiDigit(a) || !_isAsciiDigit(b) || !_isAsciiDigit(c)) {
+        continue;
       }
-      if (a >= 48 && a <= 57 && b == a - 1 && c == b - 1) {
+      if ((b == a + 1 && c == b + 1) || (b == a - 1 && c == b - 1)) {
         return true;
       }
     }
