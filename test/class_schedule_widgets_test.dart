@@ -274,7 +274,9 @@ void main() {
         ),
       );
       expect(find.text('Add Subject'), findsNothing);
-      expect(find.text('Add Schedule'), findsOneWidget);
+      expect(find.text('Add Schedule'), findsNothing);
+      expect(find.text('Add Event'), findsNothing);
+      expect(find.byIcon(Icons.tune_rounded), findsNothing);
       expect(find.text('Upload schedule'), findsOneWidget);
     });
 
@@ -291,6 +293,8 @@ void main() {
         ),
       );
       expect(find.text('Add Subject'), findsOneWidget);
+      expect(find.text('Add Schedule'), findsOneWidget);
+      expect(find.text('Add Event'), findsOneWidget);
       expect(find.text('Upload schedule'), findsNothing);
     });
   });

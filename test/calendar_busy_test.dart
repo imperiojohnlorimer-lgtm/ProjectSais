@@ -50,10 +50,10 @@ void main() {
 
     final repository = _GatedRepository()..gate = Completer<void>();
     final user = User(
-      id: 'sa1',
-      name: 'Sara Assistant',
-      email: 'sa@example.com',
-      role: 'Student Assistant',
+      id: 'sup1',
+      name: 'Sam Supervisor',
+      email: 'sup@example.com',
+      role: 'Supervisor',
     );
     await tester.pumpWidget(
       MultiProvider(
