@@ -96,6 +96,51 @@ void main() {
     test('count nothing for an empty list', () {
       expect(const PrintableList(title: 'x', rows: []).count, 0);
     });
+
+    test('keeps columns whose value is only a substring of the title or details', () {
+      const term = '2nd Semester, AY 2026-2027';
+      final table = printableTable(
+        const PrintableList(
+          title: 'Rehiring, $term',
+          details: [
+            'Pay period: Nov 1, 2026 to Nov 30, 2026',
+            'Filters: Show: Not Evaluated · Department: CICS',
+          ],
+          rows: [
+            ['Name', 'Term', 'Eligible', 'Evaluation', 'Code', 'Department', 'Show'],
+            ['Ana', term, 'No', 'Evaluated', 'CS', 'CICS', 'Not Evaluated'],
+            ['Ben', term, 'No', 'Evaluated', 'CS', 'CICS', 'Not Evaluated'],
+          ],
+        ),
+      );
+      // Term, Department, and Show match full stated values and are dropped;
+      // Eligible ('No'), Evaluation ('Evaluated'), and Code ('CS') are only
+      // substrings of 'Nov'/'Not Evaluated'/'CICS' and stay.
+      expect(table.rows, [
+        ['Name', 'Eligible', 'Evaluation', 'Code'],
+        ['Ana', 'No', 'Evaluated', 'CS'],
+        ['Ben', 'No', 'Evaluated', 'CS'],
+      ]);
+    });
+
+    test('does not drop a column matching the Search filter', () {
+      final table = printableTable(
+        const PrintableList(
+          title: 'Students',
+          details: ['Filters: Search: Active'],
+          rows: [
+            ['Name', 'Status'],
+            ['Ana', 'Active'],
+            ['Ben', 'Active'],
+          ],
+        ),
+      );
+      expect(table.rows, [
+        ['Name', 'Status'],
+        ['Ana', 'Active'],
+        ['Ben', 'Active'],
+      ]);
+    });
   });
 
   group('rows shared by the spreadsheet and the printout', () {

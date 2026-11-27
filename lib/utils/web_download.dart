@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:html';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 class WebDownloadUtils {
@@ -15,6 +15,7 @@ class WebDownloadUtils {
     document.body?.children.add(anchor);
     anchor.click();
     anchor.remove();
-    Url.revokeObjectUrl(url);
+    // Defer revocation so Safari's async download manager can read the blob.
+    Timer(const Duration(minutes: 1), () => Url.revokeObjectUrl(url));
   }
 }

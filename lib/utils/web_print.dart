@@ -10,6 +10,8 @@ class WebPrintUtils {
 
   static const _rootId = 'sais-print-root';
   static const _styleId = 'sais-print-style';
+  static Timer? _cleanupTimer;
+  static int _jobId = 0;
 
   /// Prints [pngBytes] as a single centred page with an optional heading and
   /// caption lines underneath it.
@@ -26,6 +28,7 @@ class WebPrintUtils {
     List<String> captions = const [],
   }) async {
     if (!kIsWeb) return;
+    final jobId = ++_jobId;
 
     // Clear the sheet from an earlier print before building a new one.
     _cleanUp();
@@ -76,12 +79,13 @@ class WebPrintUtils {
       if (image.complete != true) {
         await image.onLoad.first.timeout(const Duration(seconds: 5));
       }
+      if (_jobId != jobId) return;
       window.print();
     } finally {
       // Chrome returns from print() once the preview closes; other browsers
       // return straight away, so leave the sheet in place briefly. It is
       // hidden on screen either way.
-      Timer(const Duration(seconds: 20), _cleanUp);
+      _scheduleCleanUp(jobId);
     }
   }
 
@@ -99,6 +103,7 @@ class WebPrintUtils {
     Set<int> numeric = const {},
   }) async {
     if (!kIsWeb) return;
+    final jobId = ++_jobId;
     _cleanUp();
 
     final style = StyleElement()
@@ -174,11 +179,21 @@ class WebPrintUtils {
     try {
       window.print();
     } finally {
-      Timer(const Duration(seconds: 20), _cleanUp);
+      _scheduleCleanUp(jobId);
     }
   }
 
+  static void _scheduleCleanUp(int jobId) {
+    if (_jobId != jobId) return;
+    _cleanupTimer?.cancel();
+    _cleanupTimer = Timer(const Duration(seconds: 20), () {
+      if (_jobId == jobId) _cleanUp();
+    });
+  }
+
   static void _cleanUp() {
+    _cleanupTimer?.cancel();
+    _cleanupTimer = null;
     document.getElementById(_rootId)?.remove();
     document.getElementById(_styleId)?.remove();
   }

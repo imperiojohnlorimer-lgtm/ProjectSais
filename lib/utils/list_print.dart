@@ -93,6 +93,36 @@ List<String> printDetails(PrintableList list, DateTime clock, String? by) => [
   printedLine(clock, by),
 ];
 
+Set<String> _saidValues(PrintableList list) {
+  final values = <String>{};
+  void add(String raw) {
+    final v = raw.trim();
+    if (v.isNotEmpty) values.add(v);
+  }
+
+  add(list.title);
+  final titleComma = list.title.indexOf(', ');
+  if (titleComma != -1) {
+    add(list.title.substring(titleComma + 2));
+  }
+  for (final line in list.details) {
+    add(line);
+    if (line.startsWith('Filters: ')) {
+      for (final entry in line.substring('Filters: '.length).split(' · ')) {
+        final colon = entry.indexOf(': ');
+        if (colon == -1) continue;
+        final key = entry.substring(0, colon).trim();
+        if (key == 'Search') continue;
+        add(entry.substring(colon + 2));
+      }
+    } else {
+      final colon = line.indexOf(': ');
+      if (colon != -1) add(line.substring(colon + 2));
+    }
+  }
+  return values;
+}
+
 /// [list]'s table as printed: every cell as text ([printCell]), and the
 /// columns whose every value is a number, to align right. A column holding
 /// one value on every row that the title or the details already say (the
@@ -107,14 +137,14 @@ List<String> printDetails(PrintableList list, DateTime clock, String? by) => [
   final header = list.rows.first;
   final body = list.rows.skip(1).toList();
   Object? at(List<Object?> row, int i) => i < row.length ? row[i] : null;
-  final said = [list.title, ...list.details].join(' ');
+  final said = _saidValues(list);
   final keep = [
     for (var i = 0; i < header.length; i++)
       if (i == 0 ||
           !(body.isNotEmpty &&
               at(body.first, i) is String &&
               (at(body.first, i) as String).isNotEmpty &&
-              said.contains(at(body.first, i) as String) &&
+              said.contains((at(body.first, i) as String).trim()) &&
               body.every((row) => at(row, i) == at(body.first, i))))
         i,
   ];
