@@ -48,3 +48,28 @@ test('rejects blank text, selfies/random text, and class schedules', () => {
   assert.equal(schedule.ok, false);
   assert.match(schedule.reason, /class schedule/i);
 });
+
+test('recovers campus letter when OCR reads bold B/S/G/T as 8/5/6/7 on MarSU IDs', () => {
+  const realOcr = P.parseSchoolId(
+    'Marintiwie State College\nPanFito M. MANGUERA SR Roap\nTANZA. BoOAC, MARINDUQUE\n2381402\nJOHN LORIMER D. IMPERIO',
+  );
+  assert.deepEqual(realOcr, { ok: true, studentId: '23B1402', reason: null });
+
+  assert.equal(
+    P.parseSchoolId('MarSU\n2250415').studentId,
+    '22S0415',
+  );
+  assert.equal(
+    P.parseSchoolId('MarSU\n2460123').studentId,
+    '24G0123',
+  );
+  assert.equal(
+    P.parseSchoolId('MarSU\n2170088').studentId,
+    '21T0088',
+  );
+
+  // Lookalike digits without MarSU markers or outside year bounds stay rejected.
+  assert.equal(P.parseSchoolId('ACME CARD\n2381402').ok, false);
+  assert.equal(P.parseSchoolId('MARINDUQUE STATE UNIVERSITY\n2026001').ok, false);
+  assert.equal(P.parseSchoolId('MARINDUQUE STATE UNIVERSITY\n1234567').ok, false);
+});

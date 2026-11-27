@@ -60,7 +60,9 @@
     return raw.replace(/[Oo]/g, '0').replace(/[Il|]/g, '1');
   }
 
-  function extractStudentId(text) {
+  const OCR_CAMPUS_MAP = { '8': 'B', '5': 'S', '6': 'G', '7': 'T' };
+
+  function extractStudentId(text, options) {
     const exact = /\b(\d{2}[A-Za-z]\d{4})\b/g;
     for (const m of text.matchAll(exact)) {
       return m[1].toUpperCase();
@@ -71,11 +73,30 @@
         fixOcrDigits(m[1]) + m[2].toUpperCase() + fixOcrDigits(m[3]);
       if (/^\d{2}[A-Z]\d{4}$/.test(candidate)) return candidate;
     }
+    if (options && options.allowOcrCampusDigit) {
+      const campusLookalike = /\b([0-9OoIl|]{2})([8567])([0-9OoIl|]{4})\b/g;
+      for (const m of text.matchAll(campusLookalike)) {
+        const yy = fixOcrDigits(m[1]);
+        const seq = fixOcrDigits(m[3]);
+        const yearNum = Number(yy);
+        if (
+          /^\d{2}$/.test(yy) &&
+          yearNum >= 15 &&
+          yearNum <= 39 &&
+          /^\d{4}$/.test(seq)
+        ) {
+          return yy + OCR_CAMPUS_MAP[m[2]] + seq;
+        }
+      }
+    }
     return null;
   }
 
   function looksLikeMarsuSchool(text) {
-    if (/\b(marinduque|marsu|msc|state\s+universit|state\s+colleg)\b/i.test(text)) {
+    if (/\b(marinduque|marsu|msc|state\s+universit|state\s+colleg|manguera)\b/i.test(text)) {
+      return true;
+    }
+    if (/\btanza\b/i.test(text) && /\bbo[o0]?ac\b/i.test(text)) {
       return true;
     }
     const words = text.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/);
@@ -101,7 +122,8 @@
           'This looks like a class schedule or registration form, not a school ID. Upload a clear photo of the front of your MarSU school ID.',
       };
     }
-    const studentId = extractStudentId(raw);
+    const isMarsu = looksLikeMarsuSchool(raw);
+    const studentId = extractStudentId(raw, { allowOcrCampusDigit: isMarsu });
     if (!studentId) {
       return {
         ok: false,
@@ -110,7 +132,7 @@
           'No MarSU Student ID number was found. Upload a clear photo of the front of your school ID.',
       };
     }
-    if (!looksLikeMarsuSchool(raw)) {
+    if (!isMarsu) {
       return {
         ok: false,
         studentId: null,

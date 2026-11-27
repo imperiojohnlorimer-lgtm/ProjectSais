@@ -365,8 +365,47 @@
     if (job.cancelled) throw failure('Cancelled.');
     return withinTimeLimit((async () => {
       const text1 = await recognizeImageText(job, image, 3);
-      let parsed = parser.parseSchoolId(text1);
+      let combined = text1;
+      let parsed = parser.parseSchoolId(combined);
       if (parsed.ok) return parsed;
+      if (job.cancelled) throw failure('Cancelled.');
+
+      // Header band: reads "Marinduque State College / University" and
+      // campus address even when dark/glossy areas confuse full-page contrast.
+      const headerCrop = layout.cropForOcr(
+        image,
+        {
+          x0: 0,
+          y0: 0,
+          x1: image.width,
+          y1: Math.max(1, Math.round(image.height * 0.32)),
+        },
+        { plain: true, scale: 2 },
+      );
+      const headerText = await recognizeImageText(job, headerCrop, 6);
+      combined = combined + '\n' + headerText;
+      parsed = parser.parseSchoolId(combined);
+      if (parsed.ok) return parsed;
+      if (job.cancelled) throw failure('Cancelled.');
+
+      // Middle band: isolates the Student Number away from photo/footer clutter.
+      const midCrop = layout.cropForOcr(
+        image,
+        {
+          x0: 0,
+          y0: Math.round(image.height * 0.28),
+          x1: image.width,
+          y1: Math.max(1, Math.round(image.height * 0.72)),
+        },
+        { plain: true, scale: 2 },
+      );
+      const midText = await recognizeImageText(job, midCrop, 6);
+      combined = combined + '\n' + midText;
+      parsed = parser.parseSchoolId(combined);
+      if (parsed.ok) return parsed;
+      if (job.cancelled) throw failure('Cancelled.');
+
+      const sparseText = await recognizeImageText(job, image, 11);
       if (job.cancelled) throw failure('Cancelled.');
       const plain = layout.cropForOcr(
         image,
@@ -374,9 +413,8 @@
         { plain: true },
       );
       const text2 = await recognizeImageText(job, plain, 6);
-      parsed = parser.parseSchoolId(text2);
-      if (parsed.ok) return parsed;
-      return parser.parseSchoolId(text1 + '\n' + text2);
+      combined = combined + '\n' + sparseText + '\n' + text2;
+      return parser.parseSchoolId(combined);
     })());
   }
 
