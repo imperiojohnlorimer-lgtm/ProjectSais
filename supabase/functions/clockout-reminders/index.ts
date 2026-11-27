@@ -101,6 +101,21 @@ export function pushTextFor(
   }
   return { title, body };
 }
+
+/**
+ * The SAIS page a tapped push opens (a path under the site, no leading
+ * slash). An academic-year notice opens that year's Academic Year page;
+ * everything else opens Notifications, where the newest one is on top.
+ */
+export function pushPageFor(
+  kind: string | undefined,
+  academicYear: string | undefined,
+): string {
+  if (kind === "academic_year" && /^\d{4}-\d{4}$/.test(academicYear ?? "")) {
+    return `academic-year/${academicYear}`;
+  }
+  return "notifications";
+}
 // #endregion push text
 
 // #region email rules
@@ -746,7 +761,8 @@ async function send(
           notification: {
             title: push.title,
             body: push.body,
-            icon: `${appUrl}icons/Icon-192.png`,
+            // ?v=2: the logo changed; browsers cache the old icon by URL.
+            icon: `${appUrl}icons/Icon-192.png?v=2`,
             tag: push.tag,
             requireInteraction: push.requireInteraction,
           },
@@ -1263,7 +1279,14 @@ async function pushNotifications(
   ids: string[],
 ): Promise<{ pushed: number; sent: number; failed?: number }> {
   const token = await googleToken();
-  const due: { id: string; name: string; userId: string; title: string; body: string }[] =
+  const due: {
+    id: string;
+    name: string;
+    userId: string;
+    title: string;
+    body: string;
+    page: string;
+  }[] =
     [];
   const deactivated = new Map<string, boolean>();
   for (const id of ids) {
@@ -1307,6 +1330,7 @@ async function pushNotifications(
         id,
         name: doc.name,
         userId,
+        page: pushPageFor(f.type?.stringValue, f.academicYear?.stringValue),
         ...pushTextFor(
           f.type?.stringValue,
           f.title?.stringValue ?? "SAIS",
@@ -1334,8 +1358,9 @@ async function pushNotifications(
           ttlSeconds: 24 * 60 * 60,
           requireInteraction: false,
           // Every role's Notifications page is /notifications; the new one is
-          // at the top, and tapping it opens what it's about.
-          page: "notifications",
+          // at the top, and tapping it opens what it's about. An academic-year
+          // notice opens its year's page directly.
+          page: n.page,
           data: {
             type: "notification",
             notificationId: n.id,

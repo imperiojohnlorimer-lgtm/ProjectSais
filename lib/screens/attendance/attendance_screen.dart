@@ -13,6 +13,7 @@ import '../../utils/web_print_stub.dart'
     as web_print;
 import '../../widgets/email_notifications_card.dart';
 import '../../widgets/push_notifications_card.dart';
+import '../../widgets/record_attendance_dialog.dart';
 import '../../widgets/shared_widgets.dart';
 
 void _showSnack(BuildContext ctx, String msg, Color color) {
@@ -893,6 +894,40 @@ class _ClockCardState extends State<_ClockCard> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 0,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // For time worked when no code was posted to scan.
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () async {
+                        final saved = await showRecordAttendanceDialog(context);
+                        if (saved && context.mounted) {
+                          _showSnack(
+                            context,
+                            'Attendance recorded',
+                            AppTheme.emerald500,
+                          );
+                        }
+                      },
+                      icon: const Icon(Icons.edit_calendar_rounded, size: 16),
+                      label: const Text(
+                        'Record attendance',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.maroon,
+                        side: const BorderSide(color: AppTheme.maroon200),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                     ),
                   ),

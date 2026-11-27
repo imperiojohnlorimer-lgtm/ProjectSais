@@ -125,6 +125,17 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
   `assistantIds` hold the student, and saves that `officeId` on the
   clock-in record. `meta/current_qr`, the old school-wide code, is no
   longer used.
+- When there was no code to scan, a Supervisor (their offices' SAs) or the
+  Head (any SA) records a finished stretch by hand
+  (`AppState.recordManualAttendance`, `lib/widgets/record_attendance_dialog.dart`):
+  time-in and time-out both, one session, up to 7 days back, no overlap
+  with the SA's other records (pay approval is the Admin's data, so it
+  isn't checked). Ids are
+  `<uid>_<yyyyMMdd>_manual_<ms>` so they never clash with the function's
+  numbered ids.
+- Offices list people by parallel id/name lists; a place with a name but a
+  blank id is "unlinked" (`AppState.unlinkedOfficePeople`): the rules and
+  the function go by id, so the Head's Offices page warns and offers Link.
 - Supervisors and Student Assistants use `AttendanceScreen` (QR
   generate/scan). The Head gets `HeadAttendanceScreen`: a summary of every
   Student Assistant (`AppState.assistantAttendance`) with filters, no QR.

@@ -1423,3 +1423,47 @@ test('the old school-wide code is closed to everyone', async () => {
     );
   }
 });
+
+// ── attendance recorded by hand ────────────────────────────────────────
+
+const manualRecord = (studentId, over = {}) => ({
+  studentName: 'Sia Assistant',
+  studentId,
+  date: 'Nov 26, 2026',
+  timeIn: '8:00 AM',
+  timeOut: '11:00 AM',
+  totalHours: 3,
+  academicYear: '2026-2027',
+  officeId: 'o1',
+  isInvalid: false,
+  isArchived: false,
+  editedBy: 'Sam Supervisor',
+  editedAt: '2026-11-27T06:00:00.000Z',
+  editNote: 'Attendance recorded by hand',
+  createdAt: serverTimestamp(),
+  ...over,
+});
+
+test('a Supervisor records attendance by hand for their own assistant only', async () => {
+  await assertSucceeds(
+    setDoc(doc(as('sup'), 'attendance', 'sa_20261126_manual_1'), manualRecord('sa')),
+  );
+  await assertFails(
+    setDoc(doc(as('sup2'), 'attendance', 'sa_20261126_manual_2'), manualRecord('sa')),
+  );
+  await assertFails(
+    setDoc(doc(as('sup'), 'attendance', 'stu_20261126_manual_3'), manualRecord('stu')),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('head'), 'attendance', 'sa_20261126_manual_4'), manualRecord('sa')),
+  );
+});
+
+test("a Supervisor can't record attendance once the assistant's office record is gone", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await deleteDoc(doc(ctx.firestore(), 'officeAssignments', 'sa'));
+  });
+  await assertFails(
+    setDoc(doc(as('sup'), 'attendance', 'sa_20261126_manual_5'), manualRecord('sa')),
+  );
+});

@@ -61,6 +61,18 @@ class _OfficesScreenState extends State<OfficesScreen> {
             ),
           ),
         ),
+        if (state.unlinkedOfficePeople.isNotEmpty)
+          SliverPadding(
+            // Keyed, so the office list below keeps its state (each card's
+            // search and filters) when this appears or goes away.
+            key: const ValueKey('unlinked-people'),
+            padding: EdgeInsets.fromLTRB(horizontal, 0, horizontal, 16),
+            sliver: SliverToBoxAdapter(
+              child: _UnlinkedPeopleCallout(
+                people: state.unlinkedOfficePeople,
+              ),
+            ),
+          ),
         if (offices.isEmpty && !state.isLoaded('Offices'))
           const SliverToBoxAdapter(child: LoadingState())
         else if (offices.isEmpty)
@@ -76,6 +88,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
           )
         else
           SliverPadding(
+            key: const ValueKey('office-list'),
             padding: EdgeInsets.fromLTRB(horizontal, 0, horizontal, 28),
             sliver: SliverList.separated(
               itemCount: offices.length,
@@ -2519,6 +2532,149 @@ class _OfficeCardState extends State<_OfficeCard> {
 }
 
 // ─── Hero header ────────────────────────────────────
+/// People listed on an office by name only, with a Link button for each
+/// one that matches exactly one account.
+class _UnlinkedPeopleCallout extends StatefulWidget {
+  final List<UnlinkedOfficePerson> people;
+
+  const _UnlinkedPeopleCallout({required this.people});
+
+  @override
+  State<_UnlinkedPeopleCallout> createState() => _UnlinkedPeopleCalloutState();
+}
+
+class _UnlinkedPeopleCalloutState extends State<_UnlinkedPeopleCallout> {
+  /// The entries being linked now (office id, role and name).
+  final _linking = <String>{};
+
+  static String _key(UnlinkedOfficePerson p) =>
+      '${p.office.id}|${p.isSupervisor}|${p.name}';
+
+  Future<void> _link(UnlinkedOfficePerson person) async {
+    final key = _key(person);
+    if (_linking.contains(key)) return;
+    setState(() => _linking.add(key));
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = await context.read<AppState>().linkOfficePerson(person);
+    if (mounted) setState(() => _linking.remove(key));
+    if (!saved) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            "Couldn't link ${person.name}. The office may have changed: "
+            'check it and try again.',
+          ),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final people = widget.people;
+    final count = people.length;
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppTheme.amber500.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.amber500.withValues(alpha: 0.35)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.link_off_rounded,
+                color: AppTheme.amber500,
+                size: 20,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  count == 1
+                      ? "1 person isn't linked to their account. Until they "
+                            "are, a student assistant can't clock in and a "
+                            "supervisor can't show the QR code or see them."
+                      : "$count people aren't linked to their accounts. Until "
+                            "they are, a student assistant can't clock in and "
+                            "a supervisor can't show the QR code or see them.",
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          for (final person in people)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 10,
+                runSpacing: 4,
+                children: [
+                  Text(
+                    '${person.name} · '
+                    '${person.isSupervisor ? 'Supervisor of' : 'Student assistant in'} '
+                    '${person.office.name}',
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      color: AppTheme.slate700,
+                    ),
+                  ),
+                  if (person.match == null)
+                    const Text(
+                      'No single matching account: remove them and add them '
+                      'again.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontStyle: FontStyle.italic,
+                        color: AppTheme.slate500,
+                      ),
+                    )
+                  else if (_linking.contains(_key(person)))
+                    const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  else
+                    OutlinedButton(
+                      onPressed: () => _link(person),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.maroon,
+                        visualDensity: VisualDensity.compact,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Link',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 class _OfficesHero extends StatelessWidget {
   final bool isMobile;
   final int totalOffices;

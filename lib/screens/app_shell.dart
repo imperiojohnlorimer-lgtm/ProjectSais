@@ -801,6 +801,7 @@ class _AppShellState extends State<AppShell> {
         s.academicYearEndingSoon,
         s.pendingArchive,
         s.unreadNotificationCount,
+        _navCount(s, 'schedule_requests'),
       ),
     );
     final state = context.read<AppState>();
@@ -1236,7 +1237,11 @@ class _Sidebar extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: TapTarget(
-                      label: _navLabel(item.label, item.id, state.unreadNotificationCount),
+                      label: _navLabel(
+                        item.label,
+                        item.id,
+                        _navCount(state, item.id),
+                      ),
                       selected: isActive,
                       onTap: () {
                         context.read<AppState>().setTab(item.id);
@@ -1296,14 +1301,12 @@ class _Sidebar extends StatelessWidget {
                                       ? Colors.white
                                       : AppTheme.slate700,
                                 ),
-                                if ((item.id == 'sa_notifications' ||
-                                        item.id == 'admin_notifications') &&
-                                    state.unreadNotificationCount > 0)
+                                if (_navCount(state, item.id) > 0)
                                   Positioned(
                                     top: -4,
                                     right: -4,
                                     child: UnreadBadge(
-                                      count: state.unreadNotificationCount,
+                                      count: _navCount(state, item.id),
                                     ),
                                   ),
                               ],
@@ -1524,7 +1527,11 @@ class _Drawer extends StatelessWidget {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 6),
                     child: TapTarget(
-                      label: _navLabel(item.label, item.id, state.unreadNotificationCount),
+                      label: _navLabel(
+                        item.label,
+                        item.id,
+                        _navCount(state, item.id),
+                      ),
                       selected: isActive,
                       onTap: () {
                         context.read<AppState>().setTab(item.id);
@@ -1585,14 +1592,12 @@ class _Drawer extends StatelessWidget {
                                       ? Colors.white
                                       : AppTheme.slate700,
                                 ),
-                                if ((item.id == 'sa_notifications' ||
-                                        item.id == 'admin_notifications') &&
-                                    state.unreadNotificationCount > 0)
+                                if (_navCount(state, item.id) > 0)
                                   Positioned(
                                     top: -4,
                                     right: -4,
                                     child: UnreadBadge(
-                                      count: state.unreadNotificationCount,
+                                      count: _navCount(state, item.id),
                                     ),
                                   ),
                               ],
@@ -1733,7 +1738,17 @@ class _Drawer extends StatelessWidget {
 
 /// What a screen reader calls a sidebar item: its label, with the unread
 /// count on the notifications item (the badge itself isn't read out).
-String _navLabel(String label, String id, int unread) =>
-    (id == 'sa_notifications' || id == 'admin_notifications') && unread > 0
-    ? '$label, $unread unread'
-    : label;
+/// The number a menu item shows on its icon: unread notifications, or the
+/// class schedule requests waiting for the Head. Zero shows nothing.
+int _navCount(AppState state, String id) => switch (id) {
+  'sa_notifications' || 'admin_notifications' => state.unreadNotificationCount,
+  'schedule_requests' =>
+    state.role == 'Head' ? state.pendingScheduleRequests.length : 0,
+  _ => 0,
+};
+
+String _navLabel(String label, String id, int count) => count <= 0
+    ? label
+    : id == 'schedule_requests'
+    ? '$label, $count waiting'
+    : '$label, $count unread';

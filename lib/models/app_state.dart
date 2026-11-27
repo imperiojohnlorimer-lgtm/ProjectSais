@@ -41,6 +41,7 @@ part 'app_state/backups.dart';
 part 'app_state/staff_requests.dart';
 part 'app_state/supervisor_cards.dart';
 part 'app_state/class_schedules.dart';
+part 'app_state/manual_attendance.dart';
 
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
@@ -5496,10 +5497,14 @@ class AppState extends ChangeNotifier {
   /// the student missed their time-out, so the record stops counting
   /// toward verified hours. A record from a previous day that's still
   /// active is treated the same way (its window is long past).
-  Future<void> invalidateMissedTimeOuts() async {
-    final now = DateTime.now();
+  ///
+  /// The time of day is Philippine time, as "today" is: on a device set to
+  /// another timezone the two would otherwise disagree. [at] stands in for
+  /// the clock in tests.
+  Future<void> invalidateMissedTimeOuts([DateTime? at]) async {
+    final now = philippineClock(at);
     final nowMinutes = now.hour * 60 + now.minute;
-    final todayStr = _formattedToday();
+    final todayStr = philippineToday(at);
 
     // A Supervisor may only change their own office's records (the Firestore
     // rules refuse the rest), so their sweep covers just those; the Head's

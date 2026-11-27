@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:projectsais/models/app_state.dart';
+import 'package:projectsais/models/class_schedule.dart';
 import 'package:projectsais/models/models.dart';
+import 'package:projectsais/screens/accounts/offices_screen.dart';
 import 'package:projectsais/screens/app_shell.dart';
 import 'package:projectsais/screens/attendance/head_attendance_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
@@ -354,6 +356,169 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Which office?'), findsNothing);
       expect(state.attendanceQrCodes, isEmpty);
+    });
+  });
+
+  group('record attendance and offices', () {
+    Future<void> pump(
+      WidgetTester tester,
+      Widget home, {
+      Size size = const Size(390, 844),
+    }) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final onError = FlutterError.onError;
+      FlutterError.onError = (details) =>
+          details.exceptionAsString().contains('overflowed')
+          ? null
+          : onError?.call(details);
+      addTearDown(() => FlutterError.onError = onError);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(theme: AppTheme.theme, home: home),
+        ),
+      );
+      await tester.pump();
+    }
+
+    testWidgets("a Supervisor's Record attendance asks for what's missing", (
+      tester,
+    ) async {
+      state
+        ..currentUser = User(
+          id: 'sup',
+          name: 'Sid Supervisor',
+          email: 'sid@marsu.edu.ph',
+          role: 'Supervisor',
+        )
+        ..activeTab = 'attendance';
+      await pump(tester, const AppShell());
+      await tester.ensureVisible(find.text('Record attendance'));
+      await tester.tap(find.text('Record attendance'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Record Attendance'), findsOneWidget);
+      expect(find.text('STUDENT ASSISTANT'), findsOneWidget);
+      await tester.ensureVisible(find.text('Save'));
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+      expect(
+        find.textContaining('Choose the student assistant'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets("the Head records attendance from an assistant's row", (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        const Scaffold(body: HeadAttendanceScreen()),
+        size: const Size(1440, 1000),
+      );
+      await tester.tap(find.text('School year'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sam Santos'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Record attendance'));
+      await tester.tap(find.text('Record attendance'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Record Attendance'), findsOneWidget);
+      expect(find.textContaining('For Sam Santos'), findsOneWidget);
+      // The assistant is fixed, so there's no list to pick from.
+      expect(find.text('STUDENT ASSISTANT'), findsNothing);
+    });
+
+    testWidgets("a record names the office whose code was scanned", (
+      tester,
+    ) async {
+      state.attendance = [
+        AttendanceRecord(
+          id: 'o1',
+          studentName: 'Sam Santos',
+          studentId: 'sam',
+          date: 'Oct 5, 2026',
+          timeIn: '8:00 AM',
+          timeOut: '11:00 AM',
+          totalHours: 3,
+          officeId: 'lib',
+        ),
+      ];
+      await pump(
+        tester,
+        const Scaffold(body: HeadAttendanceScreen()),
+        size: const Size(1440, 1000),
+      );
+      await tester.tap(find.text('School year'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sam Santos'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Office: Library'), findsOneWidget);
+    });
+
+    testWidgets('Offices warns about people without a linked account', (
+      tester,
+    ) async {
+      state.offices = const [
+        Office(
+          id: 'lib',
+          name: 'Library',
+          code: 'LIB',
+          assistantIds: [''],
+          assistantNames: ['Sam Santos'],
+        ),
+      ];
+      await pump(tester, const Scaffold(body: OfficesScreen()));
+
+      expect(
+        find.textContaining("1 person isn't linked to their account"),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('Sam Santos · Student assistant in Library'),
+        findsOneWidget,
+      );
+      expect(find.text('Link'), findsOneWidget);
+    });
+
+    testWidgets("the Head's Schedule Requests item counts what's waiting", (
+      tester,
+    ) async {
+      state
+        ..scheduleRequests = [
+          ScheduleRequest.fromJson({
+            'id': 'r1',
+            'studentId': 'sam',
+            'studentName': 'Sam Santos',
+            'status': 'Pending',
+          }),
+        ]
+        ..activeTab = 'dashboard';
+      tester.view.physicalSize = const Size(1440, 1000);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final onError = FlutterError.onError;
+      FlutterError.onError = (details) =>
+          details.exceptionAsString().contains('overflowed')
+          ? null
+          : onError?.call(details);
+      addTearDown(() => FlutterError.onError = onError);
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(theme: AppTheme.theme, home: const AppShell()),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.bySemanticsLabel(RegExp(r'^Schedule Requests, 1 waiting')),
+        findsOneWidget,
+      );
     });
   });
 }

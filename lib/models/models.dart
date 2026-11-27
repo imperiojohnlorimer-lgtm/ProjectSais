@@ -804,6 +804,10 @@ class AttendanceRecord {
   final String? editedBy;
   final String? editedAt;
   final String? editNote;
+  // The office whose attendance code was scanned at the clock-in (or, for a
+  // record staff entered by hand, the student's office then). Null on
+  // records from before offices had their own codes.
+  final String? officeId;
 
   AttendanceRecord({
     required this.id,
@@ -820,6 +824,7 @@ class AttendanceRecord {
     this.editedBy,
     this.editedAt,
     this.editNote,
+    this.officeId,
   });
 
   /// "Time-out recorded at 4:30 PM by Maria on Oct 26", or null for a record
@@ -890,6 +895,7 @@ class AttendanceRecord {
     editedBy: editedBy ?? this.editedBy,
     editedAt: editedAt ?? this.editedAt,
     editNote: editNote ?? this.editNote,
+    officeId: officeId,
   );
 
   factory AttendanceRecord.fromJson(Map<String, dynamic> json) =>
@@ -910,6 +916,7 @@ class AttendanceRecord {
         editedBy: json['editedBy']?.toString(),
         editedAt: json['editedAt']?.toString(),
         editNote: json['editNote']?.toString(),
+        officeId: json['officeId']?.toString(),
       );
 }
 

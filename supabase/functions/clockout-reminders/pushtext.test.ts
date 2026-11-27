@@ -12,7 +12,7 @@ const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const start = source.indexOf("// #region push text");
 const end = source.indexOf("// #endregion push text");
 assert.ok(start >= 0 && end > start, "index.ts lost its push text region");
-const { pushTextFor } = await import(
+const { pushTextFor, pushPageFor } = await import(
   "data:text/javascript," +
     encodeURIComponent(stripTypeScriptTypes(source.slice(start, end)))
 );
@@ -32,4 +32,19 @@ test("everything else keeps its own words", () => {
       body: "File the forms",
     });
   }
+});
+
+test("an academic-year notice opens that year's page", () => {
+  assert.equal(
+    pushPageFor("academic_year", "2026-2027"),
+    "academic-year/2026-2027",
+  );
+});
+
+test("everything else opens Notifications", () => {
+  assert.equal(pushPageFor("academic_year", undefined), "notifications");
+  assert.equal(pushPageFor("academic_year", "2026/2027"), "notifications");
+  assert.equal(pushPageFor("academic_year", "../admin"), "notifications");
+  assert.equal(pushPageFor("task", "2026-2027"), "notifications");
+  assert.equal(pushPageFor(undefined, undefined), "notifications");
 });

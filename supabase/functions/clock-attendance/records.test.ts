@@ -63,3 +63,13 @@ test("a scan in the minute of a clock-in is a second tap, not a clock-out", () =
   assert.equal(justClockedIn("8:02 AM", "8:03 AM"), false);
   assert.equal(justClockedIn("", ""), false);
 });
+
+test("a record a supervisor entered by hand doesn't take a number", () => {
+  assert.equal(
+    nextAttendanceId("u1_20261025", [
+      doc("u1_20261025_0"),
+      doc("u1_20261025_manual_1764200000000"),
+    ]),
+    "u1_20261025_1",
+  );
+});

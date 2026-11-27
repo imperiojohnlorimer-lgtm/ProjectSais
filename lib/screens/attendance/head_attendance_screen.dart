@@ -8,6 +8,7 @@ import '../../utils/csv.dart';
 import '../../utils/csv_export.dart';
 import '../../utils/list_print.dart';
 import '../../widgets/export_list_button.dart';
+import '../../widgets/record_attendance_dialog.dart';
 import '../../widgets/shared_widgets.dart';
 
 /// The Head's attendance summary as listed, one row per Student Assistant,
@@ -724,7 +725,46 @@ class _AssistantRow extends StatelessWidget {
             else
               for (final record in row.records)
                 _RecordLine(record: record, compact: compact),
-            const SizedBox(height: 6),
+            // For time worked when no code was posted to scan.
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.of(context);
+                    final saved = await showRecordAttendanceDialog(
+                      context,
+                      assistant: user,
+                    );
+                    if (saved) {
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: const Text('Attendance recorded'),
+                          backgroundColor: AppTheme.emerald500,
+                          behavior: SnackBarBehavior.floating,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          margin: const EdgeInsets.all(16),
+                        ),
+                      );
+                    }
+                  },
+                  icon: const Icon(Icons.edit_calendar_rounded, size: 16),
+                  label: const Text(
+                    'Record attendance',
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  style: TextButton.styleFrom(
+                    foregroundColor: AppTheme.maroon,
+                  ),
+                ),
+              ),
+            ),
           ],
         ],
       ),
@@ -829,6 +869,15 @@ class _RecordLineState extends State<_RecordLine> {
         ? ('Clocked in', AppTheme.emerald500)
         : ('Verified', AppTheme.slate500);
     final edited = record.editSummary;
+    final officeId = record.officeId ?? '';
+    final officeName = officeId.isEmpty
+        ? ''
+        : context
+                  .select<AppState, List<Office>>((s) => s.offices)
+                  .where((office) => office.id == officeId)
+                  .firstOrNull
+                  ?.name ??
+              '';
     final times = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -838,6 +887,11 @@ class _RecordLineState extends State<_RecordLine> {
               : 'In ${record.timeIn} · Out ${record.timeOut}',
           style: const TextStyle(fontSize: 12, color: AppTheme.slate600),
         ),
+        if (officeName.isNotEmpty)
+          Text(
+            'Office: $officeName',
+            style: const TextStyle(fontSize: 11, color: AppTheme.slate500),
+          ),
         if (edited != null)
           Text(
             'Edited: $edited',

@@ -59,3 +59,10 @@ test("an invalid or unreadable record is never closed", () => {
   assert.equal(r.current, undefined);
   assert.deepEqual(r.stale, [flagged, unreadable]);
 });
+
+test("an open record entered by hand is sorted by its time-in like any other", () => {
+  const manual = rec("1:15 PM");
+  const r = sortOpenRecords([manual], "PM");
+  assert.equal(r.current, manual);
+  assert.deepEqual(sortOpenRecords([manual], "AM").stale, [manual]);
+});
