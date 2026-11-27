@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import '../models/app_state.dart';
 import '../screens/app_shell.dart';
 import '../screens/student_portal/student_portal_shell.dart';
@@ -100,6 +101,16 @@ class AppRouterDelegate extends RouterDelegate<String>
   AppRouterDelegate(this.state, {required this.home}) {
     state.addListener(_onStateChanged);
     _shown = currentConfiguration;
+    _signedInAs = _identity;
+  }
+
+  /// Who is signed in, and as what, as of the last change seen: when it
+  /// changes, what the previous person had open is closed.
+  String? _signedInAs;
+
+  String? get _identity {
+    final user = state.currentUser;
+    return user == null ? null : '${user.id}|${user.role}';
   }
 
   final AppState state;
@@ -157,6 +168,11 @@ class AppRouterDelegate extends RouterDelegate<String>
   }
 
   void _onStateChanged() {
+    final identity = _identity;
+    if (identity != _signedInAs) {
+      _signedInAs = identity;
+      _closeWhatWasOpen();
+    }
     if (state.isAuthenticated) {
       final wanted = _wanted;
       _wanted = null;
@@ -172,6 +188,33 @@ class AppRouterDelegate extends RouterDelegate<String>
       _wanted = null; // left Login for another page
     }
     _report();
+  }
+
+  /// Closes every dialog, sheet, menu and picker (and the busy spinner)
+  /// still open, and any snackbar, when someone signs out, signs in, or
+  /// their role changes. The app is one page whose content changes under
+  /// them, so without this a dialog of the previous person (a document
+  /// preview, say) would stay open over Login.
+  void _closeWhatWasOpen() {
+    if (navigatorKey.currentState == null) return;
+    void close() {
+      final navigator = navigatorKey.currentState;
+      if (navigator == null) return;
+      navigator.popUntil((route) => route.isFirst);
+      final context = navigatorKey.currentContext;
+      if (context != null) ScaffoldMessenger.maybeOf(context)?.clearSnackBars();
+    }
+
+    final phase = SchedulerBinding.instance.schedulerPhase;
+    if (phase == SchedulerPhase.idle ||
+        phase == SchedulerPhase.postFrameCallbacks) {
+      close();
+    } else {
+      // Not while a frame is being built: right after it. (Sign-in and
+      // sign-out finish in callbacks, not mid-frame, so a snackbar the new
+      // screen shows straight away isn't caught by this late clear.)
+      SchedulerBinding.instance.addPostFrameCallback((_) => close());
+    }
   }
 
   void _report() {
@@ -214,12 +257,7 @@ class AppRouterDelegate extends RouterDelegate<String>
   @override
   Widget build(BuildContext context) => Navigator(
     key: navigatorKey,
-    pages: [
-      MaterialPage<void>(
-        key: const ValueKey('sais'),
-        child: home(_waitingForSession),
-      ),
-    ],
+    pages: [_AppPage(child: home(_waitingForSession))],
     onDidRemovePage: (_) {},
   );
 
@@ -228,4 +266,39 @@ class AppRouterDelegate extends RouterDelegate<String>
     state.removeListener(_onStateChanged);
     super.dispose();
   }
+}
+
+/// The app's one page. Nothing ever pops it: a dialog that
+/// [AppRouterDelegate] closed at sign-out may still pop itself while it
+/// closes (a save finishing just then), and that pop would otherwise take
+/// the whole app off screen.
+class _AppPage extends Page<void> {
+  const _AppPage({required this.child}) : super(key: const ValueKey('sais'));
+
+  final Widget child;
+
+  @override
+  Route<void> createRoute(BuildContext context) => _AppPageRoute(this);
+}
+
+class _AppPageRoute extends PageRoute<void>
+    with MaterialRouteTransitionMixin<void> {
+  _AppPageRoute(_AppPage page) : super(settings: page);
+
+  _AppPage get _page => settings as _AppPage;
+
+  @override
+  Widget buildContent(BuildContext context) => _page.child;
+
+  @override
+  bool get maintainState => true;
+
+  @override
+  String get debugLabel => '${super.debugLabel}(sais)';
+
+  /// Only what the page handles itself (an open drawer) is popped; the
+  /// page stays.
+  @override
+  bool didPop(void result) =>
+      willHandlePopInternally ? super.didPop(result) : false;
 }

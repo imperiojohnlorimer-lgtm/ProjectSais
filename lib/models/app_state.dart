@@ -2149,6 +2149,9 @@ class AppState extends ChangeNotifier {
     currentUser = null;
     sessionRestoreFailed = false;
     activeTab = 'dashboard';
+    // Signed out with something to say (after inactivity, say): Login shows
+    // it, whichever page the session had started from.
+    if (_signOutNotice != null) publicPage = PublicPage.login;
     _academicYearShown = null;
     academicYearOpenedFrom = null;
     _forgetBackups();

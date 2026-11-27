@@ -1007,7 +1007,9 @@ Future<bool> showConfirmDialog(
 }) async {
   return await showDialog<bool>(
         context: context,
-        builder: (_) => AlertDialog(
+        // The dialog's own context: [context] belongs to whatever opened it,
+        // which a live update may have removed while the dialog was open.
+        builder: (dialogContext) => AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -1021,14 +1023,14 @@ Future<bool> showConfirmDialog(
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
               child: const Text(
                 'Cancel',
                 style: TextStyle(color: AppTheme.slate500),
               ),
             ),
             ElevatedButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
               style: ElevatedButton.styleFrom(
                 backgroundColor: confirmColor ?? AppTheme.red500,
               ),
@@ -1038,6 +1040,47 @@ Future<bool> showConfirmDialog(
         ),
       ) ??
       false;
+}
+
+/// Closes the dialog [context] belongs to, if it is still the one on top.
+/// A dialog already closing (closed for it at sign-out, say) is left
+/// alone: popping then would close whatever is under it instead.
+void popIfCurrent<T extends Object?>(BuildContext context, [T? result]) {
+  if (ModalRoute.of(context)?.isCurrent ?? false) {
+    Navigator.of(context).pop(result);
+  }
+}
+
+/// Disposes [notifiers] (a dialog's text controllers) once this widget is
+/// gone. Put it at the root of what a dialog's builder returns: `await
+/// showDialog` returns as soon as the dialog is closed, while its fields
+/// are still on screen for the closing animation, so disposing the
+/// controllers there would break them ("used after being disposed").
+class DisposeWhenGone extends StatefulWidget {
+  const DisposeWhenGone({
+    super.key,
+    required this.notifiers,
+    required this.child,
+  });
+
+  final List<ChangeNotifier> notifiers;
+  final Widget child;
+
+  @override
+  State<DisposeWhenGone> createState() => _DisposeWhenGoneState();
+}
+
+class _DisposeWhenGoneState extends State<DisposeWhenGone> {
+  @override
+  void dispose() {
+    for (final notifier in widget.notifiers) {
+      notifier.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
 }
 
 // ─── Stat Card ──────────────────────────────────────
