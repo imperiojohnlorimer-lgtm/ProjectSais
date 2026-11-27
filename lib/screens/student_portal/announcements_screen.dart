@@ -941,8 +941,12 @@ class ApplyDialog extends StatefulWidget {
 }
 
 class _ApplyDialogState extends State<ApplyDialog> {
+  static const int _initialVisibleSkills = 8;
+
   final _skillsCtrl = TextEditingController();
+  final _skillsScrollCtrl = ScrollController();
   final _selectedSkills = <String>{};
+  bool _showAllSkills = false;
   final Map<String, Map<String, dynamic>> _uploaded = {};
 
   /// Requirements uploading now. Snackbars would be hidden behind the
@@ -1036,8 +1040,21 @@ class _ApplyDialogState extends State<ApplyDialog> {
     _schedule.removeListener(_onScheduleChanged);
     _schedule.dispose();
     _skillsCtrl.dispose();
+    _skillsScrollCtrl.dispose();
     _studentIdCtrl.dispose();
     super.dispose();
+  }
+
+  void _toggleSkill(String skill, bool selected) {
+    setState(() {
+      _selectedSkills.removeWhere(
+        (s) => s.toLowerCase() == skill.toLowerCase(),
+      );
+      if (selected) {
+        _selectedSkills.add(skill);
+        _skillsCtrl.clear();
+      }
+    });
   }
 
   void _onScheduleChanged() {
@@ -1556,124 +1573,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ),
         ),
         const SizedBox(height: 14),
-        const StudentSectionLabel('YOUR SKILLS'),
-        const SizedBox(height: 4),
-        const Text(
-          'Pick the ones you have, or add your own.',
-          style: TextStyle(fontSize: 11, color: AppTheme.slate500),
-        ),
-        const SizedBox(height: 10),
-        if (state.skills.isNotEmpty) ...[
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final skill in state.skills)
-                FilterChip(
-                  label: Text(skill),
-                  selected: _selectedSkills.any(
-                    (s) => s.toLowerCase() == skill.toLowerCase(),
-                  ),
-                  onSelected: _submitting
-                      ? null
-                      : (value) => setState(() {
-                          _selectedSkills.removeWhere(
-                            (s) => s.toLowerCase() == skill.toLowerCase(),
-                          );
-                          if (value) _selectedSkills.add(skill);
-                        }),
-                  selectedColor: AppTheme.maroon50,
-                  checkmarkColor: AppTheme.maroon,
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-        ],
-        // Typed skills that aren't on the Head's list.
-        if (_selectedSkills.any(
-          (s) => !state.skills.any((k) => k.toLowerCase() == s.toLowerCase()),
-        ))
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final skill in _selectedSkills)
-                  if (!state.skills.any(
-                    (k) => k.toLowerCase() == skill.toLowerCase(),
-                  ))
-                    Chip(
-                      label: Text(skill),
-                      deleteIcon: const Icon(Icons.close, size: 15),
-                      onDeleted: () =>
-                          setState(() => _selectedSkills.remove(skill)),
-                      backgroundColor: AppTheme.maroon50,
-                      side: BorderSide(
-                        color: AppTheme.maroon.withValues(alpha: 0.2),
-                      ),
-                    ),
-              ],
-            ),
-          ),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: TextField(
-                controller: _skillsCtrl,
-                onSubmitted: (_) => _addTypedSkills(),
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.slate800,
-                  fontWeight: FontWeight.w500,
-                ),
-                decoration: InputDecoration(
-                  hintText: 'Add another skill',
-                  hintStyle: const TextStyle(
-                    fontSize: 13,
-                    color: AppTheme.slate500,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.slate200),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(color: AppTheme.slate200),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(10),
-                    borderSide: const BorderSide(
-                      color: AppTheme.maroon,
-                      width: 1.5,
-                    ),
-                  ),
-                  filled: true,
-                  fillColor: Colors.white,
-                  contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 13,
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 48,
-              child: ElevatedButton.icon(
-                onPressed: _submitting ? null : _addTypedSkills,
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.maroon,
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                ),
-              ),
-            ),
-          ],
-        ),
+        ..._buildSkillsSection(state),
         const SizedBox(height: 22),
         const StudentSectionLabel('YOUR CLASS SCHEDULE'),
         const SizedBox(height: 4),
@@ -1796,6 +1696,272 @@ class _ApplyDialogState extends State<ApplyDialog> {
         ),
       ),
     );
+  }
+
+  List<Widget> _buildSkillsSection(AppState state) {
+    final rawQuery = _skillsCtrl.text.trim();
+    final query = rawQuery.toLowerCase();
+    final unselected = state.skills
+        .where(
+          (skill) => !_selectedSkills.any(
+            (selected) => selected.toLowerCase() == skill.toLowerCase(),
+          ),
+        )
+        .toList();
+    final matching = query.isEmpty
+        ? unselected
+        : unselected
+              .where((skill) => skill.toLowerCase().contains(query))
+              .toList();
+    final isCapped =
+        query.isEmpty &&
+        !_showAllSkills &&
+        matching.length > _initialVisibleSkills;
+    final visible = isCapped
+        ? matching.take(_initialVisibleSkills).toList()
+        : matching;
+    final useScrollBox =
+        _showAllSkills || (query.isNotEmpty && visible.length > _initialVisibleSkills);
+
+    return [
+      Row(
+        children: [
+          const Expanded(child: StudentSectionLabel('YOUR SKILLS')),
+          if (_selectedSkills.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              decoration: BoxDecoration(
+                color: AppTheme.maroon50,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: AppTheme.maroon.withValues(alpha: 0.25),
+                ),
+              ),
+              child: Text(
+                '${_selectedSkills.length} selected',
+                style: const TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.maroon,
+                ),
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 4),
+      const Text(
+        'Pick the ones you have, or add your own.',
+        style: TextStyle(fontSize: 11, color: AppTheme.slate500),
+      ),
+      if (_selectedSkills.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final skill in _selectedSkills)
+              _SkillPill(
+                label: skill,
+                selected: true,
+                onTap: _submitting ? null : () => _toggleSkill(skill, false),
+              ),
+          ],
+        ),
+      ],
+      const SizedBox(height: 10),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _skillsCtrl,
+              enabled: !_submitting,
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => _addTypedSkills(),
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.slate800,
+                fontWeight: FontWeight.w500,
+              ),
+              decoration: InputDecoration(
+                hintText: 'Search skills or add your own...',
+                hintStyle: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.slate500,
+                ),
+                prefixIcon: const Icon(
+                  Icons.search_rounded,
+                  size: 18,
+                  color: AppTheme.slate500,
+                ),
+                suffixIcon: _skillsCtrl.text.isEmpty
+                    ? null
+                    : IconButton(
+                        tooltip: 'Clear search',
+                        onPressed: _submitting
+                            ? null
+                            : () => setState(() => _skillsCtrl.clear()),
+                        icon: const Icon(
+                          Icons.close_rounded,
+                          size: 18,
+                          color: AppTheme.slate500,
+                        ),
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppTheme.slate200),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppTheme.slate200),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(
+                    color: AppTheme.maroon,
+                    width: 1.5,
+                  ),
+                ),
+                filled: true,
+                fillColor: Colors.white,
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 13,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _submitting ? null : _addTypedSkills,
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('Add'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.maroon,
+                foregroundColor: Colors.white,
+                elevation: 0,
+              ),
+            ),
+          ),
+        ],
+      ),
+      if (state.skills.isNotEmpty) ...[
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: AppTheme.slate50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: AppTheme.slate200),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      query.isNotEmpty
+                          ? '${matching.length} matching "$rawQuery"'
+                          : 'Available skills (${unselected.length})',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.slate600,
+                      ),
+                    ),
+                  ),
+                  if (query.isEmpty &&
+                      unselected.length > _initialVisibleSkills)
+                    InkWell(
+                      onTap: () =>
+                          setState(() => _showAllSkills = !_showAllSkills),
+                      borderRadius: BorderRadius.circular(6),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 2,
+                        ),
+                        child: Text(
+                          _showAllSkills
+                              ? 'Show less'
+                              : 'Show all (${unselected.length})',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.maroon,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              if (unselected.isEmpty && query.isEmpty)
+                const Text(
+                  'All listed skills selected. Type above to add another.',
+                  style: TextStyle(fontSize: 11.5, color: AppTheme.slate500),
+                )
+              else if (matching.isEmpty)
+                Text(
+                  'No listed skills match "$rawQuery" — click Add to include it.',
+                  style: const TextStyle(
+                    fontSize: 11.5,
+                    color: AppTheme.slate500,
+                  ),
+                )
+              else if (useScrollBox)
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxHeight: 196),
+                  child: Scrollbar(
+                    controller: _skillsScrollCtrl,
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _skillsScrollCtrl,
+                      padding: const EdgeInsets.only(right: 6),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            for (final skill in visible)
+                              _SkillPill(
+                                label: skill,
+                                selected: false,
+                                onTap: _submitting
+                                    ? null
+                                    : () => _toggleSkill(skill, true),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    for (final skill in visible)
+                      _SkillPill(
+                        label: skill,
+                        selected: false,
+                        onTap: _submitting
+                            ? null
+                            : () => _toggleSkill(skill, true),
+                      ),
+                  ],
+                ),
+            ],
+          ),
+        ),
+      ],
+    ];
   }
 
   Widget _noticeBox() {
@@ -1964,6 +2130,74 @@ class _ApplyDialogState extends State<ApplyDialog> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SkillPill extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  const _SkillPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final background = selected ? AppTheme.maroon50 : Colors.white;
+    final border = selected
+        ? AppTheme.maroon.withValues(alpha: 0.25)
+        : AppTheme.slate200;
+    return Material(
+      color: background,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: border),
+      ),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                selected ? Icons.check_rounded : Icons.add_rounded,
+                size: 14,
+                color: selected ? AppTheme.maroon : AppTheme.slate400,
+              ),
+              const SizedBox(width: 5),
+              Flexible(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                    color: selected ? AppTheme.maroon : AppTheme.slate700,
+                  ),
+                ),
+              ),
+              if (selected) ...[
+                const SizedBox(width: 4),
+                Tooltip(
+                  message: 'Remove $label',
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 14,
+                    color: AppTheme.maroon,
+                  ),
+                ),
+              ],
+            ],
+          ),
         ),
       ),
     );

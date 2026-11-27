@@ -795,6 +795,70 @@ void main() {
         'Sam Student applied again to be a Student Assistant.',
       );
     });
+
+    testWidgets('skills picker stays compact, searches, and toggles skills', (
+      tester,
+    ) async {
+      state
+        ..currentUser = _student
+        ..users = [_student]
+        ..skills = [
+          for (var i = 1; i <= 15; i++)
+            i == 15 ? 'Graphic Design' : 'Skill $i',
+        ]
+        ..announcements = [_call()];
+
+      await pump(tester, const AnnouncementsScreen(), const Size(520, 1000));
+
+      await tester.ensureVisible(find.text('Apply Now'));
+      await tester.tap(find.text('Apply Now'));
+      await tester.pumpAndSettle();
+
+      // Initially capped to 8 visible available skills.
+      expect(find.text('Available skills (15)'), findsOneWidget);
+      expect(find.text('Show all (15)'), findsOneWidget);
+      expect(find.text('Skill 1'), findsOneWidget);
+      expect(find.text('Graphic Design'), findsNothing);
+
+      // Expanding reveals the remaining skills inside the bounded scroll box.
+      await tester.ensureVisible(find.text('Show all (15)'));
+      await tester.tap(find.text('Show all (15)'));
+      await tester.pumpAndSettle();
+      expect(find.text('Show less'), findsOneWidget);
+      expect(find.text('Graphic Design'), findsOneWidget);
+
+      // Searching filters across all available skills regardless of cap.
+      final searchField = find.widgetWithText(
+        TextField,
+        'Search skills or add your own...',
+      );
+      await tester.ensureVisible(searchField);
+      await tester.enterText(searchField, 'Graphic');
+      await tester.pumpAndSettle();
+      expect(find.text('1 matching "Graphic"'), findsOneWidget);
+      expect(find.text('Graphic Design'), findsOneWidget);
+      expect(find.text('Skill 1'), findsNothing);
+
+      // Picking a matching skill selects it, updates the badge, and clears search.
+      await tester.tap(find.text('Graphic Design'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.text('Available skills (14)'), findsOneWidget);
+      expect(tester.widget<TextField>(searchField).controller!.text, '');
+
+      // Adding a custom skill appends it to the selected strip.
+      await tester.enterText(searchField, 'Photography');
+      await tester.tap(find.text('Add'));
+      await tester.pumpAndSettle();
+      expect(find.text('2 selected'), findsOneWidget);
+      expect(find.text('Photography'), findsOneWidget);
+
+      // Removing a selected skill returns catalog skills to the pool.
+      await tester.tap(find.byTooltip('Remove Graphic Design'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(find.text('Available skills (15)'), findsOneWidget);
+    });
   });
 }
 
