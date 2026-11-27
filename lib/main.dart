@@ -1,6 +1,8 @@
 import 'dart:ui' show PlatformDispatcher;
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
@@ -22,11 +24,22 @@ import 'services/schedule_service.dart';
 import 'services/firestore_schedule_repository.dart';
 import 'services/recurring_schedule_repository.dart';
 
+/// The vendored ZXing build mobile_scanner asks for (web/vendor/zxing/),
+/// relative to the page's base address.
+const zxingLibraryPath = 'vendor/zxing/zxing-library-0.21.3.min.js';
+
 void main() async {
   // Addresses like /tasks rather than /#/tasks. Firebase Hosting serves the
   // app for every path (firebase.json's rewrite), so they all load it.
   usePathUrlStrategy();
   WidgetsFlutterBinding.ensureInitialized();
+  // The QR scanner's reading library comes from SAIS itself rather than
+  // unpkg.com, so the scanner opens offline too (sais-sw.js keeps it).
+  if (kIsWeb) {
+    MobileScannerPlatform.instance.setBarcodeLibraryScriptUrl(
+      zxingLibraryPath,
+    );
+  }
   // Errors are printed to the console (nothing is sent anywhere). An async
   // error nobody caught is marked handled so it doesn't also crash the page.
   FlutterError.onError = FlutterError.presentError;

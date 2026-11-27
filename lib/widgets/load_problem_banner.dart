@@ -15,6 +15,8 @@ class LoadProblemBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
+    // Offline, the offline banner says why; this one would only repeat it.
+    if (state.isOffline) return const SizedBox.shrink();
     final retrying = state.isRetryingLoad;
     final message = retrying
         ? 'Trying to load the information again…'

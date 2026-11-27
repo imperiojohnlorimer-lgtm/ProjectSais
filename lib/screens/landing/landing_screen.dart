@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import '../../widgets/offline_banner.dart';
 import '../../widgets/shared_widgets.dart';
 import 'landing_widgets.dart';
 
@@ -130,6 +131,12 @@ class _LandingScreenState extends State<LandingScreen> {
             left: 0,
             right: 0,
             child: _buildHeader(isMobile, useDrawerNav),
+          ),
+          const Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            child: OfflineBanner(onAuthPage: true),
           ),
         ],
       ),

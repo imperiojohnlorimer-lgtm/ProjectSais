@@ -45,6 +45,9 @@ jobs:
       - name: class schedule reader (layout)
         working-directory: tool/schedule_reader_check
         run: node --test layout.test.cjs
+      - name: offline cache (caching rules)
+        working-directory: tool/offline_check
+        run: node --test sw.test.cjs
 
   rules:
     name: Firestore rules tests

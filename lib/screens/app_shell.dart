@@ -39,6 +39,7 @@ import './student_portal/sp_notifications_screen.dart';
 import '../widgets/backup_health_banner.dart';
 import '../widgets/staff_request_banner.dart';
 import '../widgets/load_problem_banner.dart';
+import '../widgets/offline_banner.dart';
 import './supervisor/sv_announcements_screen.dart';
 import './supervisor/performance_evaluation_screen.dart';
 import './supervisor/dtr_accomplishment_report_screen.dart';
@@ -1136,6 +1137,7 @@ class _AppShellState extends State<AppShell> {
                 // Tells a Head that staff sign-ups are waiting to be approved.
                 if (role == 'Head') const StaffRequestBanner(),
                 const LoadProblemBanner(),
+                const OfflineBanner(),
                 // Main content
                 Expanded(
                   child: AnimatedSwitcher(

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/offline_banner.dart';
 import '../../widgets/shared_widgets.dart';
 import '../landing/landing_widgets.dart' show LandingColors, landingSerif;
 
@@ -68,11 +69,18 @@ class AuthScaffold extends StatelessWidget {
       data: _formTheme(Theme.of(context)),
       child: Scaffold(
         backgroundColor: LandingColors.paper,
-        body: LayoutBuilder(
-          builder: (context, constraints) {
-            final isMobile = constraints.maxWidth < _mobileBreakpoint;
-            return isMobile ? _mobileLayout() : _desktopLayout();
-          },
+        body: Column(
+          children: [
+            const OfflineBanner(onAuthPage: true),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final isMobile = constraints.maxWidth < _mobileBreakpoint;
+                  return isMobile ? _mobileLayout() : _desktopLayout();
+                },
+              ),
+            ),
+          ],
         ),
       ),
     );

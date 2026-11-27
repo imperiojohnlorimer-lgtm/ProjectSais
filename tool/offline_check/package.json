@@ -1,0 +1,13 @@
+{
+  "name": "offline-check",
+  "private": true,
+  "type": "module",
+  "description": "Checks of web/sais-sw.js (npm test: the caching rules; npm run check: a real browser opens build/web offline)",
+  "scripts": {
+    "test": "node --test sw.test.cjs",
+    "check": "node check.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^24.0.0"
+  }
+}

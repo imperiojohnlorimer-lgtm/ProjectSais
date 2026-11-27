@@ -11,6 +11,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:projectsais/services/appointment_document_service.dart';
 import 'package:projectsais/services/backup_service.dart';
+import 'package:projectsais/services/connectivity.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/services/performance_evaluation_document_service.dart';
 import 'package:projectsais/services/push_service.dart';
@@ -87,9 +88,67 @@ class AppState extends ChangeNotifier {
     FirestoreService? firestoreService,
     PushService? pushService,
     BackupService? backupService,
+    Connectivity? connectivity,
   }) : _firestoreService = firestoreService,
        _push = pushService ?? PushService(),
-       _backups = backupService ?? BackupService();
+       _backups = backupService ?? BackupService(),
+       _connectivity = connectivity ?? Connectivity.device() {
+    _connectivitySub = _connectivity.changes.listen(_onConnectivityChanged);
+  }
+
+  // ─── Connection ────────────────────────────────────
+  final Connectivity _connectivity;
+  StreamSubscription<bool>? _connectivitySub;
+
+  /// Whether the browser says there is no connection (certain when true;
+  /// "online" can still mean no real internet). The banner says so, and the
+  /// Head's start-up jobs that write wait for a connection.
+  bool get isOffline => !_connectivity.isOnline;
+
+  /// Set when a signed-in session couldn't be reopened because the profile
+  /// couldn't be reached (no connection), rather than not existing. The
+  /// login page offers Try again; coming back online retries by itself.
+  bool sessionRestoreFailed = false;
+
+  void _onConnectivityChanged(bool online) {
+    if (_disposed) return;
+    notifyListeners();
+    if (!online) return;
+    if (sessionRestoreFailed) {
+      unawaited(retrySessionRestore());
+    } else if (loadProblemMessage != null) {
+      unawaited(retryLoading());
+    }
+  }
+
+  /// Tries again to reopen the signed-in session that [sessionRestoreFailed]
+  /// stopped, then loads its data as a sign-in does.
+  Future<void> retrySessionRestore() async {
+    if (_disposed || !sessionRestoreFailed || _restoringSession) return;
+    // Someone signed in by hand meanwhile: nothing left to reopen.
+    if (currentUser != null) {
+      sessionRestoreFailed = false;
+      notifyListeners();
+      return;
+    }
+    _restoringSession = true;
+    sessionRestoreFailed = false;
+    notifyListeners();
+    try {
+      await _initializeFirebaseAuthUser();
+      if (_disposed || currentUser == null) return;
+      _beginLoadPending();
+      notifyListeners();
+      await _loadAllFromFirestore();
+      await _loadNotificationsForCurrentUser();
+      _startRealtimeListeners();
+    } finally {
+      _restoringSession = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  bool _restoringSession = false;
 
   User? currentUser;
   String activeTab = 'dashboard';
@@ -1223,49 +1282,83 @@ class AppState extends ChangeNotifier {
     try {
       final firebaseUser = fb_auth.FirebaseAuth.instance.currentUser;
       if (firebaseUser == null || firebaseUser.email == null) return;
-
-      final lowerEmail = firebaseUser.email!.toLowerCase();
-      // Read the UID document directly. Email queries are denied by the
-      // production Firestore rules and must not trigger a default role.
-      User? existing = await _loadUserProfile(uid: firebaseUser.uid);
-      if (existing == null) {
-        try {
-          existing = users.firstWhere((user) => user.id == firebaseUser.uid);
-        } catch (_) {}
-      }
-      if (existing == null) {
-        try {
-          existing = users.firstWhere(
-            (u) => u.email.toLowerCase() == lowerEmail,
-          );
-        } catch (_) {
-          existing = null;
-        }
-      }
-
-      if (existing == null) {
-        final email = firebaseUser.email ?? '';
-        existing = User(
-          id: firebaseUser.uid,
-          name: firebaseUser.displayName?.trim().isNotEmpty == true
-              ? firebaseUser.displayName!
-              : email.split('@').first,
-          email: email,
-          role: 'Student',
-        );
-        users = [existing, ...users];
-      }
-
-      if (blocksSignIn(existing.status)) {
-        await fb_auth.FirebaseAuth.instance.signOut();
-        return;
-      }
-
-      currentUser = existing.copyWith(id: firebaseUser.uid);
-      notifyListeners();
+      final uid = firebaseUser.uid;
+      await restoreSessionFor(
+        uid: uid,
+        email: firebaseUser.email!,
+        displayName: firebaseUser.displayName,
+        stillSignedIn: () =>
+            fb_auth.FirebaseAuth.instance.currentUser?.uid == uid,
+      );
     } catch (error) {
       debugPrint('Firebase auth initialization failed: $error');
     }
+  }
+
+  /// Reopens the session of the account Firebase kept signed in ([uid],
+  /// [email]): its profile becomes [currentUser]. Split out of the start-up
+  /// so tests can run it without Firebase.
+  @visibleForTesting
+  Future<void> restoreSessionFor({
+    required String uid,
+    required String email,
+    String? displayName,
+    bool Function()? stillSignedIn,
+  }) async {
+    final lowerEmail = email.toLowerCase();
+    // Read the UID document directly. Email queries are denied by the
+    // production Firestore rules and must not trigger a default role.
+    final read = await _readUserProfile(uid: uid);
+    // While the profile was on its way, someone signed in by hand or signed
+    // out: this account is no longer the one to open.
+    if (currentUser != null || (stillSignedIn != null && !stillSignedIn())) {
+      return;
+    }
+    User? existing = read.user;
+    if (existing == null &&
+        read.failed &&
+        !users.any((user) => user.id == uid)) {
+      // Offline, or Firestore out of reach: the profile may well exist, so
+      // nothing is made up (it would open the student portal for staff).
+      // The account stays signed in; the login page offers Try again.
+      sessionRestoreFailed = true;
+      notifyListeners();
+      return;
+    }
+    if (existing == null) {
+      try {
+        existing = users.firstWhere((user) => user.id == uid);
+      } catch (_) {}
+    }
+    if (existing == null) {
+      try {
+        existing = users.firstWhere(
+          (u) => u.email.toLowerCase() == lowerEmail,
+        );
+      } catch (_) {
+        existing = null;
+      }
+    }
+
+    if (existing == null) {
+      existing = User(
+        id: uid,
+        name: displayName?.trim().isNotEmpty == true
+            ? displayName!
+            : email.split('@').first,
+        email: email,
+        role: 'Student',
+      );
+      users = [existing, ...users];
+    }
+
+    if (blocksSignIn(existing.status)) {
+      await fb_auth.FirebaseAuth.instance.signOut();
+      return;
+    }
+
+    currentUser = existing.copyWith(id: uid);
+    notifyListeners();
   }
 
   @override
@@ -1287,6 +1380,7 @@ class AppState extends ChangeNotifier {
     _clockOutReminderAlerts.close();
     _problemNotices.close();
     _pushMessagesSub?.cancel();
+    _connectivitySub?.cancel();
     _loadTimeout?.cancel();
     for (final sub in _liveSubs) {
       sub.cancel();
@@ -1299,22 +1393,32 @@ class AppState extends ChangeNotifier {
     await _firestoreService!.setUserProfile(user);
   }
 
-  Future<User?> _loadUserProfile({String? uid, String? email}) async {
+  Future<User?> _loadUserProfile({String? uid, String? email}) async =>
+      (await _readUserProfile(uid: uid, email: email)).user;
+
+  /// The profile by [uid] (else [email]), and whether reading it failed (no
+  /// connection, say) rather than finding none.
+  Future<({User? user, bool failed})> _readUserProfile({
+    String? uid,
+    String? email,
+  }) async {
     try {
       _firestoreService ??= FirestoreService();
       if (uid != null && uid.isNotEmpty) {
         final profile = await _firestoreService!.getUserProfileById(uid);
-        if (profile != null) return profile;
+        if (profile != null) return (user: profile, failed: false);
       }
       if (email != null && email.isNotEmpty) {
-        return await _firestoreService!.getUserProfileByEmail(
+        final profile = await _firestoreService!.getUserProfileByEmail(
           email.toLowerCase(),
         );
+        return (user: profile, failed: false);
       }
     } catch (error) {
       debugPrint('Failed to load user profile: $error');
+      return (user: null, failed: true);
     }
-    return null;
+    return (user: null, failed: false);
   }
 
   Future<bool> registerUser(User user, String password) async {
@@ -1427,6 +1531,7 @@ class AppState extends ChangeNotifier {
       return false;
     }
     currentUser = authenticatedUser;
+    sessionRestoreFailed = false;
 
     users = users.map((u) {
       if (u.id == currentUser!.id ||
@@ -2010,6 +2115,7 @@ class AppState extends ChangeNotifier {
     // only fail with permission errors.
     _stopRealtimeListeners();
     currentUser = null;
+    sessionRestoreFailed = false;
     activeTab = 'dashboard';
     _academicYearShown = null;
     academicYearOpenedFrom = null;
@@ -2255,9 +2361,12 @@ class AppState extends ChangeNotifier {
 
       _setAllUsers(firestoreUsers);
 
-      await _archiveFinishedAcademicYears(academicSettings);
+      // The Head's start-up jobs below write; offline the writes would wait
+      // for a connection and hold up the whole start. They run at the next
+      // start with a connection, as they run at every start.
+      if (!isOffline) await _archiveFinishedAcademicYears(academicSettings);
       if (overtaken()) return;
-      await _restampUndoneAcademicYear();
+      if (!isOffline) await _restampUndoneAcademicYear();
       if (overtaken()) return;
 
       // Rehire decisions. Any whose term has started since they were made
@@ -2267,15 +2376,15 @@ class AppState extends ChangeNotifier {
       try {
         if (!rehireAnswer.ok) throw rehireAnswer.error!;
         rehireRecords = rehireAnswer.data;
-        await _applyDueRehireDecisions();
+        if (!isOffline) await _applyDueRehireDecisions();
       } catch (_) {
         if (overtaken()) return;
         rehireRecords = [];
       }
       if (overtaken()) return;
-      await _syncOfficeAssignments();
+      if (!isOffline) await _syncOfficeAssignments();
       if (overtaken()) return;
-      await _moveSchedulesToAccounts(firestoreUsers);
+      if (!isOffline) await _moveSchedulesToAccounts(firestoreUsers);
       if (overtaken()) return;
 
       // Applications
@@ -2286,7 +2395,7 @@ class AppState extends ChangeNotifier {
       try {
         if (!applicationsAnswer.ok) throw applicationsAnswer.error!;
         applications = applicationsAnswer.data;
-        await _syncApprovedApplicationSkills();
+        if (!isOffline) await _syncApprovedApplicationSkills();
       } catch (_) {
         if (overtaken()) return;
         applications = [];

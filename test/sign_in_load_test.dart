@@ -8,6 +8,8 @@ import 'package:projectsais/models/models.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/widgets/shared_widgets.dart';
 
+import 'support/fake_connectivity.dart';
+
 /// Answers the sign-in reads by hand: records when each starts and ends, can
 /// hold any of them until released, and can make any of them fail.
 class _LoadStore extends FirestoreService {
@@ -23,6 +25,7 @@ class _LoadStore extends FirestoreService {
   List<Document> documentRecords = [];
   List<Map<String, dynamic>> archiveRecords = [];
   List<RehireRecord> rehireDecisions = [];
+  List<Office> officeRecords = [];
   final savedRehire = <RehireRecord>[];
 
   void hold(String name) => _holds[name] = Completer<void>();
@@ -53,7 +56,10 @@ class _LoadStore extends FirestoreService {
   Future<List<Map<String, dynamic>>> getAcademicYearArchives() =>
       _read('archives', archiveRecords);
   @override
-  Future<List<Office>> getAllOffices() => _read('offices', <Office>[]);
+  Future<List<Office>> getAllOffices() => _read('offices', officeRecords);
+  @override
+  Future<Map<String, String>> getOfficeAssignments() =>
+      _read('assignments', <String, String>{});
   @override
   Future<List<String>> getAllDepartments() =>
       _read('departments', <String>['Computing']);
@@ -316,6 +322,37 @@ void main() {
   }
 
   group('Sign-in load', () {
+    test("offline, the Head's start-up jobs that write wait for a connection",
+        () async {
+      final store = _LoadStore()
+        ..officeRecords = [const Office(id: 'lib', name: 'Library', code: 'LIB')];
+      final connection = FakeConnectivity(online: false);
+      final state = AppState(firestoreService: store, connectivity: connection);
+      await state.init();
+
+      expect(await state.login(_head), isTrue);
+
+      // The office assignments are only read to be rewritten; offline that
+      // job doesn't run, so nothing waits on a write that can't finish.
+      expect(store.started('assignments'), isFalse);
+      // The data itself is still asked for.
+      expect(store.started('users'), isTrue);
+    });
+
+    test("online, the Head's start-up jobs run", () async {
+      final store = _LoadStore()
+        ..officeRecords = [const Office(id: 'lib', name: 'Library', code: 'LIB')];
+      final state = AppState(
+        firestoreService: store,
+        connectivity: FakeConnectivity(),
+      );
+      await state.init();
+
+      expect(await state.login(_head), isTrue);
+
+      expect(store.started('assignments'), isTrue);
+    });
+
     test('the Head reads what its start-up jobs work from, together', () async {
       final (state, store) = await start();
       store._holds.clear();

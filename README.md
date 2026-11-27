@@ -42,15 +42,35 @@ flutter build web --release    # production build into build/web
 flutter analyze
 flutter test                                   # app tests
 (cd test_rules && npm ci && npm test)          # Firestore rules, on the emulator (needs Java)
-(cd supabase/functions/clock-attendance && node --test records.test.ts sessions.test.ts)
+(cd supabase/functions/clock-attendance && node --test records.test.ts sessions.test.ts qr.test.ts)
 (cd supabase/functions/upload-document && node --test paths.test.ts)
 (cd tool/schedule_reader_check && npm test)     # class schedule reader, layout logic
 (cd tool/schedule_reader_check && npm install && npm run check)   # reader in headless Chrome (needs internet)
 (cd supabase/functions/clockout-reminders && node --test reminders.test.ts pushtext.test.ts email.test.ts email-core.test.ts)
+(cd tool/offline_check && npm test)             # offline cache, caching rules
+(cd tool/offline_check && npm install && npm run check)   # build/web offline in headless Chrome (build first; needs internet)
 ```
 
 The function tests need Node 23.6 or newer. The same checks run on every push
 (`.github/workflows/ci.yml`).
+
+## Working offline
+
+`web/sais-sw.js` (registered from `web/index.html`) keeps SAIS's own files,
+Flutter's CanvasKit, Firebase's scripts, the fonts and the QR scanner library
+(`web/vendor/zxing/`, served from SAIS instead of unpkg) on the device, so SAIS
+opens with no signal and doesn't hang on a weak one: its own files are fetched
+network-first with a 4-second limit, the versioned Google files cache-first.
+It never stores data. `web/flutter_bootstrap.js` loads Flutter without its own
+service worker (a self-removing stub that would replace ours).
+
+Offline, an open session keeps what it has loaded and a banner says changes,
+scans and uploads need a connection; a session reopened offline waits (Try
+again) rather than guessing the role; the Head's start-up jobs that write wait
+for a connection. Clock-in/out stays online: the server's clock is what keeps
+paid hours honest. After a Flutter or Firebase upgrade, check
+`FIREBASE_JS_VERSION` in `sais-sw.js` (a test compares it) and run
+`tool/offline_check`.
 
 ## Deploying
 

@@ -187,6 +187,30 @@
       }, { once: true });
     })();
   </script>
+  <script>
+    // SAIS's offline cache (sais-sw.js): keeps the app's own files so SAIS
+    // still opens with no signal. It never stores data.
+    (function () {
+      if (!('serviceWorker' in navigator)) return;
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sais-sw.js').catch(function (error) {
+          console.warn('SAIS offline cache unavailable:', error);
+        });
+      });
+      // What this first load fetched before the cache was in charge, so it
+      // can be stored too.
+      window.addEventListener('flutter-first-frame', function () {
+        navigator.serviceWorker.ready.then(function (registration) {
+          var urls = performance.getEntriesByType('resource').map(function (entry) {
+            return entry.name;
+          });
+          if (registration.active) {
+            registration.active.postMessage({ type: 'sais-store', urls: urls });
+          }
+        }).catch(function () {});
+      }, { once: true });
+    })();
+  </script>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader

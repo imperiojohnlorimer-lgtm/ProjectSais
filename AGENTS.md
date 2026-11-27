@@ -133,6 +133,13 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
   isn't checked). Ids are
   `<uid>_<yyyyMMdd>_manual_<ms>` so they never clash with the function's
   numbered ids.
+- Offline: `web/sais-sw.js` caches the app shell, CanvasKit, Firebase's
+  scripts and the vendored ZXing (never data); `web/flutter_bootstrap.js`
+  must not pass serviceWorkerSettings. `AppState.isOffline` (from
+  `lib/services/connectivity.dart`) drives `OfflineBanner`; a session whose
+  profile couldn't be reached sets `sessionRestoreFailed` instead of
+  inventing a Student; the Head's writing start-up jobs skip while offline.
+  Keep `FIREBASE_JS_VERSION` in step with firebase_core_web (a test checks).
 - Offices list people by parallel id/name lists; a place with a name but a
   blank id is "unlinked" (`AppState.unlinkedOfficePeople`): the rules and
   the function go by id, so the Head's Offices page warns and offers Link.
