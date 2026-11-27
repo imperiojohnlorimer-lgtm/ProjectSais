@@ -158,6 +158,7 @@ class _DocxFrameState extends State<_DocxFrame> {
       if (!_disposed) widget.onError(error, true);
       return;
     }
+    if (_disposed) return;
     try {
       await _configureDocxFrame(frame).toDart;
       // Closed while the viewer got ready: nothing to draw into.

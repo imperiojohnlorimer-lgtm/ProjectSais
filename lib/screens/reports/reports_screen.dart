@@ -954,7 +954,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     });
                                     return;
                                   }
-                                  _closeSheet(context);
+                                  if (context.mounted) _closeSheet(context);
                                   if (ok) {
                                     messenger.showSnackBar(
                                       SnackBar(
