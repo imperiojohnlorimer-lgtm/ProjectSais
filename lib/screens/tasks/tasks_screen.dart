@@ -315,14 +315,15 @@ class _TasksScreenState extends State<TasksScreen> {
                       );
                     },
                     onDelete: () async {
+                      // Taken now: the list may have changed by the answer.
+                      final taskId = tasks[i].id;
                       final ok = await showConfirmDialog(
                         context,
                         title: 'Delete Task',
                         message: 'Delete this task?',
                         confirmLabel: 'Delete',
                       );
-                      if (ok) {
-                        final taskId = tasks[i].id;
+                      if (ok && context.mounted) {
                         setState(() => _pendingIds.add(taskId));
                         final deleted = await state.deleteTask(taskId);
                         if (!context.mounted) return;
@@ -353,6 +354,7 @@ class _TasksScreenState extends State<TasksScreen> {
                     onArchive: role == 'Supervisor'
                         ? () async {
                             final willArchive = !tasks[i].isArchived;
+                            final taskId = tasks[i].id;
                             final ok = await showConfirmDialog(
                               context,
                               title: willArchive
@@ -366,8 +368,7 @@ class _TasksScreenState extends State<TasksScreen> {
                                   ? AppTheme.slate600
                                   : AppTheme.emerald500,
                             );
-                            if (!ok) return;
-                            final taskId = tasks[i].id;
+                            if (!ok || !context.mounted) return;
                             setState(() => _pendingIds.add(taskId));
                             final saved = await state.setTaskArchived(
                               taskId,

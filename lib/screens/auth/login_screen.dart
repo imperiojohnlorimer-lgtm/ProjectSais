@@ -143,118 +143,126 @@ class _LoginScreenState extends State<LoginScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (dialogContext, setDialogState) {
-            return AlertDialog(
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: const Text(
-                'Reset your password',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Enter the email you used to register. We\'ll send you a link to reset your password.',
-                    style: TextStyle(fontSize: 13, color: AppTheme.slate600),
-                  ),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: resetEmailCtrl,
-                    keyboardType: TextInputType.emailAddress,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'juan@gmail.com or juan@marsu.edu.ph',
-                      prefixIcon: const Icon(
-                        Icons.mail_outline_rounded,
-                        color: AppTheme.maroon,
-                        size: 20,
-                      ),
-                      errorText: dialogError,
+        // The controller goes when the dialog has finished closing.
+        return DisposeWhenGone(
+          notifiers: [resetEmailCtrl],
+          child: StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                title: const Text(
+                  'Reset your password',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Enter the email you used to register. We\'ll send you a link to reset your password.',
+                      style: TextStyle(fontSize: 13, color: AppTheme.slate600),
                     ),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: resetEmailCtrl,
+                      keyboardType: TextInputType.emailAddress,
+                      autofocus: true,
+                      decoration: InputDecoration(
+                        hintText: 'juan@gmail.com or juan@marsu.edu.ph',
+                        prefixIcon: const Icon(
+                          Icons.mail_outline_rounded,
+                          color: AppTheme.maroon,
+                          size: 20,
+                        ),
+                        errorText: dialogError,
+                      ),
+                    ),
+                  ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: isSending
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(),
+                    child: const Text('Cancel'),
+                  ),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.maroon,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    onPressed: isSending
+                        ? null
+                        : () async {
+                            final email = resetEmailCtrl.text.trim();
+                            if (email.isEmpty) {
+                              setDialogState(
+                                () => dialogError = 'Please enter your email.',
+                              );
+                              return;
+                            }
+
+                            setDialogState(() {
+                              isSending = true;
+                              dialogError = null;
+                            });
+
+                            final appState = context.read<AppState>();
+                            final error = await appState.sendPasswordResetEmail(
+                              email,
+                            );
+
+                            if (error != null) {
+                              // Closed meanwhile (Escape, a tap outside, a
+                              // sign-in elsewhere): nothing left to show it in.
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() {
+                                isSending = false;
+                                dialogError = error;
+                              });
+                              return;
+                            }
+
+                            if (dialogContext.mounted) {
+                              popIfCurrent(dialogContext);
+                            }
+
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'If an account exists for $email, a password reset link has been sent.',
+                                ),
+                                backgroundColor: AppTheme.emerald500,
+                                behavior: SnackBarBehavior.floating,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                margin: const EdgeInsets.all(16),
+                                duration: const Duration(seconds: 4),
+                              ),
+                            );
+                          },
+                    child: isSending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.2,
+                            ),
+                          )
+                        : const Text('Send reset link'),
                   ),
                 ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: isSending
-                      ? null
-                      : () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.maroon,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  onPressed: isSending
-                      ? null
-                      : () async {
-                          final email = resetEmailCtrl.text.trim();
-                          if (email.isEmpty) {
-                            setDialogState(
-                              () => dialogError = 'Please enter your email.',
-                            );
-                            return;
-                          }
-
-                          setDialogState(() {
-                            isSending = true;
-                            dialogError = null;
-                          });
-
-                          final appState = context.read<AppState>();
-                          final error = await appState.sendPasswordResetEmail(
-                            email,
-                          );
-
-                          if (error != null) {
-                            setDialogState(() {
-                              isSending = false;
-                              dialogError = error;
-                            });
-                            return;
-                          }
-
-                          if (!dialogContext.mounted) return;
-                          Navigator.of(dialogContext).pop();
-
-                          if (!mounted) return;
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                'If an account exists for $email, a password reset link has been sent.',
-                              ),
-                              backgroundColor: AppTheme.emerald500,
-                              behavior: SnackBarBehavior.floating,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              margin: const EdgeInsets.all(16),
-                              duration: const Duration(seconds: 4),
-                            ),
-                          );
-                        },
-                  child: isSending
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2.2,
-                          ),
-                        )
-                      : const Text('Send reset link'),
-                ),
-              ],
-            );
-          },
+              );
+            },
+          ),
         );
       },
     );

@@ -1040,14 +1040,9 @@ class _AppShellState extends State<AppShell> {
                               ],
                             ),
                             const Spacer(),
-                            StreamBuilder(
-                              stream: Stream.periodic(
-                                const Duration(seconds: 1),
-                              ),
-                              builder: (context, snapshot) {
-                                final now = DateTime.now();
-                                final time =
-                                    "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'pm' : 'am'}";
+                            LiveClock(
+                              builder: (context, now) {
+                                final time = clockText(now);
                                 final date =
                                     "${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][now.month - 1]} ${now.day}";
                                 return Column(

@@ -37,10 +37,13 @@ class _OfficesScreenState extends State<OfficesScreen> {
           office.name.toLowerCase().contains(query) ||
           office.code.toLowerCase().contains(query);
     }).toList();
-    final assignedCount = state.offices.fold<int>(
-      0,
-      (sum, item) => sum + item.assistantIds.length,
-    );
+    // Current Student Assistants placed in an active office, each once
+    // (by id or an old name-only place). Counting every id in every office
+    // included archived and deleted accounts, and could put "unassigned"
+    // below zero.
+    final assignedCount = acceptedAssistants
+        .where((user) => state.officesForUser(user).isNotEmpty)
+        .length;
     final activeCount = state.offices.where((item) => item.isActive).length;
     final horizontal = isMobile ? 16.0 : 28.0;
     // Slivers rather than a pinned header above a list, so the hero scrolls
@@ -914,6 +917,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                     return;
                                   }
                                 }
+                                // Closed while the picture uploaded: don't
+                                // save behind the person's back.
+                                if (!dialogContext.mounted) return;
                                 final savedOffice = Office(
                                   id:
                                       office?.id ??

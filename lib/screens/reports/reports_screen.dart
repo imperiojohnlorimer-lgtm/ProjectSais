@@ -432,6 +432,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
     final List<ReportAttachment> attachments = [];
     // Set while the report saves, so a second tap can't submit it twice.
     var submitting = false;
+    // Why the last try failed, shown in the sheet: what was typed stays.
+    String? submitError;
 
     // Only work the supervisor approved, and only once: a task already in
     // a report isn't offered again unless that report is rejected.
@@ -462,410 +464,69 @@ class _ReportsScreenState extends State<ReportsScreen> {
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => StatefulBuilder(
-        builder: (context, setState) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-          ),
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              24,
-              14,
-              24,
-              MediaQuery.of(context).viewInsets.bottom + 24,
+      // The controllers go when the sheet has finished closing.
+      builder: (sheetContext) => DisposeWhenGone(
+        notifiers: [titleCtrl, contentCtrl],
+        child: StatefulBuilder(
+          builder: (context, setState) => Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      margin: const EdgeInsets.only(bottom: 16),
-                      decoration: BoxDecoration(
-                        color: AppTheme.slate200,
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                    ),
-                  ),
-                  Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(9),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(
+                24,
+                14,
+                24,
+                MediaQuery.of(context).viewInsets.bottom + 24,
+              ),
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 16),
                         decoration: BoxDecoration(
-                          color: AppTheme.maroon50,
-                          borderRadius: BorderRadius.circular(11),
-                        ),
-                        child: const Icon(
-                          Icons.note_add_rounded,
-                          color: AppTheme.maroon,
-                          size: 19,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      const Expanded(
-                        child: Text(
-                          'Submit Report',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w800,
-                            color: AppTheme.slate900,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: 'Close',
-                        icon: const Icon(Icons.close_rounded),
-                        onPressed: () => Navigator.pop(context),
-                        style: IconButton.styleFrom(
-                          backgroundColor: AppTheme.slate100,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: titleCtrl,
-                    decoration: InputDecoration(
-                      labelText: 'Report Title',
-                      filled: true,
-                      fillColor: AppTheme.slate50,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppTheme.slate200),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppTheme.slate200),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppTheme.maroon,
-                          width: 1.6,
+                          color: AppTheme.slate200,
+                          borderRadius: BorderRadius.circular(4),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 14),
-                  TextField(
-                    controller: contentCtrl,
-                    maxLines: 5,
-                    decoration: InputDecoration(
-                      labelText: 'Content / Accomplishments',
-                      alignLabelWithHint: true,
-                      filled: true,
-                      fillColor: AppTheme.slate50,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppTheme.slate200),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(color: AppTheme.slate200),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        borderSide: const BorderSide(
-                          color: AppTheme.maroon,
-                          width: 1.6,
-                        ),
-                      ),
-                    ),
-                  ),
-                  if (completedTasks.isNotEmpty) ...[
-                    const SizedBox(height: 14),
-                    Container(
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: AppTheme.emerald50,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              const Icon(
-                                Icons.check_circle_rounded,
-                                size: 15,
-                                color: AppTheme.emerald500,
-                              ),
-                              const SizedBox(width: 6),
-                              const Expanded(
-                                child: Text(
-                                  'APPROVED TASKS — INCLUDED ABOVE',
-                                  style: TextStyle(
-                                    fontSize: 10.5,
-                                    fontWeight: FontWeight.w800,
-                                    color: AppTheme.slate500,
-                                    letterSpacing: 0.4,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 6),
-                          ...completedTasks.map((task) {
-                            final checked = includedTaskIds.contains(task.id);
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(8),
-                              onTap: () {
-                                setState(() {
-                                  if (checked) {
-                                    includedTaskIds.remove(task.id);
-                                  } else {
-                                    includedTaskIds.add(task.id);
-                                  }
-                                  contentCtrl.text = _composeAccomplishments(
-                                    completedTasks,
-                                    includedTaskIds,
-                                  );
-                                });
-                              },
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 3,
-                                ),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      checked
-                                          ? Icons.check_box_rounded
-                                          : Icons
-                                                .check_box_outline_blank_rounded,
-                                      size: 18,
-                                      color: checked
-                                          ? AppTheme.emerald500
-                                          : AppTheme.slate300,
-                                    ),
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: Text(
-                                        task.title,
-                                        style: TextStyle(
-                                          fontSize: 12.5,
-                                          fontWeight: FontWeight.w600,
-                                          color: checked
-                                              ? AppTheme.slate700
-                                              : AppTheme.slate500,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            );
-                          }),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (awaitingApproval > 0) ...[
-                    const SizedBox(height: 10),
                     Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.only(top: 1),
-                          child: Icon(
-                            Icons.hourglass_top_rounded,
-                            size: 14,
-                            color: AppTheme.amber500,
+                        Container(
+                          padding: const EdgeInsets.all(9),
+                          decoration: BoxDecoration(
+                            color: AppTheme.maroon50,
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                          child: const Icon(
+                            Icons.note_add_rounded,
+                            color: AppTheme.maroon,
+                            size: 19,
                           ),
                         ),
-                        const SizedBox(width: 6),
-                        Expanded(
+                        const SizedBox(width: 12),
+                        const Expanded(
                           child: Text(
-                            awaitingApproval == 1
-                                ? '1 completed task is waiting for your '
-                                      "supervisor's approval. You can add it "
-                                      'to a report once it is approved.'
-                                : '$awaitingApproval completed tasks are '
-                                      "waiting for your supervisor's approval. "
-                                      'You can add them to a report once they '
-                                      'are approved.',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.slate500,
-                              height: 1.35,
+                            'Submit Report',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.slate900,
                             ),
                           ),
                         ),
-                      ],
-                    ),
-                  ],
-                  const SizedBox(height: 18),
-                  const Text(
-                    'ATTACHMENTS',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: AppTheme.slate500,
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(14),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: AppTheme.slate200),
-                      borderRadius: BorderRadius.circular(14),
-                      color: AppTheme.slate50,
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (attachments.isEmpty)
-                          Row(
-                            children: const [
-                              Icon(
-                                Icons.insert_drive_file_outlined,
-                                size: 15,
-                                color: AppTheme.slate400,
-                              ),
-                              SizedBox(width: 8),
-                              Text(
-                                'No document attached yet',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: AppTheme.slate500,
-                                ),
-                              ),
-                            ],
-                          )
-                        else
-                          ...attachments.map(
-                            (attachment) => Padding(
-                              padding: const EdgeInsets.only(bottom: 8),
-                              child: Row(
-                                children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.maroon50,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: const Icon(
-                                      Icons.attach_file_rounded,
-                                      size: 14,
-                                      color: AppTheme.maroon,
-                                    ),
-                                  ),
-                                  const SizedBox(width: 9),
-                                  Expanded(
-                                    child: Text(
-                                      attachment.fileName,
-                                      style: const TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: AppTheme.slate700,
-                                      ),
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        const SizedBox(height: 6),
-                        AsyncButton(
-                          kind: AsyncButtonKind.outlined,
-                          onPressed: () async {
-                            try {
-                              final result = await FilePicker.platform
-                                  .pickFiles(
-                                    type: FileType.any,
-                                    allowMultiple: false,
-                                    withData: true,
-                                  );
-                              if (result == null || result.files.isEmpty)
-                                return;
-
-                              final file = result.files.single;
-                              final bytes = file.bytes;
-                              if (bytes == null) {
-                                throw Exception(
-                                  'This file type is not available for upload in the current browser session.',
-                                );
-                              }
-
-                              final timestamp =
-                                  DateTime.now().millisecondsSinceEpoch;
-                              final storagePath =
-                                  'reports/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/${randomObjectName(file.name)}';
-                              final downloadUrl = await SupabaseStorageService
-                                  .instance
-                                  .uploadDocument(
-                                    bytes: bytes,
-                                    path: storagePath,
-                                    contentType: file.extension == null
-                                        ? null
-                                        : _contentType(file.extension!),
-                                  );
-
-                              setState(() {
-                                attachments.clear();
-                                attachments.add(
-                                  ReportAttachment(
-                                    id: 'att_$timestamp',
-                                    fileName: file.name,
-                                    storagePath: storagePath,
-                                    downloadUrl: downloadUrl,
-                                    fileSize: file.size,
-                                  ),
-                                );
-                              });
-
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Document uploaded: ${file.name}',
-                                    ),
-                                    backgroundColor: AppTheme.emerald500,
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    margin: const EdgeInsets.all(16),
-                                  ),
-                                );
-                              }
-                            } catch (e) {
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      'Error uploading document: $e',
-                                    ),
-                                    backgroundColor: AppTheme.red500,
-                                    behavior: SnackBarBehavior.floating,
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                    margin: const EdgeInsets.all(16),
-                                  ),
-                                );
-                              }
-                            }
-                          },
-                          icon: Icons.upload_file_rounded,
-                          label: 'Upload Document',
-                          busyLabel: 'Uploading…',
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.maroon,
-                            side: const BorderSide(
-                              color: AppTheme.maroon,
-                              width: 1.3,
-                            ),
+                        IconButton(
+                          tooltip: 'Close',
+                          icon: const Icon(Icons.close_rounded),
+                          onPressed: () => Navigator.pop(context),
+                          style: IconButton.styleFrom(
+                            backgroundColor: AppTheme.slate100,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(10),
                             ),
@@ -873,53 +534,314 @@ class _ReportsScreenState extends State<ReportsScreen> {
                         ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 22),
-                  SizedBox(
-                    width: double.infinity,
-                    child: Container(
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(13),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.maroon.withValues(alpha: 0.3),
-                            blurRadius: 14,
-                            offset: const Offset(0, 5),
+                    const SizedBox(height: 20),
+                    TextField(
+                      controller: titleCtrl,
+                      decoration: InputDecoration(
+                        labelText: 'Report Title',
+                        filled: true,
+                        fillColor: AppTheme.slate50,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.slate200,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.slate200,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.maroon,
+                            width: 1.6,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: contentCtrl,
+                      maxLines: 5,
+                      decoration: InputDecoration(
+                        labelText: 'Content / Accomplishments',
+                        alignLabelWithHint: true,
+                        filled: true,
+                        fillColor: AppTheme.slate50,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.slate200,
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.slate200,
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: AppTheme.maroon,
+                            width: 1.6,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (completedTasks.isNotEmpty) ...[
+                      const SizedBox(height: 14),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppTheme.emerald50,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(
+                                  Icons.check_circle_rounded,
+                                  size: 15,
+                                  color: AppTheme.emerald500,
+                                ),
+                                const SizedBox(width: 6),
+                                const Expanded(
+                                  child: Text(
+                                    'APPROVED TASKS — INCLUDED ABOVE',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: AppTheme.slate500,
+                                      letterSpacing: 0.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 6),
+                            ...completedTasks.map((task) {
+                              final checked = includedTaskIds.contains(task.id);
+                              return InkWell(
+                                borderRadius: BorderRadius.circular(8),
+                                onTap: () {
+                                  setState(() {
+                                    if (checked) {
+                                      includedTaskIds.remove(task.id);
+                                    } else {
+                                      includedTaskIds.add(task.id);
+                                    }
+                                    contentCtrl.text = _composeAccomplishments(
+                                      completedTasks,
+                                      includedTaskIds,
+                                    );
+                                  });
+                                },
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 3,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        checked
+                                            ? Icons.check_box_rounded
+                                            : Icons
+                                                  .check_box_outline_blank_rounded,
+                                        size: 18,
+                                        color: checked
+                                            ? AppTheme.emerald500
+                                            : AppTheme.slate300,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          task.title,
+                                          style: TextStyle(
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.w600,
+                                            color: checked
+                                                ? AppTheme.slate700
+                                                : AppTheme.slate500,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      ),
+                    ],
+                    if (awaitingApproval > 0) ...[
+                      const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Padding(
+                            padding: EdgeInsets.only(top: 1),
+                            child: Icon(
+                              Icons.hourglass_top_rounded,
+                              size: 14,
+                              color: AppTheme.amber500,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              awaitingApproval == 1
+                                  ? '1 completed task is waiting for your '
+                                        "supervisor's approval. You can add it "
+                                        'to a report once it is approved.'
+                                  : '$awaitingApproval completed tasks are '
+                                        "waiting for your supervisor's approval. "
+                                        'You can add them to a report once they '
+                                        'are approved.',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: AppTheme.slate500,
+                                height: 1.35,
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                      child: ElevatedButton(
-                        onPressed: submitting
-                            ? null
-                            : () async {
-                                if (titleCtrl.text.trim().isEmpty) return;
-                                setState(() => submitting = true);
-                                final messenger = ScaffoldMessenger.of(context);
-                                final now = DateTime.now();
-                                final report = Report(
-                                  id: 'r_${now.millisecondsSinceEpoch}',
-                                  applicantId: state.currentUser?.id,
-                                  title: titleCtrl.text.trim(),
-                                  content: contentCtrl.text.trim(),
-                                  studentName: state.currentUser?.name ?? '',
-                                  status: 'Pending',
-                                  submittedAt:
-                                      '${now.month}/${now.day}/${now.year}',
-                                  attachments: attachments,
-                                  academicYear: state.academicYear,
-                                  taskIds: [
-                                    for (final task in completedTasks)
-                                      if (includedTaskIds.contains(task.id))
-                                        task.id,
+                    ],
+                    const SizedBox(height: 18),
+                    const Text(
+                      'ATTACHMENTS',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        color: AppTheme.slate500,
+                        letterSpacing: 0.6,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.slate200),
+                        borderRadius: BorderRadius.circular(14),
+                        color: AppTheme.slate50,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (attachments.isEmpty)
+                            Row(
+                              children: const [
+                                Icon(
+                                  Icons.insert_drive_file_outlined,
+                                  size: 15,
+                                  color: AppTheme.slate400,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  'No document attached yet',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: AppTheme.slate500,
+                                  ),
+                                ),
+                              ],
+                            )
+                          else
+                            ...attachments.map(
+                              (attachment) => Padding(
+                                padding: const EdgeInsets.only(bottom: 8),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      padding: const EdgeInsets.all(6),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.maroon50,
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(
+                                        Icons.attach_file_rounded,
+                                        size: 14,
+                                        color: AppTheme.maroon,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 9),
+                                    Expanded(
+                                      child: Text(
+                                        attachment.fileName,
+                                        style: const TextStyle(
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.slate700,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
                                   ],
-                                );
-                                final ok = await state.submitReport(report);
-                                if (context.mounted) Navigator.pop(context);
-                                if (ok) {
-                                  messenger.showSnackBar(
+                                ),
+                              ),
+                            ),
+                          const SizedBox(height: 6),
+                          AsyncButton(
+                            kind: AsyncButtonKind.outlined,
+                            onPressed: () async {
+                              try {
+                                final result = await FilePicker.platform
+                                    .pickFiles(
+                                      type: FileType.any,
+                                      allowMultiple: false,
+                                      withData: true,
+                                    );
+                                if (result == null || result.files.isEmpty)
+                                  return;
+
+                                final file = result.files.single;
+                                final bytes = file.bytes;
+                                if (bytes == null) {
+                                  throw Exception(
+                                    'This file type is not available for upload in the current browser session.',
+                                  );
+                                }
+
+                                final timestamp =
+                                    DateTime.now().millisecondsSinceEpoch;
+                                final storagePath =
+                                    'reports/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/${randomObjectName(file.name)}';
+                                final downloadUrl = await SupabaseStorageService
+                                    .instance
+                                    .uploadDocument(
+                                      bytes: bytes,
+                                      path: storagePath,
+                                      contentType: file.extension == null
+                                          ? null
+                                          : _contentType(file.extension!),
+                                    );
+
+                                setState(() {
+                                  attachments.clear();
+                                  attachments.add(
+                                    ReportAttachment(
+                                      id: 'att_$timestamp',
+                                      fileName: file.name,
+                                      storagePath: storagePath,
+                                      downloadUrl: downloadUrl,
+                                      fileSize: file.size,
+                                    ),
+                                  );
+                                });
+
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                        'Report submitted successfully!',
+                                        'Document uploaded: ${file.name}',
                                       ),
                                       backgroundColor: AppTheme.emerald500,
                                       behavior: SnackBarBehavior.floating,
@@ -929,11 +851,13 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                       margin: const EdgeInsets.all(16),
                                     ),
                                   );
-                                } else {
-                                  messenger.showSnackBar(
+                                }
+                              } catch (e) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
                                       content: Text(
-                                        'Failed to submit report. Please try again.',
+                                        'Error uploading document: $e',
                                       ),
                                       backgroundColor: AppTheme.red500,
                                       behavior: SnackBarBehavior.floating,
@@ -944,27 +868,148 @@ class _ReportsScreenState extends State<ReportsScreen> {
                                     ),
                                   );
                                 }
-                              },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.maroon,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(13),
+                              }
+                            },
+                            icon: Icons.upload_file_rounded,
+                            label: 'Upload Document',
+                            busyLabel: 'Uploading…',
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppTheme.maroon,
+                              side: const BorderSide(
+                                color: AppTheme.maroon,
+                                width: 1.3,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
                           ),
+                        ],
+                      ),
+                    ),
+                    if (submitError != null) ...[
+                      const SizedBox(height: 14),
+                      Text(
+                        submitError!,
+                        style: const TextStyle(
+                          color: AppTheme.red500,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w600,
                         ),
-                        child: Text(
-                          submitting ? 'Submitting...' : 'Submit Report',
-                          style: const TextStyle(
-                            fontWeight: FontWeight.w800,
-                            fontSize: 14.5,
+                      ),
+                    ],
+                    const SizedBox(height: 22),
+                    SizedBox(
+                      width: double.infinity,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(13),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.maroon.withValues(alpha: 0.3),
+                              blurRadius: 14,
+                              offset: const Offset(0, 5),
+                            ),
+                          ],
+                        ),
+                        child: ElevatedButton(
+                          onPressed: submitting
+                              ? null
+                              : () async {
+                                  if (titleCtrl.text.trim().isEmpty) return;
+                                  setState(() {
+                                    submitting = true;
+                                    submitError = null;
+                                  });
+                                  final messenger = ScaffoldMessenger.of(
+                                    context,
+                                  );
+                                  final now = DateTime.now();
+                                  final report = Report(
+                                    id: 'r_${now.millisecondsSinceEpoch}',
+                                    applicantId: state.currentUser?.id,
+                                    title: titleCtrl.text.trim(),
+                                    content: contentCtrl.text.trim(),
+                                    studentName: state.currentUser?.name ?? '',
+                                    status: 'Pending',
+                                    submittedAt:
+                                        '${now.month}/${now.day}/${now.year}',
+                                    attachments: attachments,
+                                    academicYear: state.academicYear,
+                                    taskIds: [
+                                      for (final task in completedTasks)
+                                        if (includedTaskIds.contains(task.id))
+                                          task.id,
+                                    ],
+                                  );
+                                  final ok = await state.submitReport(report);
+                                  if (!ok && context.mounted) {
+                                    // Kept open with what was typed, to try
+                                    // again.
+                                    setState(() {
+                                      submitting = false;
+                                      submitError =
+                                          "The report couldn't be submitted. "
+                                          'Check your connection and try again.';
+                                    });
+                                    return;
+                                  }
+                                  _closeSheet(context);
+                                  if (ok) {
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Report submitted successfully!',
+                                        ),
+                                        backgroundColor: AppTheme.emerald500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  } else {
+                                    messenger.showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          'Failed to submit report. Please try again.',
+                                        ),
+                                        backgroundColor: AppTheme.red500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  }
+                                },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.maroon,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                          ),
+                          child: Text(
+                            submitting ? 'Submitting...' : 'Submit Report',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 14.5,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

@@ -306,7 +306,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                     );
                                   },
                                   onSetTimeOut:
-                                      r.isActive &&
+                                      AppState.canSetManualTimeOut(r) &&
                                           (state.role == 'Head' ||
                                               state.role == 'Supervisor')
                                       ? () async {
@@ -339,6 +339,23 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                             confirmColor: AppTheme.maroon,
                                           );
                                           if (!confirmed || !context.mounted) {
+                                            return;
+                                          }
+                                          // The student may have clocked
+                                          // out (or it was archived) while
+                                          // the time was being picked.
+                                          final now = state.attendance
+                                              .where((a) => a.id == r.id)
+                                              .firstOrNull;
+                                          if (!AppState.canSetManualTimeOut(
+                                            now,
+                                          )) {
+                                            _snack(
+                                              context,
+                                              'This record changed meanwhile. '
+                                              'Check it again.',
+                                              AppTheme.amber500,
+                                            );
                                             return;
                                           }
                                           final saved = await runWithBusy(
@@ -397,7 +414,17 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                             : null,
                       ),
                       const SizedBox(height: 16),
-                      _WeeklySummaryCard(records: state.filteredAttendance),
+                      _WeeklySummaryCard(
+                        hours: state.weekHoursByDay(),
+                        caption: switch (state.role) {
+                          'Student Assistant' => 'Your hours this week',
+                          'Supervisor' => 'Office hours this week',
+                          _ => 'Hours this week',
+                        },
+                        cap: state.role == 'Student Assistant'
+                            ? AppState.weeklyHourCap
+                            : null,
+                      ),
                     ],
                   ),
                 ),
@@ -942,28 +969,37 @@ class _ClockCardState extends State<_ClockCard> {
 }
 
 // ── Weekly summary card ───────────────────────────────────────────────
+/// This week's hours by day ([AppState.weekHoursByDay]), Monday to
+/// Saturday (Sunday too when it has any), and their total.
 class _WeeklySummaryCard extends StatelessWidget {
-  final List records;
-  const _WeeklySummaryCard({required this.records});
+  /// Hours by weekday, 1 = Monday … 7 = Sunday.
+  final Map<int, double> hours;
+
+  /// What the hours are: "Your hours this week", "Office hours this week".
+  final String caption;
+
+  /// The weekly limit to show the total against, if any.
+  final double? cap;
+
+  const _WeeklySummaryCard({
+    required this.hours,
+    required this.caption,
+    this.cap,
+  });
+
+  static String _hoursText(double h) =>
+      h % 1 == 0 ? h.toStringAsFixed(0) : h.toStringAsFixed(1);
 
   @override
   Widget build(BuildContext context) {
-    // Calculate hours per weekday from records
-    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
-    final Map<String, double> hours = {for (final d in days) d: 0.0};
-    // Simple mock: distribute completed records across days
-    for (final r in records) {
-      if (!r.isActive && r.totalHours != null) {
-        // Try to match day abbreviation from date string
-        for (final d in days) {
-          if ((r.date as String).contains(_dayFull(d))) {
-            hours[d] = (hours[d] ?? 0) + (r.totalHours as double);
-          }
-        }
-      }
-    }
-
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final days = [
+      for (var weekday = 1; weekday <= 7; weekday++)
+        if (weekday < 7 || (hours[7] ?? 0) > 0) weekday,
+    ];
     final maxHours = hours.values.fold<double>(0, (a, b) => b > a ? b : a);
+    final total = hours.values.fold<double>(0, (a, b) => a + b);
+    final limit = cap;
 
     return Container(
       decoration: BoxDecoration(
@@ -1006,7 +1042,14 @@ class _WeeklySummaryCard extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 6),
+          Text(
+            limit == null
+                ? '$caption: ${_hoursText(total)} h'
+                : '$caption: ${_hoursText(total)} of ${_hoursText(limit)} h',
+            style: const TextStyle(fontSize: 12, color: AppTheme.slate500),
+          ),
+          const SizedBox(height: 14),
           ...days.map(
             (d) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -1015,7 +1058,7 @@ class _WeeklySummaryCard extends StatelessWidget {
                   SizedBox(
                     width: 32,
                     child: Text(
-                      d,
+                      names[d - 1],
                       style: const TextStyle(
                         fontSize: 12,
                         fontWeight: FontWeight.w600,
@@ -1028,20 +1071,22 @@ class _WeeklySummaryCard extends StatelessWidget {
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(4),
                       child: LinearProgressIndicator(
-                        value: maxHours > 0 ? (hours[d]! / maxHours) : 0,
+                        value: maxHours > 0 ? ((hours[d] ?? 0) / maxHours) : 0,
                         minHeight: 8,
                         backgroundColor: AppTheme.slate100,
                         valueColor: AlwaysStoppedAnimation<Color>(
-                          hours[d]! > 0 ? AppTheme.maroon : AppTheme.slate200,
+                          (hours[d] ?? 0) > 0
+                              ? AppTheme.maroon
+                              : AppTheme.slate200,
                         ),
                       ),
                     ),
                   ),
                   const SizedBox(width: 10),
                   SizedBox(
-                    width: 28,
+                    width: 36,
                     child: Text(
-                      '${hours[d]!.toStringAsFixed(0)}h',
+                      '${_hoursText(hours[d] ?? 0)}h',
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
@@ -1058,18 +1103,13 @@ class _WeeklySummaryCard extends StatelessWidget {
       ),
     );
   }
-
-  String _dayFull(String abbr) {
-    const m = {
-      'Mon': 'Mon',
-      'Tue': 'Tue',
-      'Wed': 'Wed',
-      'Thu': 'Thu',
-      'Fri': 'Fri',
-    };
-    return m[abbr] ?? abbr;
-  }
 }
+
+/// Today's place in the Monday–Saturday class week (0 = Monday), or null
+/// on a Sunday, which has no column.
+@visibleForTesting
+int? todayInWeek(DateTime now) =>
+    now.weekday == DateTime.sunday ? null : now.weekday - 1;
 
 // ── Schedule tab ─────────────────────────────────────────────────────
 // Reads the same [ClassScheduleEntry] rows as the DTR/Accomplishment
@@ -1152,7 +1192,9 @@ class _ScheduleTab extends StatelessWidget {
       );
     }
 
-    final todayName = _weekdays[(DateTime.now().weekday - 1).clamp(0, 5)].$1;
+    // Philippine time; on a Sunday no day is today.
+    final today = todayInWeek(context.read<AppState>().philippineClock());
+    final todayName = today == null ? null : _weekdays[today].$1;
 
     return ListView(
       padding: const EdgeInsets.only(bottom: 28),
@@ -1291,11 +1333,36 @@ class _RecordCard extends StatelessWidget {
         : (isActive ? AppTheme.emerald500 : AppTheme.slate400);
     final isMobile = MediaQuery.of(context).size.width < 400;
 
-    final dateParts = (record.date as String).split(' ');
-    final monthAbbr = dateParts.isNotEmpty
-        ? dateParts[0].substring(0, 3).toUpperCase()
-        : '—';
-    final dayNum = dateParts.length > 1
+    // The date box: read the date when it can be ("Nov 27, 2026",
+    // "11/27/2026"); otherwise show what is there, never failing on a short
+    // or empty one.
+    const months = [
+      'JAN',
+      'FEB',
+      'MAR',
+      'APR',
+      'MAY',
+      'JUN',
+      'JUL',
+      'AUG',
+      'SEP',
+      'OCT',
+      'NOV',
+      'DEC',
+    ];
+    final day = context.read<AppState>().attendanceDay(
+      record as AttendanceRecord,
+    );
+    final dateParts = (record.date as String).trim().split(RegExp(r'\s+'));
+    final first = dateParts.first;
+    final monthAbbr = day != null
+        ? months[day.month - 1]
+        : first.isEmpty
+        ? '—'
+        : first.substring(0, first.length < 3 ? first.length : 3).toUpperCase();
+    final dayNum = day != null
+        ? '${day.day}'
+        : dateParts.length > 1
         ? dateParts[1].replaceAll(',', '')
         : '—';
 

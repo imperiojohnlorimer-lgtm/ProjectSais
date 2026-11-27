@@ -488,13 +488,7 @@ extension AppStateRehiring on AppState {
   /// current Monday–Sunday week: the figure clock-attendance checks
   /// against [AppState.weeklyHourCap].
   double get myCreditedHoursThisWeek {
-    final now = philippineClock();
-    final monday = DateTime(
-      now.year,
-      now.month,
-      now.day - (now.weekday - 1),
-    );
-    final nextMonday = DateTime(monday.year, monday.month, monday.day + 7);
+    final (:monday, :nextMonday) = _weekBounds(philippineClock());
     return filteredAttendance
         .where((r) {
           if (r.isActive || r.isArchived || r.isInvalid) return false;
@@ -504,6 +498,34 @@ extension AppStateRehiring on AppState {
               day.isBefore(nextMonday);
         })
         .fold<double>(0, (total, r) => total + (r.totalHours ?? 0));
+  }
+
+  /// The Monday that starts the week of [now] (a Philippine wall clock),
+  /// and the next one.
+  ({DateTime monday, DateTime nextMonday}) _weekBounds(DateTime now) {
+    final monday = DateTime(now.year, now.month, now.day - (now.weekday - 1));
+    return (
+      monday: monday,
+      nextMonday: DateTime(monday.year, monday.month, monday.day + 7),
+    );
+  }
+
+  /// This Monday–Sunday week's hours (Philippine time) by weekday, 1 =
+  /// Monday … 7 = Sunday, from the records this user sees
+  /// ([AppState.filteredAttendance]: their own, or their office's) that
+  /// count toward hours. For the Weekly Summary on the Attendance page.
+  Map<int, double> weekHoursByDay([DateTime? now]) {
+    final (:monday, :nextMonday) = _weekBounds(philippineClock(now));
+    final hours = <int, double>{};
+    for (final r in filteredAttendance) {
+      if (!r.countsTowardHours) continue;
+      final day = attendanceDay(r);
+      if (day == null || day.isBefore(monday) || !day.isBefore(nextMonday)) {
+        continue;
+      }
+      hours[day.weekday] = (hours[day.weekday] ?? 0) + (r.totalHours ?? 0);
+    }
+    return hours;
   }
 
   /// Hours credited to the current user from sessions finished today.

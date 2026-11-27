@@ -5560,6 +5560,11 @@ class AppState extends ChangeNotifier {
     return diff / 60.0;
   }
 
+  /// Whether [record] can still be given a time-out by hand: it exists,
+  /// isn't archived, and has none yet.
+  static bool canSetManualTimeOut(AttendanceRecord? record) =>
+      record != null && !record.isArchived && record.isActive;
+
   /// A Head/Supervisor manually completing a student's missed time-out —
   /// the actual verification step the System needs before those hours can
   /// count toward payroll. Sets a real time-out and computes real elapsed
@@ -5567,12 +5572,15 @@ class AppState extends ChangeNotifier {
   /// since a human has now confirmed when the student actually left.
   ///
   /// Returns whether it saved. A refused save is undone here, so the log
-  /// never shows a time-out that isn't really on file.
+  /// never shows a time-out that isn't really on file. A record that is
+  /// gone, archived, or already has a time-out (the student clocked out
+  /// while the time was being picked) is left alone: false.
   Future<bool> setManualTimeOut(String recordId, String timeOut) async {
     final existing = attendance.cast<AttendanceRecord?>().firstWhere(
       (r) => r?.id == recordId,
       orElse: () => null,
     );
+    if (!canSetManualTimeOut(existing)) return false;
     final elapsed = _hoursBetween(existing?.timeIn, timeOut);
     // A person confirming the time-out doesn't lift the weekly cap: the
     // clock-attendance function would have trimmed these hours the same way.

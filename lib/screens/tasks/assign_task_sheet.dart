@@ -128,7 +128,8 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
       firstDate: DateTime(today.year, today.month, today.day),
       lastDate: DateTime(today.year + 5, 12, 31),
     );
-    if (picked != null) setState(() => _dueDate = picked);
+    if (picked == null || !mounted) return;
+    setState(() => _dueDate = picked);
   }
 
   Future<void> _assign() async {
@@ -149,6 +150,15 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
     final student = _assignedTo == null
         ? null
         : students.where((s) => s.id == _assignedTo).firstOrNull;
+    if (_assignedTo != null && student == null) {
+      // The student chosen left the office (or the list) meanwhile: say so
+      // rather than give the task to nobody.
+      setState(() {
+        _saving = false;
+        _error = 'That student is no longer in your office. Choose again.';
+      });
+      return;
+    }
     if (_ongoing) {
       await _giveDuty(state, student, navigator, messenger);
       return;
@@ -355,7 +365,11 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
                         const TaskSectionLabel('ASSIGNMENT'),
                         const SizedBox(height: 10),
                         DropdownButtonFormField<String>(
-                          initialValue: _assignedTo,
+                          // Only a student still listed: one who left the
+                          // list meanwhile shows as none chosen.
+                          initialValue: students.any((s) => s.id == _assignedTo)
+                              ? _assignedTo
+                              : null,
                           isExpanded: true,
                           icon: const Icon(
                             Icons.expand_more_rounded,
@@ -533,7 +547,11 @@ class _AssignTaskSheetState extends State<AssignTaskSheet> {
       // Rebuilt when the pick changes or is turned down, so it shows what
       // the form holds.
       key: ValueKey('$_category|$_templateId|$_pickerTurn'),
-      initialValue: _templateId ?? _typeMyOwn,
+      // A pick that is no longer offered (deleted, or a newer task took its
+      // place) shows as "Type my own"; what was filled in stays.
+      initialValue: [...templates, ...recents].any((t) => t.id == _templateId)
+          ? _templateId
+          : _typeMyOwn,
       isExpanded: true,
       menuMaxHeight: 360,
       icon: const Icon(Icons.expand_more_rounded, color: AppTheme.slate400),

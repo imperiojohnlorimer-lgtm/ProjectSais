@@ -179,20 +179,16 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                               ),
                             ),
                             // Time pill
-                            StreamBuilder(
-                              stream: Stream.periodic(const Duration(seconds: 1)),
-                              builder: (context, snapshot) {
-                                final now = DateTime.now();
-                                final h = now.hour % 12 == 0 ? 12 : now.hour % 12;
-                                final m = now.minute.toString().padLeft(2, '0');
-                                final ampm = now.hour >= 12 ? 'pm' : 'am';
+                            LiveClock(
+                              seconds: false,
+                              builder: (context, now) {
                                 return Container(
                                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                   decoration: BoxDecoration(
                                     color: AppTheme.maroon.withValues(alpha: 0.07),
                                     borderRadius: BorderRadius.circular(20),
                                   ),
-                                  child: Text('$h:$m $ampm',
+                                  child: Text(clockText(now, seconds: false),
                                     style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.maroon)),
                                 );
                               },
@@ -262,12 +258,9 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                               ),
                             ),
                             const Spacer(),
-                            StreamBuilder(
-                              stream: Stream.periodic(const Duration(seconds: 1)),
-                              builder: (context, _) {
-                                final now = DateTime.now();
-                                final time =
-                                    "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}:${now.second.toString().padLeft(2, '0')} ${now.hour >= 12 ? 'pm' : 'am'}";
+                            LiveClock(
+                              builder: (context, now) {
+                                final time = clockText(now);
                                 const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
                                 final date = "${months[now.month - 1]} ${now.day}";
                                 return Column(

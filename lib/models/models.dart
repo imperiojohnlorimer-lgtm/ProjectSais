@@ -611,6 +611,10 @@ class User {
     bool? isDeleted,
     bool? emailNotifications,
     bool clearRequestedRole = false,
+    // Empty these (null above means "keep them").
+    bool clearPhone = false,
+    bool clearStudentId = false,
+    bool clearCourseProgram = false,
     String? studentIdVerifiedAt,
     String? studentIdVerifiedBy,
     // A changed Student ID hasn't been checked, whatever the old one was.
@@ -626,13 +630,15 @@ class User {
     role: role ?? this.role,
     department: department ?? this.department,
     campus: campus ?? this.campus,
-    phone: phone ?? this.phone,
+    phone: clearPhone ? null : phone ?? this.phone,
     address: address ?? this.address,
     avatar: avatar ?? this.avatar,
     skills: skills ?? this.skills,
     status: status ?? this.status,
-    studentId: studentId ?? this.studentId,
-    courseProgram: courseProgram ?? this.courseProgram,
+    studentId: clearStudentId ? null : studentId ?? this.studentId,
+    courseProgram: clearCourseProgram
+        ? null
+        : courseProgram ?? this.courseProgram,
     yearLevel: yearLevel ?? this.yearLevel,
     saId: saId ?? this.saId,
     acceptedAt: acceptedAt ?? this.acceptedAt,

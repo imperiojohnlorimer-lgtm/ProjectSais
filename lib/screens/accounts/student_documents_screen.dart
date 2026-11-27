@@ -357,11 +357,23 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
       ...allEntries.map((e) => e.office).toSet().toList()..sort(),
     ];
 
+    // A filter whose value is no longer offered (an office renamed, its
+    // last document gone) counts as "All", in the list and the dropdown.
+    final campus = campusOptions.contains(_campusFilter)
+        ? _campusFilter
+        : 'All Campuses';
+    final department = departmentOptions.contains(_departmentFilter)
+        ? _departmentFilter
+        : 'All Departments';
+    final office = officeOptions.contains(_officeFilter)
+        ? _officeFilter
+        : 'All Offices';
+
     final filtered = allEntries.where((e) {
       if (_kindFilter != null && e.kind != _kindFilter) return false;
-      if (_campusFilter != 'All Campuses' && e.campus != _campusFilter) return false;
-      if (_departmentFilter != 'All Departments' && e.department != _departmentFilter) return false;
-      if (_officeFilter != 'All Offices' && e.office != _officeFilter) return false;
+      if (campus != 'All Campuses' && e.campus != campus) return false;
+      if (department != 'All Departments' && e.department != department) return false;
+      if (office != 'All Offices' && e.office != office) return false;
       if (query.isNotEmpty && !e.studentName.toLowerCase().contains(query)) return false;
       return true;
     }).toList();
@@ -508,19 +520,19 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
             runSpacing: 10,
             children: [
               _FilterDropdown(
-                value: _campusFilter,
+                value: campus,
                 options: campusOptions,
                 icon: Icons.location_city_outlined,
                 onChanged: (v) => setState(() => _campusFilter = v),
               ),
               _FilterDropdown(
-                value: _departmentFilter,
+                value: department,
                 options: departmentOptions,
                 icon: Icons.business_outlined,
                 onChanged: (v) => setState(() => _departmentFilter = v),
               ),
               _FilterDropdown(
-                value: _officeFilter,
+                value: office,
                 options: officeOptions,
                 icon: Icons.account_balance_outlined,
                 onChanged: (v) => setState(() => _officeFilter = v),

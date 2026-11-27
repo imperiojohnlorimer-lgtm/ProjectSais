@@ -135,9 +135,18 @@ class _DocxFrame extends StatefulWidget {
 class _DocxFrameState extends State<_DocxFrame> {
   bool _disposed = false;
 
+  /// The frame and its Escape listener, taken off when this goes.
+  web.HTMLIFrameElement? _frame;
+  JSFunction? _onEscape;
+
   @override
   void dispose() {
     _disposed = true;
+    final frame = _frame;
+    final listener = _onEscape;
+    if (frame != null && listener != null) {
+      frame.removeEventListener('sais-escape', listener);
+    }
     super.dispose();
   }
 
@@ -151,10 +160,14 @@ class _DocxFrameState extends State<_DocxFrame> {
     }
     try {
       await _configureDocxFrame(frame).toDart;
-      frame.addEventListener(
-        'sais-escape',
-        ((web.Event _) => widget.onEscape?.call()).toJS,
-      );
+      // Closed while the viewer got ready: nothing to draw into.
+      if (_disposed) return;
+      final listener = ((web.Event _) {
+        if (!_disposed) widget.onEscape?.call();
+      }).toJS;
+      _frame = frame;
+      _onEscape = listener;
+      frame.addEventListener('sais-escape', listener);
       await _renderDocx(widget.bytes.toJS, frame).toDart;
       if (!_disposed) widget.onReady();
     } catch (error) {

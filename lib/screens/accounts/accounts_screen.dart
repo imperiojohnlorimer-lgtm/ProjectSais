@@ -1406,14 +1406,21 @@ class _AccountsScreenState extends State<AccountsScreen>
     IconData icon, {
     TextInputType? type,
     TextInputFormatter? formatter,
+    bool readOnly = false,
+    String? helperText,
   }) {
     return TextField(
       controller: ctrl,
       keyboardType: type,
+      readOnly: readOnly,
       inputFormatters: formatter == null ? null : [formatter],
-      style: const TextStyle(fontSize: 13),
+      style: TextStyle(
+        fontSize: 13,
+        color: readOnly ? AppTheme.slate500 : null,
+      ),
       decoration: InputDecoration(
         labelText: label,
+        helperText: helperText,
         prefixIcon: Icon(icon, color: AppTheme.maroon, size: 17),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
@@ -1428,7 +1435,7 @@ class _AccountsScreenState extends State<AccountsScreen>
           borderSide: const BorderSide(color: AppTheme.maroon, width: 1.5),
         ),
         filled: true,
-        fillColor: Colors.white,
+        fillColor: readOnly ? AppTheme.slate50 : Colors.white,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
           vertical: 12,
@@ -1533,10 +1540,15 @@ class _AccountsScreenState extends State<AccountsScreen>
                   ),
                   const SizedBox(height: 12),
                   _dialogField(
-                    'Email *',
+                    isEditing ? 'Email' : 'Email *',
                     emailCtrl,
                     Icons.email_outlined,
                     type: TextInputType.emailAddress,
+                    // SAIS can't change the email someone signs in with.
+                    readOnly: isEditing,
+                    helperText: isEditing
+                        ? "The sign-in email can't be changed here."
+                        : null,
                   ),
                   if (!isEditing) ...[
                     const SizedBox(height: 12),
@@ -1662,7 +1674,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                 final studentId = studentIdCtrl.text.trim().toUpperCase();
                 final problem = !name.isComplete
                     ? 'Enter the first and last name.'
-                    : emailCtrl.text.trim().isEmpty
+                    : !isEditing && emailCtrl.text.trim().isEmpty
                     ? 'Enter the email address.'
                     : !isEditing && passwordCtrl.text.length < 6
                     ? 'The temporary password needs at least 6 characters.'
@@ -1695,8 +1707,12 @@ class _AccountsScreenState extends State<AccountsScreen>
                           department: department,
                           campus: campus,
                           phone: phone.isEmpty ? null : phone,
+                          clearPhone: phone.isEmpty,
                           studentId: studentId.isEmpty ? null : studentId,
+                          clearStudentId: studentId.isEmpty,
                           courseProgram: courseProgram,
+                          // "None", or emptied by a department change.
+                          clearCourseProgram: courseProgram == null,
                           yearLevel: yearLevel,
                           skills: selectedSkills.toList(),
                         );

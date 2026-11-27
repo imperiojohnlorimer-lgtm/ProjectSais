@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -1049,6 +1050,69 @@ void popIfCurrent<T extends Object?>(BuildContext context, [T? result]) {
   if (ModalRoute.of(context)?.isCurrent ?? false) {
     Navigator.of(context).pop(result);
   }
+}
+
+/// [time] on a 12-hour clock, as the top bars show it: "2:05:07 pm", or
+/// "2:05 pm" without [seconds].
+String clockText(DateTime time, {bool seconds = true}) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;
+  final rest = seconds ? ':${two(time.second)}' : '';
+  return '$hour:${two(time.minute)}$rest ${time.hour >= 12 ? 'pm' : 'am'}';
+}
+
+/// Rebuilds [builder] with the time every second (every minute without
+/// [seconds]), on the second. One timer for as long as it is on screen: a
+/// stream made in a parent's build started over at each rebuild.
+class LiveClock extends StatefulWidget {
+  const LiveClock({
+    super.key,
+    required this.builder,
+    this.seconds = true,
+    this.clock,
+  });
+
+  final Widget Function(BuildContext context, DateTime now) builder;
+  final bool seconds;
+
+  /// The time now; tests pass their own.
+  final DateTime Function()? clock;
+
+  @override
+  State<LiveClock> createState() => _LiveClockState();
+}
+
+class _LiveClockState extends State<LiveClock> {
+  Timer? _timer;
+
+  DateTime _now() => (widget.clock ?? DateTime.now)();
+
+  @override
+  void initState() {
+    super.initState();
+    _schedule();
+  }
+
+  void _schedule() {
+    final now = _now();
+    final wait = widget.seconds
+        ? Duration(milliseconds: 1000 - now.millisecond)
+        : Duration(seconds: 60 - now.second, milliseconds: -now.millisecond);
+    _timer = Timer(wait, () {
+      if (!mounted) return;
+      setState(() {});
+      _schedule();
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _now());
 }
 
 /// Disposes [notifiers] (a dialog's text controllers) once this widget is
