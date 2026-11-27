@@ -154,6 +154,45 @@ class Office {
     );
   }
 
+  /// Number of assistant entries (including any name-only entries without an id).
+  int get assistantCount => assistantIds.length > assistantNames.length
+      ? assistantIds.length
+      : assistantNames.length;
+
+  /// Appends an assistant while padding the shorter parallel list so ids and
+  /// names stay aligned at the same index.
+  Office withAssistant(String userId, String name) {
+    final ids = [...assistantIds];
+    final names = [...assistantNames];
+    while (ids.length < names.length) {
+      ids.add('');
+    }
+    while (names.length < ids.length) {
+      names.add('');
+    }
+    return copyWith(
+      assistantIds: [...ids, userId],
+      assistantNames: [...names, name],
+    );
+  }
+
+  /// Appends a supervisor while padding the shorter parallel list so ids and
+  /// names stay aligned at the same index.
+  Office withHead(String userId, String name) {
+    final ids = [...headIds];
+    final names = [...headNames];
+    while (ids.length < names.length) {
+      ids.add('');
+    }
+    while (names.length < ids.length) {
+      names.add('');
+    }
+    return copyWith(
+      headIds: [...ids, userId],
+      headNames: [...names, name],
+    );
+  }
+
   /// The positions in the parallel [ids]/[names] lists that hold the user.
   static List<int> _listedAt(
     List<String> ids,
@@ -703,9 +742,13 @@ class User {
   String get surnameFirstName => hasNameParts ? nameParts.surnameFirst : name;
 
   String get initials {
-    final parts = name.trim().split(' ');
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+    return parts.isNotEmpty ? parts[0][0].toUpperCase() : '?';
   }
 }
 
@@ -751,9 +794,13 @@ class Student {
   );
 
   String get initials {
-    final parts = name.trim().split(' ');
+    final parts = name
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
     if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
-    return name.isNotEmpty ? name[0].toUpperCase() : '?';
+    return parts.isNotEmpty ? parts[0][0].toUpperCase() : '?';
   }
 
   Student copyWith({
@@ -1483,7 +1530,7 @@ class Announcement {
   bool isPastDeadline([DateTime? now]) {
     final last = deadlineDate;
     if (last == null) return false;
-    final today = now ?? DateTime.now();
+    final today = now ?? DateTime.now().toUtc().add(const Duration(hours: 8));
     return DateTime(today.year, today.month, today.day).isAfter(last);
   }
 
@@ -2117,6 +2164,7 @@ class HeadForward {
     title: title,
     fileName: fileName,
     downloadUrl: downloadUrl,
+    storagePath: storagePath,
     sentByName: sentByName,
     sentById: sentById,
     sentAt: sentAt,
@@ -2172,7 +2220,7 @@ class Document {
     documentType: json['documentType'] ?? 'Other',
     description: json['description'],
     filePath: json['filePath'],
-    fileSize: json['fileSize'],
+    fileSize: (json['fileSize'] as num?)?.toDouble(),
     downloadUrl: json['downloadUrl']?.toString(),
     folderId: json['folderId']?.toString(),
     studentId: json['studentId']?.toString(),

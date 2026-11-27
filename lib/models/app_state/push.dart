@@ -24,13 +24,17 @@ extension AppStatePush on AppState {
       if (token == null || currentUser?.id != user.id) return;
       _firestoreService ??= FirestoreService();
       await _firestoreService!.savePushToken(token, user.id);
+      if (_disposed || currentUser?.id != user.id) {
+        unawaited(_firestoreService!.deletePushToken(token).catchError((_) {}));
+        return;
+      }
       _pushToken = token;
       _listenForPushMessages();
     } catch (error) {
       debugPrint('Could not register for push notifications: $error');
     } finally {
       pushBusy = false;
-      _notify();
+      if (!_disposed) _notify();
     }
   }
 

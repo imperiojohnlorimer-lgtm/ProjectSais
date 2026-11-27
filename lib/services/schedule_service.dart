@@ -41,6 +41,7 @@ class ScheduleService extends ChangeNotifier {
 
   /// Bumped by [reset]: a load started before it is dropped.
   int _generation = 0;
+  bool _disposed = false;
 
   /// What [eventsFor] and [eventsForDay] worked out, per owner, until the
   /// data changes. The calendar asks for every day cell on each build.
@@ -91,7 +92,7 @@ class ScheduleService extends ChangeNotifier {
       !day.isAfter(e);
       day = DateTime(day.year, day.month, day.day + 1)
     ) {
-      if (isHoliday(day)) holidays.write('${day.month}/${day.day} ');
+      if (isHoliday(day)) holidays.write('${day.year}/${day.month}/${day.day} ');
     }
     final key = holidays.toString();
     if (s == _rangeStart && e == _rangeEnd && key == _holidays) return;
@@ -221,6 +222,7 @@ class ScheduleService extends ChangeNotifier {
         .watchEventsFor(ownerId)
         .listen(
           (events) {
+            if (_disposed) return;
             _cache[ownerId] = events;
             _forgetViews(ownerId);
             notifyListeners();
@@ -242,6 +244,7 @@ class ScheduleService extends ChangeNotifier {
     if (_ownerWatches.containsKey(ownerId)) return;
     _ownerWatches[ownerId] = watcher(ownerId).listen(
       (schedule) {
+        if (_disposed) return;
         _owners[ownerId] = schedule;
         _computed.remove(ownerId);
         _forgetViews(ownerId);
@@ -278,6 +281,7 @@ class ScheduleService extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
     for (final watch in _watches.values) {
       watch.cancel();
     }
@@ -294,7 +298,7 @@ class ScheduleService extends ChangeNotifier {
     try {
       final events = await _repository.getEventsFor(ownerId);
       // A load for the account signed out meanwhile is dropped.
-      if (generation != _generation) return;
+      if (generation != _generation || _disposed) return;
       _cache[ownerId] = events;
       _forgetViews(ownerId);
     } catch (error) {
@@ -304,15 +308,19 @@ class ScheduleService extends ChangeNotifier {
       // so the next load tries again.
       debugPrint('Could not load schedule for "$ownerId": $error');
     } finally {
-      _loading.remove(ownerId);
-      notifyListeners();
+      if (generation == _generation && !_disposed) {
+        _loading.remove(ownerId);
+        notifyListeners();
+      }
     }
   }
 
   Future<void> addEvent(ScheduleEvent event) async {
     final saved = await _repository.addEvent(event);
+    if (_disposed) return;
     final ownerId = event.ownerId ?? '';
     final list = List<ScheduleEvent>.from(_cache[ownerId] ?? []);
+    list.removeWhere((e) => e.id == saved.id);
     list.add(saved);
     _cache[ownerId] = list;
     _forgetViews(ownerId);

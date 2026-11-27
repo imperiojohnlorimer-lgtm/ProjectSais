@@ -20,26 +20,27 @@ extension AppStateDashboardStats on AppState {
   };
 
   String _computeAvgHoursPerWeek() {
-    if (students.isEmpty) return '0';
+    final roster = filteredStudents;
+    if (roster.isEmpty) return '0';
 
     // Use attendance records in the last 28 days (4 weeks) to compute
     // a per-student weekly average. For each student, sum their
     // attendance totalHours (or compute from timeIn/timeOut when missing),
     // then divide by 4 to obtain weekly hours. Finally average across students.
-    final now = DateTime.now();
-    final cutoff = now.subtract(const Duration(days: 28));
+    final now = philippineClock();
+    final cutoff = DateTime(now.year, now.month, now.day - 28);
 
     // Map by student userId or studentName when userId is not present.
     final Map<String, double> hoursByStudent = {};
 
     for (final rec in attendance) {
-      if (rec.isArchived || rec.academicYear != academicYear) continue;
+      if (!rec.countsTowardHours || rec.academicYear != academicYear) continue;
       DateTime? recDate = _parseFormattedDate(rec.date);
       if (recDate == null) continue;
       if (recDate.isBefore(cutoff)) continue;
 
       double recHours = 0;
-      if (rec.totalHours != null && rec.totalHours! > 0) {
+      if (rec.totalHours != null) {
         recHours = rec.totalHours!;
       } else if (rec.timeOut != null && rec.timeOut!.isNotEmpty) {
         final inDt = _parseTime(rec.timeIn, recDate);
@@ -56,7 +57,7 @@ extension AppStateDashboardStats on AppState {
     }
 
     double sumWeekly = 0;
-    for (final s in students) {
+    for (final s in roster) {
       final key = (s.userId != null && s.userId!.isNotEmpty)
           ? s.userId!
           : s.name;
@@ -65,7 +66,7 @@ extension AppStateDashboardStats on AppState {
       sumWeekly += weekly;
     }
 
-    final avg = sumWeekly / students.length;
+    final avg = sumWeekly / roster.length;
     return avg.toStringAsFixed(1);
   }
 

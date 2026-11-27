@@ -24,15 +24,14 @@ service cloud.firestore {
     function signedIn() {
       return authed()
         && request.auth.token.email_verified == true
-        && (
-          !exists(userPath(request.auth.uid))
-          || !(get(userPath(request.auth.uid)).data.get('status', 'Active')
-            in ['Archived', 'Pending', 'Declined'])
-        );
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.get('deleted', false) == false
+        && !(get(userPath(request.auth.uid)).data.get('status', 'Active')
+          in ['Archived', 'Pending', 'Declined']);
     }
 
     function userExists() {
-      return signedIn() && exists(userPath(request.auth.uid));
+      return signedIn();
     }
 
     function currentUser() {
@@ -285,6 +284,7 @@ service cloud.firestore {
           && request.auth.uid == uid
           && unchanged('role')
           && unchanged('status')
+          && unchanged('requestedRole')
           && unchanged('name')
           && unchanged('firstName')
           && unchanged('middleName')
@@ -451,7 +451,7 @@ service cloud.firestore {
       // and the year (app_<uid>_<year>), so a second one is an update,
       // which they can't make. It goes through an open hiring call of the
       // Head's (its deadline is the app's to check: it's text).
-      allow create: if isNewApplication();
+      allow create: if isNewApplication() || isHeadYearMove();
 
       // One the Head rejected (a wrong document, say) the student may
       // replace with a new one, as if applying for the first time.
@@ -485,6 +485,35 @@ service cloud.firestore {
           && request.resource.data.get('studentIdCheckedBy', null) == null
           && request.resource.data.get('studentIdCheckedAt', null) == null
           && validStudentNumber(request.resource.data.get('studentNumber', null));
+      }
+
+      // The Head moving an application out of the year the Admin undid, to
+      // the year in effect (restampAcademicYear in the app): an unchanged
+      // copy of the same applicant's application, whose old document goes
+      // in the same batch. The Head can't invent or alter one this way.
+      function isHeadYearMove() {
+        let fromId = request.resource.data.get('movedFrom', '');
+        return isHead() && fromId is string && fromId != '' && fromId != id
+          ? headMovesApplication(fromId)
+          : false;
+      }
+
+      function headMovesApplication(fromId) {
+        let from = /databases/$(database)/documents/applications/$(fromId);
+        let undone = exists(academicSettings())
+          ? get(academicSettings()).data.get('undoneAcademicYear', '')
+          : '';
+        return undone is string && undone != ''
+          && exists(from)
+          && get(from).data.get('academicYear', '') == undone
+          && fromId == 'app_' + get(from).data.get('applicantId', '') + '_'
+            + undone
+          && id == 'app_' + get(from).data.get('applicantId', '') + '_'
+            + request.resource.data.get('academicYear', '')
+          && isCurrentYear(request.resource.data.academicYear)
+          && request.resource.data.diff(get(from).data).affectedKeys()
+            .hasOnly(['academicYear', 'movedFrom'])
+          && !existsAfter(from);
       }
 
       // The Student ID typed on an application (an older app build sends
@@ -630,22 +659,21 @@ service cloud.firestore {
     }
 
     match /tasks/{id} {
-      allow read: if isStaff()
-        || (
-          signedIn()
-          && (
-            resource.data.assignedTo == request.auth.uid
-            || (
-              resource.data.assignedTo != null
-              && exists(
-                /databases/$(database)/documents/students/$(resource.data.assignedTo)
-              )
-              && get(
-                /databases/$(database)/documents/students/$(resource.data.assignedTo)
-              ).data.userId == request.auth.uid
+      function isTaskOwner(task) {
+        return task.get('assignedTo', null) == request.auth.uid
+          || (
+            task.get('assignedTo', null) != null
+            && exists(
+              /databases/$(database)/documents/students/$(task.assignedTo)
             )
-          )
-        );
+            && get(
+              /databases/$(database)/documents/students/$(task.assignedTo)
+            ).data.get('userId', '') == request.auth.uid
+          );
+      }
+
+      allow read: if isStaff()
+        || (signedIn() && isTaskOwner(resource.data));
 
       // A Supervisor may create, change or remove tasks for their own
       // office's students (or tasks not assigned to anyone yet).
@@ -755,7 +783,7 @@ service cloud.firestore {
             ? supervisorMayHandle(resource.data)
               && supervisorMayHandle(request.resource.data)
             : (
-              signedIn() && resource.data.assignedTo == request.auth.uid
+              signedIn() && isTaskOwner(resource.data)
                 ? studentTaskUpdate()
                 : false
             )
@@ -904,7 +932,8 @@ service cloud.firestore {
       //
       // Whoever sends it, the text is short: a title of up to 100 and a
       // message of up to 500 characters (the app cuts longer ones).
-      allow create: if (
+      allow create: if id.matches('^[A-Za-z0-9_.:-]{1,128}$')
+        && (
           isStaff() || isAdmin()
           || (
             signedIn()
@@ -1036,7 +1065,13 @@ service cloud.firestore {
     // creates them; Head can read and toggle "reviewed".
     match /headForwards/{id} {
       allow read: if isHead() || isSupervisor();
-      allow create: if isSupervisor();
+      allow create: if isSupervisor()
+        && request.resource.data.get('sentById', null) == request.auth.uid
+        && request.resource.data.get('reviewed', false) == false
+        && (
+          request.resource.data.get('studentId', '') == ''
+          || isSupervisorOfStudent(request.resource.data.studentId)
+        );
       allow update: if isHead()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reviewed']);
       allow delete: if isHead();
@@ -1257,7 +1292,7 @@ service cloud.firestore {
     // Admin-only settings. `current_qr` is the old school-wide attendance
     // code, replaced by attendanceQr above: nobody reads or writes it now.
     match /meta/{document} {
-      allow read: if signedIn() && document != 'current_qr';
+      allow read: if signedIn() && !(document in ['current_qr', 'saCounter']);
       allow write: if isStaff()
         && !(document in [
           'academic_year_settings', 'task_categories', 'task_templates',

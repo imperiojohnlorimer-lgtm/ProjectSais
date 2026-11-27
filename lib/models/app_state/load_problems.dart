@@ -106,7 +106,7 @@ extension AppStateLoadProblems on AppState {
       check();
       await answered.future.timeout(AppState.loadTimeout, onTimeout: () {});
     } finally {
-      removeListener(check);
+      if (!_disposed) removeListener(check);
     }
   }
 }

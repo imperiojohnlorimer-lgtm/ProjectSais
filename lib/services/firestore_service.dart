@@ -1,5 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show debugPrint, visibleForTesting;
 import '../models/models.dart';
 import '../utils/file_names.dart';
 import '../models/schedule_event.dart';
@@ -363,7 +363,8 @@ class FirestoreService {
         .where('email', isEqualTo: email.toLowerCase())
         .get();
     final rolePriority = {
-      'Admin': 4,
+      'Admin': 5,
+      'Head': 4,
       'Supervisor': 3,
       'Student Assistant': 2,
       'Student': 1,
@@ -548,6 +549,7 @@ class FirestoreService {
     'reports',
     'applications',
     'tasks',
+    'taskDuties',
     'announcements',
     'schedule_events',
     'classSchedules',
@@ -555,21 +557,135 @@ class FirestoreService {
     'screeningRecords',
   ];
 
+  /// The id a record moved from year [from] to [to] takes, for the records
+  /// whose id names their year: an application (`app_<uid>_<year>`) and a
+  /// screening record (`screen-<uid>-<year>`). Null for everything else,
+  /// which keeps its id and only has its year field changed.
+  @visibleForTesting
+  static String? movedYearId(
+    String collection,
+    String docId,
+    Map<String, dynamic> data,
+    String from,
+    String to,
+  ) {
+    final applicantId = data['applicantId']?.toString() ?? '';
+    if (applicantId.trim().isEmpty || from == to) return null;
+    switch (collection) {
+      case 'applications':
+        return docId == Application.idFor(applicantId, from)
+            ? Application.idFor(applicantId, to)
+            : null;
+      case 'screeningRecords':
+        String idFor(String year) => ScreeningRecord.stableIdForApplicant(
+          applicantId: applicantId,
+          academicYear: year,
+        );
+        return docId == idFor(from) ? idFor(to) : null;
+    }
+    return null;
+  }
+
   /// Moves every record stamped [from] to [to]: the records made while a
   /// year the Admin then undid was in effect.
+  ///
+  /// Applications and screening records name their year in their id, so
+  /// they move to the new id (one transaction each: the rules read the old
+  /// document for every application moved, and one write may only read a
+  /// few). One whose new id is already taken stays in [from], where it
+  /// still belongs to that year. A screening record's link to a moved
+  /// application follows it.
+  /// A record that can't be moved is left as it was, so the next try finds
+  /// it; the other records and collections carry on, and the first error is
+  /// rethrown at the end.
   Future<void> restampAcademicYear(String from, String to) async {
+    Object? firstError;
+    StackTrace? firstStack;
+    void failed(String what, Object error, StackTrace stack) {
+      debugPrint('Could not move $what from AY $from to AY $to: $error');
+      firstError ??= error;
+      firstStack ??= stack;
+    }
+
+    final applications = _db.collection('applications');
     for (final name in _yearStampedCollections) {
-      final snapshot = await _db
-          .collection(name)
-          .where('academicYear', isEqualTo: from)
-          .get();
-      for (var offset = 0; offset < snapshot.docs.length; offset += 400) {
-        final batch = _db.batch();
-        for (final doc in snapshot.docs.skip(offset).take(400)) {
-          batch.update(doc.reference, {'academicYear': to});
+      try {
+        final collection = _db.collection(name);
+        final snapshot = await collection
+            .where('academicYear', isEqualTo: from)
+            .get();
+        final updates = <(DocumentReference, Map<String, dynamic>)>[];
+        for (final doc in snapshot.docs) {
+          final data = Map<String, dynamic>.from(doc.data());
+          final change = <String, dynamic>{'academicYear': to};
+          if (name == 'screeningRecords') {
+            // Point at the application's new id once it has moved there.
+            // While its application is still waiting to move (that move
+            // failed above), leave the record for the next try.
+            final applicantId = data['applicantId']?.toString() ?? '';
+            final linked = data['applicationId']?.toString() ?? '';
+            if (applicantId.trim().isNotEmpty &&
+                linked == Application.idFor(applicantId, from)) {
+              try {
+                final left = await applications.doc(linked).get();
+                if (left.exists && left.data()?['academicYear'] == from) {
+                  continue;
+                }
+                final movedTo = Application.idFor(applicantId, to);
+                final moved = await applications.doc(movedTo).get();
+                if (moved.exists && !left.exists) {
+                  change['applicationId'] = movedTo;
+                }
+              } catch (error, stack) {
+                failed('$name/${doc.id}', error, stack);
+                continue;
+              }
+            }
+          }
+          final newId = movedYearId(name, doc.id, data, from, to);
+          if (newId != null) {
+            // Its id names the undone year, so it either moves or stays in
+            // that year: relabelled in place, it would sit under next
+            // year's id and block (or be overwritten by) that year's real
+            // application or screening.
+            try {
+              final target = collection.doc(newId);
+              final copy = {...data, ...change};
+              if (name == 'applications') copy['movedFrom'] = doc.id;
+              if (name == 'screeningRecords') copy.remove('id');
+              // In a transaction, so a record saved under the new id in
+              // the meantime is never overwritten.
+              final moved = await _db.runTransaction((tx) async {
+                if ((await tx.get(target)).exists) return false;
+                tx.set(target, copy);
+                tx.delete(doc.reference);
+                return true;
+              });
+              if (!moved) {
+                debugPrint(
+                  'Left $name/${doc.id} in AY $from: $newId already exists.',
+                );
+              }
+            } catch (error, stack) {
+              failed('$name/${doc.id}', error, stack);
+            }
+            continue;
+          }
+          updates.add((doc.reference, change));
         }
-        await batch.commit();
+        for (var offset = 0; offset < updates.length; offset += 400) {
+          final batch = _db.batch();
+          for (final (ref, change) in updates.skip(offset).take(400)) {
+            batch.update(ref, change);
+          }
+          await batch.commit();
+        }
+      } catch (error, stack) {
+        failed(name, error, stack);
       }
+    }
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError!, firstStack!);
     }
   }
 
@@ -597,9 +713,9 @@ class FirestoreService {
       return data['isArchived'] != true &&
           (year == null || year == academicYear);
     }).toList();
-    for (var offset = 0; offset < records.length; offset += 400) {
+    for (var offset = 0; offset < records.length; offset += 200) {
       final batch = _db.batch();
-      final chunk = records.skip(offset).take(400);
+      final chunk = records.skip(offset).take(200);
       for (final record in chunk) {
         final data = Map<String, dynamic>.from(
           record.data() as Map<String, dynamic>,
@@ -653,7 +769,10 @@ class FirestoreService {
             'storagePath': archivePath,
             'downloadUrl': archivedUrl,
           });
-        } catch (_) {
+        } catch (error) {
+          debugPrint(
+            'Failed to archive report attachment ${attachment.storagePath}: $error',
+          );
           archivedAttachments.add(attachment.toJson());
         }
       }
@@ -700,7 +819,10 @@ class FirestoreService {
             'storagePath': archivePath,
             'downloadUrl': archivedUrl,
           });
-        } catch (_) {
+        } catch (error) {
+          debugPrint(
+            'Failed to archive application document ${document.storagePath}: $error',
+          );
           archivedDocuments.add(document.toJson());
         }
       }
@@ -1070,7 +1192,8 @@ class FirestoreService {
     // Prefer the highest-privilege profile when duplicate records exist for
     // an email, so an older Student document cannot hide a saved Admin role.
     final rolePriority = {
-      'Admin': 4,
+      'Admin': 5,
+      'Head': 4,
       'Supervisor': 3,
       'Student Assistant': 2,
       'Student': 1,

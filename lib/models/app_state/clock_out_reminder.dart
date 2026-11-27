@@ -27,7 +27,7 @@ extension AppStateClockOutReminder on AppState {
     _clockOutReminderTimer = null;
     final user = currentUser;
     if (user == null || role != 'Student Assistant') return null;
-    final now = at ?? DateTime.now();
+    final now = at ?? philippineClock();
 
     AppNotification? sent;
     DateTime? next;

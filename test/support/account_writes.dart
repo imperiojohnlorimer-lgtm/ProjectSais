@@ -38,6 +38,7 @@ mixin AccountWrites on FirestoreService {
     profiles[id] = base.copyWith(
       role: fields['role'] as String?,
       status: fields['status'] as String?,
+      department: fields['department'] as String?,
       saId: fields['saId'] as String?,
       acceptedAt: fields['acceptedAt'] as String?,
       skills: (fields['skills'] as List<dynamic>?)

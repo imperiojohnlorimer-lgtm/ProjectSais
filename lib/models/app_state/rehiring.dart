@@ -363,7 +363,12 @@ extension AppStateRehiring on AppState {
   ///   history are kept.
   Future<void> _applyRehireRecord(RehireRecord record) async {
     final user = users.where((u) => u.id == record.studentId).firstOrNull;
-    if (user != null) {
+    if (user == null) {
+      final confirmedDeleted = _deletedAccounts.any(
+        (u) => u.id == record.studentId,
+      );
+      if (!confirmedDeleted) return;
+    } else {
       if (record.isRehired) {
         if (user.role == 'Student') {
           final problem = await changeUserRole(
@@ -444,10 +449,7 @@ extension AppStateRehiring on AppState {
         final isMember = office.hasAssistant(user.id, user.name);
         if (office.id == officeId) {
           if (isMember) continue;
-          changed[office.id] = office.copyWith(
-            assistantIds: [...office.assistantIds, user.id],
-            assistantNames: [...office.assistantNames, user.name],
-          );
+          changed[office.id] = office.withAssistant(user.id, user.name);
         } else if (isMember) {
           changed[office.id] = office.withoutAssistant(user.id, user.name);
         }
@@ -490,9 +492,9 @@ extension AppStateRehiring on AppState {
     final monday = DateTime(
       now.year,
       now.month,
-      now.day,
-    ).subtract(Duration(days: now.weekday - 1));
-    final nextMonday = monday.add(const Duration(days: 7));
+      now.day - (now.weekday - 1),
+    );
+    final nextMonday = DateTime(monday.year, monday.month, monday.day + 7);
     return filteredAttendance
         .where((r) {
           if (r.isActive || r.isArchived || r.isInvalid) return false;

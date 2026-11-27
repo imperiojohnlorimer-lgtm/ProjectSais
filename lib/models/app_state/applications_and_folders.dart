@@ -281,7 +281,7 @@ extension AppStateApplicationsAndFolders on AppState {
   String? studentIdClashFor(Application app) {
     final key = AppState.studentIdKey(app.studentNumber);
     if (key == null) return null;
-    for (final user in users) {
+    for (final user in [...users, ..._deletedAccounts]) {
       if (user.id != app.applicantId &&
           AppState.studentIdKey(user.studentId) == key) {
         return user.isDeleted ? '${user.name} (a deleted account)' : user.name;
@@ -727,9 +727,11 @@ extension AppStateApplicationsAndFolders on AppState {
     ];
 
     final updated = app.copyWith(submittedDocuments: generatedDocuments);
-    applications[appIndex] = updated;
     _firestoreService ??= FirestoreService();
     await _firestoreService!.setApplication(updated);
+    applications = [
+      for (final a in applications) a.id == applicationId ? updated : a,
+    ];
     _notify();
   }
 

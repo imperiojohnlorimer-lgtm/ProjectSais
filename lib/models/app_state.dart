@@ -286,7 +286,7 @@ class AppState extends ChangeNotifier {
   /// The session [at] (defaults to now) belongs to, or null when it falls
   /// outside both windows.
   String? attendanceQrSessionKey([DateTime? at]) {
-    final now = at ?? DateTime.now();
+    final now = at ?? philippineClock();
     final minutes = now.hour * 60 + now.minute;
     final String half;
     if (minutes >= _qrMorningStartMinutes && minutes <= _qrMorningEndMinutes) {
@@ -313,7 +313,7 @@ class AppState extends ChangeNotifier {
   /// When the session running at [at] ends — the moment its QR code stops
   /// being accepted.
   DateTime? attendanceQrSessionEnd([DateTime? at]) {
-    final now = at ?? DateTime.now();
+    final now = at ?? philippineClock();
     final key = attendanceQrSessionKey(now);
     if (key == null) return null;
     final endMinutes = key.endsWith('AM')
@@ -330,7 +330,7 @@ class AppState extends ChangeNotifier {
   /// before the morning window or in the lunch break. Null during a session
   /// and once the afternoon session has ended.
   DateTime? nextAttendanceSessionStart([DateTime? at]) {
-    final now = at ?? DateTime.now();
+    final now = at ?? philippineClock();
     final minutes = now.hour * 60 + now.minute;
     final int startMinutes;
     if (minutes < _qrMorningStartMinutes) {
@@ -364,7 +364,7 @@ class AppState extends ChangeNotifier {
     Office office, [
     DateTime? at,
   ]) async {
-    final now = at ?? DateTime.now();
+    final now = at ?? philippineClock();
     final sessionKey = attendanceQrSessionKey(now);
     if (sessionKey == null) return null;
 
@@ -571,7 +571,7 @@ class AppState extends ChangeNotifier {
     }
     if (_disposed) return;
     await _ensureSeeded();
-    if (_disposed) return;
+    if (_disposed || currentUser == null) return;
     await _loadNotificationsForCurrentUser();
     _startRealtimeListeners();
   }
@@ -695,7 +695,7 @@ class AppState extends ChangeNotifier {
   /// sign-in fail with permission-denied and would otherwise stay dead
   /// (leaving lists like announcements empty) until the app is restarted.
   void _startRealtimeListeners() {
-    if (_disposed) return;
+    if (_disposed || currentUser == null) return;
     _resetLoadState();
     // Start listening to Firestore announcements (if available).
     try {
@@ -991,6 +991,7 @@ class AppState extends ChangeNotifier {
           fs
               .getAcademicYearArchives()
               .then((archives) {
+                if (_loadIsStale(generation)) return;
                 academicYearArchives = archives;
                 _scheduleArchiveCheck();
                 notifyListeners();
@@ -1004,8 +1005,15 @@ class AppState extends ChangeNotifier {
         _scheduleArchiveCheck();
         _noticeAcademicYearEnding();
         // A new term is what puts pending rehire decisions into effect.
-        if (isHead && previousTerm != '$academicYear|$academicSemester') {
-          _applyDueRehireDecisions().then((_) => notifyListeners());
+        if (isHead &&
+            previousTerm != '$academicYear|$academicSemester' &&
+            isLoaded('Users') &&
+            isLoaded('Students') &&
+            isLoaded('Offices') &&
+            !hasLoadProblem) {
+          _applyDueRehireDecisions().then((_) {
+            if (!_loadIsStale(generation)) notifyListeners();
+          });
         }
       },
     );
@@ -1550,9 +1558,16 @@ class AppState extends ChangeNotifier {
 
     // Load role-scoped data after the authenticated profile is established.
     // Without this, login can briefly show empty lists until a browser refresh.
+    final generation = _liveGeneration;
     _beginLoadPending();
     await _loadAllFromFirestore();
+    if (_loadIsStale(generation) || currentUser?.id != authenticatedUser.id) {
+      return false;
+    }
     await _loadNotificationsForCurrentUser();
+    if (_loadIsStale(generation) || currentUser?.id != authenticatedUser.id) {
+      return false;
+    }
     _startRealtimeListeners();
     notifyListeners();
     return true;
@@ -1681,7 +1696,12 @@ class AppState extends ChangeNotifier {
         return unverifiedEmailMessage;
       }
 
-      User? existing = await _loadUserProfile(uid: authUser.uid);
+      final profileRead = await _readUserProfile(uid: authUser.uid);
+      if (profileRead.failed) {
+        await _signOutFirebaseAuthQuietly();
+        return 'Could not check your account right now. Check your connection and try again.';
+      }
+      User? existing = profileRead.user;
       if (existing == null) {
         try {
           existing = users.firstWhere(
@@ -1714,11 +1734,23 @@ class AppState extends ChangeNotifier {
       return null;
     } on fb_auth.FirebaseAuthException catch (e) {
       debugPrint('Login failed: ${e.code}');
+      if (currentUser == null) {
+        await _signOutFirebaseAuthQuietly();
+      }
       return friendlyAuthError(e.code);
     } catch (error) {
       debugPrint('Login failed: $error');
+      if (currentUser == null) {
+        await _signOutFirebaseAuthQuietly();
+      }
       return friendlyAuthError(null);
     }
+  }
+
+  Future<void> _signOutFirebaseAuthQuietly() async {
+    try {
+      await fb_auth.FirebaseAuth.instance.signOut();
+    } catch (_) {}
   }
 
   /// For the Login page's "Send a new link": emails [email] a new
@@ -2152,6 +2184,12 @@ class AppState extends ChangeNotifier {
     supervisorAvatars = {};
     _syncedSupervisorCards = null;
     attendanceQrCodes = {};
+    taskTemplates = [];
+    taskCategories = ['General', 'Administrative', 'Academic'];
+    _publishedHeadIds = null;
+    _syncedStudentIds = null;
+    _clockOutRemindersHandled.clear();
+    _archiveNoticesSent.clear();
   }
 
   // ─── Navigation ────────────────────────────────────
@@ -2376,7 +2414,9 @@ class AppState extends ChangeNotifier {
       try {
         if (!rehireAnswer.ok) throw rehireAnswer.error!;
         rehireRecords = rehireAnswer.data;
-        if (!isOffline) await _applyDueRehireDecisions();
+        if (!isOffline && usersAnswer.ok && studentsAnswer.ok && officesAnswer.ok) {
+        await _applyDueRehireDecisions();
+      }
       } catch (_) {
         if (overtaken()) return;
         rehireRecords = [];
@@ -2574,7 +2614,14 @@ class AppState extends ChangeNotifier {
       final s = studentByUserId[u.id] ?? studentByEmail[u.email.toLowerCase()];
       return s == null
           ? u
-          : u.copyWith(department: s.department, campus: s.campus);
+          : u.copyWith(
+              department: (u.department ?? '').isEmpty && s.department.isNotEmpty
+                  ? s.department
+                  : null,
+              campus: (u.campus ?? '').isEmpty && (s.campus ?? '').isNotEmpty
+                  ? s.campus
+                  : null,
+            );
     }).toList();
   }
 
@@ -2932,8 +2979,10 @@ class AppState extends ChangeNotifier {
     if (next == null) return;
     final wait = next.difference(now);
     if (wait > const Duration(days: archiveNoticeDays)) return;
+    final generation = _liveGeneration;
     // A moment past it, so the step finds it due.
     _archiveTimer = Timer(wait + const Duration(seconds: 1), () async {
+      if (_loadIsStale(generation)) return;
       try {
         _firestoreService ??= FirestoreService();
         await _archiveFinishedAcademicYears(
@@ -2942,7 +2991,7 @@ class AppState extends ChangeNotifier {
       } catch (error) {
         debugPrint('Failed to check for academic years to archive: $error');
       }
-      notifyListeners();
+      if (!_loadIsStale(generation)) notifyListeners();
     });
   }
 
@@ -3449,6 +3498,7 @@ class AppState extends ChangeNotifier {
       studentId,
       (s) => s.copyWith(department: newDepartment),
       accountChange: (u) => u.copyWith(department: newDepartment),
+      accountFields: {'department': newDepartment},
     );
     return saved
         ? null
@@ -3497,10 +3547,7 @@ class AppState extends ChangeNotifier {
         }
         for (final head in addedHeads) {
           if (merged.hasHead(head.id, head.name)) continue;
-          merged = merged.copyWith(
-            headIds: [...merged.headIds, head.id],
-            headNames: [...merged.headNames, head.name],
-          );
+          merged = merged.withHead(head.id, head.name);
         }
         return {
           office.id: office.copyWith(
@@ -3638,20 +3685,19 @@ class AppState extends ChangeNotifier {
     if (office.capacity > 0 && assignedIds.length > office.capacity) {
       return false;
     }
+    final assignedNames = {
+      for (final a in assistants) a.name.trim().toLowerCase(),
+    };
     final added = [
       for (final a in assistants)
         if (!office.hasAssistant(a.id, a.name)) a,
     ];
-    final removed = [
-      for (var i = 0; i < office.assistantIds.length; i++)
-        if (!assignedIds.contains(office.assistantIds[i]))
-          (
-            id: office.assistantIds[i],
-            name: i < office.assistantNames.length
-                ? office.assistantNames[i]
-                : '',
-          ),
-    ];
+    final removed = _removedOfficePeople(
+      office.assistantIds,
+      office.assistantNames,
+      assignedIds,
+      assignedNames,
+    );
     // The offices the added people are in now, to take them out of.
     final touched = {
       officeId,
@@ -3672,13 +3718,9 @@ class AppState extends ChangeNotifier {
         }
         for (final a in added) {
           if (target!.hasAssistant(a.id, a.name)) continue;
-          target = target.copyWith(
-            assistantIds: [...target.assistantIds, a.id],
-            assistantNames: [...target.assistantNames, a.name],
-          );
+          target = target.withAssistant(a.id, a.name);
         }
-        if (target!.capacity > 0 &&
-            target.assistantIds.length > target.capacity) {
+        if (target!.capacity > 0 && target.assistantCount > target.capacity) {
           return null;
         }
         final changed = {officeId: target};
@@ -3737,6 +3779,26 @@ class AppState extends ChangeNotifier {
   /// Makes [supervisors] the supervisors of [officeId]: the difference from
   /// the list shown is applied to the one stored now, in a transaction.
   /// False when the office is gone or the save failed.
+  List<({String id, String name})> _removedOfficePeople(
+    List<String> ids,
+    List<String> names,
+    Set<String> keptIds,
+    Set<String> keptNames,
+  ) {
+    final count = ids.length > names.length ? ids.length : names.length;
+    final removed = <({String id, String name})>[];
+    for (var i = 0; i < count; i++) {
+      final id = i < ids.length ? ids[i] : '';
+      final name = i < names.length ? names[i] : '';
+      final keep = id.isNotEmpty
+          ? keptIds.contains(id)
+          : name.trim().isEmpty ||
+                keptNames.contains(name.trim().toLowerCase());
+      if (!keep) removed.add((id: id, name: name));
+    }
+    return removed;
+  }
+
   Future<bool> assignSupervisorsToOffice(
     String officeId,
     List<User> supervisors,
@@ -3744,18 +3806,19 @@ class AppState extends ChangeNotifier {
     final office = offices.where((item) => item.id == officeId).firstOrNull;
     if (office == null) return false;
     final keptIds = supervisors.map((s) => s.id).toSet();
+    final keptNames = {
+      for (final s in supervisors) s.name.trim().toLowerCase(),
+    };
     final added = [
       for (final s in supervisors)
         if (!office.hasHead(s.id, s.name)) s,
     ];
-    final removed = [
-      for (var i = 0; i < office.headIds.length; i++)
-        if (!keptIds.contains(office.headIds[i]))
-          (
-            id: office.headIds[i],
-            name: i < office.headNames.length ? office.headNames[i] : '',
-          ),
-    ];
+    final removed = _removedOfficePeople(
+      office.headIds,
+      office.headNames,
+      keptIds,
+      keptNames,
+    );
     _firestoreService ??= FirestoreService();
     final Map<String, Office>? saved;
     try {
@@ -3767,10 +3830,7 @@ class AppState extends ChangeNotifier {
         }
         for (final s in added) {
           if (target!.hasHead(s.id, s.name)) continue;
-          target = target.copyWith(
-            headIds: [...target.headIds, s.id],
-            headNames: [...target.headNames, s.name],
-          );
+          target = target.withHead(s.id, s.name);
         }
         return {officeId: target!};
       });
@@ -5220,6 +5280,9 @@ class AppState extends ChangeNotifier {
         accountChange: account?.status == 'Archived'
             ? (u) => u.copyWith(status: 'Active')
             : null,
+        accountFields: account?.status == 'Archived'
+            ? const {'status': 'Active'}
+            : null,
       );
       return saved ? null : failed;
     }
@@ -5286,6 +5349,7 @@ class AppState extends ChangeNotifier {
     String id,
     Student Function(Student) change, {
     User Function(User)? accountChange,
+    Map<String, dynamic>? accountFields,
   }) async {
     final (:stored, :base) = _studentRecordFor(id);
     if (base == null) return false;
@@ -5309,6 +5373,12 @@ class AppState extends ChangeNotifier {
       _firestoreService ??= FirestoreService();
       if (updatedAccount == null) {
         await _firestoreService!.setStudent(updated);
+      } else if (accountFields != null && accountFields.isNotEmpty) {
+        await _firestoreService!.updateUserFieldsWithStudent(
+          updatedAccount.id,
+          accountFields,
+          updated,
+        );
       } else {
         await _firestoreService!.setStudentWithProfile(updated, updatedAccount);
       }
@@ -5563,14 +5633,19 @@ class AppState extends ChangeNotifier {
     final monday = DateTime(
       day.year,
       day.month,
-      day.day,
-    ).subtract(Duration(days: day.weekday - 1));
-    final nextMonday = monday.add(const Duration(days: 7));
+      day.day - (day.weekday - 1),
+    );
+    final nextMonday = DateTime(monday.year, monday.month, monday.day + 7);
+    final targetId = (record.studentId ?? '').trim();
+    final targetName = record.studentName.trim().toLowerCase();
     final used = attendance
         .where((r) {
-          if (r.id == record.id || r.studentId != record.studentId) {
-            return false;
-          }
+          if (r.id == record.id) return false;
+          final rId = (r.studentId ?? '').trim();
+          final sameStudent = targetId.isNotEmpty
+              ? rId == targetId
+              : (rId.isEmpty && r.studentName.trim().toLowerCase() == targetName);
+          if (!sameStudent) return false;
           if (r.isActive || r.isArchived || r.isInvalid) return false;
           final d = _parseFormattedDate(r.date);
           return d != null && !d.isBefore(monday) && d.isBefore(nextMonday);
@@ -5614,6 +5689,7 @@ class AppState extends ChangeNotifier {
     final now = philippineClock(at);
     final nowMinutes = now.hour * 60 + now.minute;
     final todayStr = philippineToday(at);
+    final todayDay = DateTime(now.year, now.month, now.day);
 
     // A Supervisor may only change their own office's records (the Firestore
     // rules refuse the rest), so their sweep covers just those; the Head's
@@ -5625,7 +5701,14 @@ class AppState extends ChangeNotifier {
         continue;
       }
 
-      if (record.date.isNotEmpty && record.date != todayStr) {
+      final recordDay = _parseFormattedDate(record.date);
+      if (recordDay != null) {
+        if (recordDay.isBefore(todayDay)) {
+          toInvalidate.add(record.id);
+          continue;
+        }
+        if (recordDay.isAfter(todayDay)) continue;
+      } else if (record.date.isNotEmpty && record.date != todayStr) {
         toInvalidate.add(record.id);
         continue;
       }
@@ -5673,6 +5756,17 @@ class AppState extends ChangeNotifier {
       (a) => a?.id == id,
       orElse: () => null,
     );
+    double? restoredHours;
+    double? rawHoursBeforeCap;
+    if (!archived && before != null && !before.isActive && !before.isInvalid) {
+      final raw =
+          before.totalHours ?? _hoursBetween(before.timeIn, before.timeOut ?? '');
+      final capped = _hoursWithinWeeklyCap(before, raw);
+      if (capped < raw) {
+        restoredHours = capped;
+        rawHoursBeforeCap = raw;
+      }
+    }
     final edit = _attendanceEdit(archived ? 'Archived' : 'Restored');
     // Archived by hand, a record is no longer one archived with its year,
     // which payroll would still pay for.
@@ -5680,6 +5774,7 @@ class AppState extends ChangeNotifier {
         .map(
           (a) => a.id == id
               ? a.copyWith(
+                  totalHours: restoredHours,
                   isArchived: archived,
                   clearArchivedYear: true,
                   editedBy: edit.by,
@@ -5696,6 +5791,8 @@ class AppState extends ChangeNotifier {
       await _firestoreService!.updateAttendance(id, {
         'isArchived': archived,
         'archivedAcademicYear': FieldValue.delete(),
+        if (restoredHours != null) 'totalHours': restoredHours,
+        if (rawHoursBeforeCap != null) 'hoursBeforeWeeklyCap': rawHoursBeforeCap,
         ...edit.fields,
       });
       if (before != null) _tellStudentOfEdit(before, edit.note);
@@ -6829,8 +6926,8 @@ class AppState extends ChangeNotifier {
         );
       }
     }
-    await _upsertUser(toSave);
     await _saveUserProfile(toSave);
+    await _upsertUser(toSave);
     notifyListeners();
   }
 
@@ -7548,7 +7645,7 @@ class AppState extends ChangeNotifier {
   }
 
   List<Report> get filteredReports {
-    if (role == 'Admin') return reports;
+    if (role == 'Head' || role == 'Admin') return reports;
     if (role == 'Student Assistant') {
       final myId = currentUser?.id;
       return reports
@@ -7577,7 +7674,7 @@ class AppState extends ChangeNotifier {
   }
 
   List<Evaluation> get filteredEvaluations {
-    if (role == 'Admin') return evaluations;
+    if (role == 'Head') return evaluations;
     if (role == 'Student Assistant') {
       return evaluations
           .where((e) => e.studentName == currentUser?.name)

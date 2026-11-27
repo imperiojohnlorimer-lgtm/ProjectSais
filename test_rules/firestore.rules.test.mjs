@@ -289,6 +289,146 @@ test('a rejected application can be replaced by its applicant (keeps working)', 
   );
 });
 
+// ── moving applications back after the Admin undid a year switch ────────
+
+// The Admin moved to 2027-2028 and undid it; the year in effect is 2026-2027
+// again. `stu` applied while 2027-2028 was in effect.
+const seedUndoneYear = async ({ undone = '2027-2028', apps = {} } = {}) => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'meta', 'academic_year_settings'), {
+      academicYear: '2026-2027',
+      allowApplications: true,
+      ...(undone ? { undoneAcademicYear: undone } : {}),
+    });
+    const all = {
+      'app_stu_2027-2028': application('stu', { academicYear: '2027-2028' }),
+      ...apps,
+    };
+    for (const [id, data] of Object.entries(all)) {
+      await setDoc(doc(db, 'applications', id), data);
+    }
+  });
+};
+
+const moveApplication = (uid, fromId, toId, data) => {
+  const db = as(uid);
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'applications', toId), data);
+  batch.delete(doc(db, 'applications', fromId));
+  return batch.commit();
+};
+
+const moved = (over = {}) =>
+  application('stu', { movedFrom: 'app_stu_2027-2028', ...over });
+
+test('the Head moves an application out of the undone year (keeps working)', async () => {
+  await seedUndoneYear();
+  await assertSucceeds(
+    moveApplication('head', 'app_stu_2027-2028', 'app_stu_2026-2027', moved()),
+  );
+});
+
+test('the Head moves it in a transaction, as the app does (keeps working)', async () => {
+  await seedUndoneYear();
+  const db = as('head');
+  const target = doc(db, 'applications', 'app_stu_2026-2027');
+  await assertSucceeds(
+    runTransaction(db, async (tx) => {
+      const taken = await tx.get(target);
+      assert.equal(taken.exists(), false);
+      tx.set(target, moved());
+      tx.delete(doc(db, 'applications', 'app_stu_2027-2028'));
+    }),
+  );
+});
+
+test('the Head cannot copy an application without deleting the old one', async () => {
+  await seedUndoneYear();
+  await assertFails(
+    setDoc(doc(as('head'), 'applications', 'app_stu_2026-2027'), moved()),
+  );
+});
+
+test('the Head cannot create an application without moving one', async () => {
+  await seedUndoneYear();
+  const { movedFrom, ...plain } = moved();
+  await assertFails(
+    moveApplication('head', 'app_stu_2027-2028', 'app_stu_2026-2027', plain),
+  );
+});
+
+test('a moved application must stay unchanged', async () => {
+  await seedUndoneYear();
+  await assertFails(
+    moveApplication(
+      'head',
+      'app_stu_2027-2028',
+      'app_stu_2026-2027',
+      moved({ status: 'Approved' }),
+    ),
+  );
+});
+
+test('an application moves only into the year in effect', async () => {
+  await seedUndoneYear();
+  await assertFails(
+    moveApplication(
+      'head',
+      'app_stu_2027-2028',
+      'app_stu_2028-2029',
+      moved({ academicYear: '2028-2029' }),
+    ),
+  );
+});
+
+test('an application moves only out of the year the Admin undid', async () => {
+  await seedUndoneYear({
+    apps: {
+      'app_stu_2025-2026': application('stu', { academicYear: '2025-2026' }),
+    },
+  });
+  await assertFails(
+    moveApplication(
+      'head',
+      'app_stu_2025-2026',
+      'app_stu_2026-2027',
+      moved({ movedFrom: 'app_stu_2025-2026' }),
+    ),
+  );
+});
+
+test('no application moves when no year switch was undone', async () => {
+  await seedUndoneYear({ undone: null });
+  await assertFails(
+    moveApplication('head', 'app_stu_2027-2028', 'app_stu_2026-2027', moved()),
+  );
+});
+
+test('the Head cannot move one applicant\'s application to another', async () => {
+  await seedUndoneYear();
+  await assertFails(
+    moveApplication(
+      'head',
+      'app_stu_2027-2028',
+      'app_sa_2026-2027',
+      moved({ applicantId: 'sa', applicantName: accounts.sa.name }),
+    ),
+  );
+});
+
+// Only the Head may delete an application, so for anyone else the batch's
+// delete is refused whatever the create rule says; isHead() in
+// isHeadYearMove is a second line of defence that can't be tested apart.
+test('only the Head moves applications', async () => {
+  for (const uid of ['sup', 'admin', 'stu']) {
+    await seedUndoneYear();
+    await assertFails(
+      moveApplication(uid, 'app_stu_2027-2028', 'app_stu_2026-2027', moved()),
+    );
+  }
+});
+
 // ── attendance ─────────────────────────────────────────────────────────
 
 const record = (over = {}) => ({
@@ -453,12 +593,14 @@ test('the Head takes the next SA number in a transaction', async () => {
   assert.equal(counter.data().next, 2);
 });
 
-test('nobody but the Head touches the SA counter', async () => {
+test('nobody but the Head touches or reads the SA counter', async () => {
+  await assertSucceeds(setDoc(doc(as('head'), 'meta', 'saCounter'), { next: 5 }));
+  await assertSucceeds(getDoc(doc(as('head'), 'meta', 'saCounter')));
   for (const uid of ['sup', 'admin', 'sa', 'stu']) {
+    await assertFails(getDoc(doc(as(uid), 'meta', 'saCounter')));
     await assertFails(setDoc(doc(as(uid), 'meta', 'saCounter'), { next: 99 }));
     await assertFails(allocateSaId(as(uid), 'stu'));
   }
-  // (Any signed-in user can read meta documents; the number is no secret.)
 });
 
 test('the Head changes only the role or status of a Student or assistant', async () => {
@@ -1466,4 +1608,97 @@ test("a Supervisor can't record attendance once the assistant's office record is
   await assertFails(
     setDoc(doc(as('sup'), 'attendance', 'sa_20261126_manual_5'), manualRecord('sa')),
   );
+});
+
+// ── security hardening checks ───────────────────────────────────────────
+
+test('profile-less verified accounts and deleted accounts cannot access operational data', async () => {
+  const noProfile = as('noprofile');
+  await assertFails(getDocs(collection(noProfile, 'offices')));
+  await assertFails(getDocs(collection(noProfile, 'announcements')));
+  await assertFails(
+    setDoc(doc(noProfile, 'notifications', 'spam_head'), note('head')),
+  );
+  // Registration of their own profile still works.
+  await assertSucceeds(
+    setDoc(
+      doc(noProfile, 'users', 'noprofile'),
+      newAccount({ email: 'noprofile@example.com' }),
+    ),
+  );
+
+  // A deleted account marked Active is still blocked.
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'users', 'del1'), {
+      name: 'Deleted User',
+      email: 'del1@example.com',
+      role: 'Student',
+      status: 'Active',
+      deleted: true,
+    });
+  });
+  await assertFails(getDocs(collection(as('del1'), 'offices')));
+  await assertFails(
+    setDoc(doc(as('del1'), 'notifications', 'spam_del'), note('head')),
+  );
+});
+
+test('a user cannot set requestedRole on their own profile', async () => {
+  await assertFails(
+    updateDoc(doc(as('stu'), 'users', 'stu'), { requestedRole: 'Head' }),
+  );
+});
+
+test('notification ids reject URL fragment, query, and whitespace characters', async () => {
+  for (const badId of ['n1#x', 'n1?updateMask=x', 'n1 x']) {
+    await assertFails(setDoc(doc(as('stu'), 'notifications', badId), note('head')));
+  }
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'notifications', 'n_1700_head'), note('head')),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('head'), 'notifications', 'clockout_sa_20261127_0'), note('sa')),
+  );
+});
+
+test('a student assistant can update a task assigned to their legacy roster id', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'students', 'roster_sa'), {
+      userId: 'sa',
+      name: 'Sia Assistant',
+    });
+    await setDoc(doc(db, 'tasks', 't_legacy'), {
+      assignedTo: 'roster_sa',
+      assignedToName: 'Sia Assistant',
+      title: 'Sort files',
+      status: 'Not Started',
+    });
+  });
+  await assertSucceeds(
+    updateDoc(doc(as('sa'), 'tasks', 't_legacy'), { status: 'In Progress' }),
+  );
+  await assertFails(
+    updateDoc(doc(as('stu'), 'tasks', 't_legacy'), { status: 'In Progress' }),
+  );
+});
+
+test('headForwards create requires author identity, unreviewed status, and office scope', async () => {
+  const fwd = (over = {}) => ({
+    type: 'report',
+    studentId: 'sa',
+    studentName: 'Sia Assistant',
+    title: 'Week 1',
+    fileName: 'w1.pdf',
+    sentById: 'sup',
+    sentByName: 'Sam Supervisor',
+    sentAt: 'Nov 27, 2026',
+    reviewed: false,
+    ...over,
+  });
+  await assertSucceeds(setDoc(doc(as('sup'), 'headForwards', 'f1'), fwd()));
+  await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f2'), fwd({ sentById: 'sup2' })));
+  await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f3'), fwd({ reviewed: true })));
+  await assertFails(setDoc(doc(as('sup2'), 'headForwards', 'f4'), fwd({ sentById: 'sup2' })));
+  await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f5'), fwd({ studentId: 'stu' })));
 });

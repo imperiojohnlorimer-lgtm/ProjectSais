@@ -322,26 +322,35 @@ void main() {
   }
 
   group('Sign-in load', () {
-    test("offline, the Head's start-up jobs that write wait for a connection",
-        () async {
-      final store = _LoadStore()
-        ..officeRecords = [const Office(id: 'lib', name: 'Library', code: 'LIB')];
-      final connection = FakeConnectivity(online: false);
-      final state = AppState(firestoreService: store, connectivity: connection);
-      await state.init();
+    test(
+      "offline, the Head's start-up jobs that write wait for a connection",
+      () async {
+        final store = _LoadStore()
+          ..officeRecords = [
+            const Office(id: 'lib', name: 'Library', code: 'LIB'),
+          ];
+        final connection = FakeConnectivity(online: false);
+        final state = AppState(
+          firestoreService: store,
+          connectivity: connection,
+        );
+        await state.init();
 
-      expect(await state.login(_head), isTrue);
+        expect(await state.login(_head), isTrue);
 
-      // The office assignments are only read to be rewritten; offline that
-      // job doesn't run, so nothing waits on a write that can't finish.
-      expect(store.started('assignments'), isFalse);
-      // The data itself is still asked for.
-      expect(store.started('users'), isTrue);
-    });
+        // The office assignments are only read to be rewritten; offline that
+        // job doesn't run, so nothing waits on a write that can't finish.
+        expect(store.started('assignments'), isFalse);
+        // The data itself is still asked for.
+        expect(store.started('users'), isTrue);
+      },
+    );
 
     test("online, the Head's start-up jobs run", () async {
       final store = _LoadStore()
-        ..officeRecords = [const Office(id: 'lib', name: 'Library', code: 'LIB')];
+        ..officeRecords = [
+          const Office(id: 'lib', name: 'Library', code: 'LIB'),
+        ];
       final state = AppState(
         firestoreService: store,
         connectivity: FakeConnectivity(),
@@ -460,8 +469,17 @@ void main() {
       'the Head applications are read after a due decision is saved',
       () async {
         final (state, store) = await start();
-        // Due (an earlier term), and for someone with no account, so putting it
+        // Due (an earlier term), and for a deleted account, so putting it
         // into effect only marks it applied.
+        store.userProfiles = [
+          User(
+            id: 'ghost',
+            name: 'Gone Student',
+            email: 'gone@example.com',
+            role: 'Student',
+            isDeleted: true,
+          ),
+        ];
         store.rehireDecisions = [
           RehireRecord(
             id: 'r1',
