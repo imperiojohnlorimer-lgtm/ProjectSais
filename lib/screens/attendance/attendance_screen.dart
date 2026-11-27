@@ -539,6 +539,29 @@ class _AttendanceScreenState extends State<AttendanceScreen>
 
   Future<void> _showQrGenerator(BuildContext context) async {
     final state = context.read<AppState>();
+    // Each office has its own code, and only that office's student
+    // assistants can clock in with it.
+    final offices = state.qrOffices;
+    if (offices.isEmpty) {
+      _snack(
+        context,
+        state.headsOfficeByNameOnly
+            ? 'Your office record is missing your account, so its QR code '
+                  "can't be made yet. Ask the Head to open your office in "
+                  'Offices and tick you as its supervisor.'
+            : "You don't head an active office yet, so there's no "
+                  'attendance QR to show.',
+        AppTheme.amber500,
+      );
+      return;
+    }
+    final office = offices.length == 1
+        ? offices.single
+        : await showDialog<Office>(
+            context: context,
+            builder: (_) => _QrOfficePicker(offices: offices),
+          );
+    if (office == null || !context.mounted) return;
     if (!state.isWithinAttendanceQrWindow()) {
       _snack(
         context,
@@ -554,7 +577,7 @@ class _AttendanceScreenState extends State<AttendanceScreen>
     try {
       token = await runWithBusy(
         context,
-        () => state.generateAttendanceQrToken(),
+        () => state.generateAttendanceQrToken(office),
         message: 'Getting the QR code…',
       );
     } catch (error) {
@@ -577,7 +600,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
       );
       return;
     }
-    showDialog(context: context, builder: (_) => const _QrGenerateDialog());
+    showDialog(
+      context: context,
+      builder: (_) => _QrGenerateDialog(office: office),
+    );
   }
 }
 
@@ -1716,9 +1742,58 @@ class _ScannerOverlayPainter extends CustomPainter {
   bool shouldRepaint(_) => false;
 }
 
-// ── QR Generator dialog (Supervisor / Admin) ──────────────────────────
+// ── Office picker, for a supervisor who heads several offices ─────────
+class _QrOfficePicker extends StatelessWidget {
+  final List<Office> offices;
+
+  const _QrOfficePicker({required this.offices});
+
+  @override
+  Widget build(BuildContext context) {
+    return SimpleDialog(
+      title: const Text(
+        'Which office?',
+        style: TextStyle(fontFamily: 'Inter', fontWeight: FontWeight.w700),
+      ),
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(24, 0, 24, 8),
+          child: Text(
+            'Each office has its own attendance QR code.',
+            style: TextStyle(fontSize: 13, color: AppTheme.slate500),
+          ),
+        ),
+        for (final office in offices)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, office),
+            child: Row(
+              children: [
+                const Icon(
+                  Icons.apartment_rounded,
+                  size: 18,
+                  color: AppTheme.maroon,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    office.name,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+// ── QR Generator dialog (Supervisor) ──────────────────────────────────
 class _QrGenerateDialog extends StatefulWidget {
-  const _QrGenerateDialog();
+  /// The office whose code this shows.
+  final Office office;
+
+  const _QrGenerateDialog({required this.office});
 
   @override
   State<_QrGenerateDialog> createState() => _QrGenerateDialogState();
@@ -1770,6 +1845,7 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
         data.buffer.asUint8List(),
         title: 'SAIS Attendance QR',
         captions: [
+          widget.office.name,
           if (sessionLabel != null) sessionLabel,
           _printableSessionRange(sessionEnd),
           'Scan to log in or out.',
@@ -1829,7 +1905,7 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final token = state.currentQrToken ?? '';
+    final token = state.attendanceQrFor(widget.office.id)?.token ?? '';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -1853,7 +1929,7 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
             LightDialogHeader(
               icon: Icons.qr_code_2_rounded,
               title: 'Attendance QR Code',
-              subtitle: 'Have the student assistant scan this to log in/out',
+              subtitle: "For ${widget.office.name}'s student assistants",
               onClose: () => Navigator.pop(context),
               padding: const EdgeInsets.fromLTRB(20, 16, 12, 14),
             ),
@@ -1933,7 +2009,7 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
                           if (!ended) ...[
                             const SizedBox(height: 4),
                             Text(
-                              'The same code works for everyone all session — '
+                              'Works all session for ${widget.office.name}: '
                               'print it and post it.',
                               textAlign: TextAlign.center,
                               style: TextStyle(

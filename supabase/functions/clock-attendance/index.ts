@@ -104,6 +104,79 @@ export function sortOpenRecords<T extends OpenRecord>(
 }
 // #endregion session rules
 
+// #region qr rules
+// qr.test.ts runs this region on its own, so it must not use anything from
+// the rest of this file.
+
+/** One of the student's offices and the code saved for it, if any. */
+export type OfficeCode = {
+  officeId: string;
+  officeName: string;
+  token: string | null;
+  sessionKey: string | null;
+};
+
+export type QrVerdict =
+  | { ok: true; officeId: string }
+  | { ok: false; status: number; error: string };
+
+/**
+ * Whether [scanned] lets this student clock in or out now.
+ *
+ * Each office has its own code, so only a code saved for one of the
+ * student's own offices ([mine]) counts, and only for the session running
+ * now ([sessionKey]). [otherOffice] names the office the code belongs to
+ * when it is someone else's (looked up only when it matched exactly one
+ * office), so the message can say where to scan instead.
+ */
+export function qrVerdict(
+  scanned: string,
+  sessionKey: string,
+  mine: OfficeCode[],
+  otherOffice: string | null,
+): QrVerdict {
+  if (mine.length === 0) {
+    return {
+      ok: false,
+      status: 409,
+      error: "You aren't placed in an office yet, so there's no attendance " +
+        "QR for you. Ask the Head to place you.",
+    };
+  }
+  const match = mine.find((office) => office.token === scanned);
+  if (match) {
+    if (match.sessionKey !== sessionKey) {
+      return {
+        ok: false,
+        status: 409,
+        error: "That QR code was for an earlier session. Ask your " +
+          "supervisor for the current one.",
+      };
+    }
+    return { ok: true, officeId: match.officeId };
+  }
+  const names = mine
+    .map((office) => office.officeName.trim())
+    .filter((name) => name !== "");
+  if (otherOffice && otherOffice.trim() !== "") {
+    return {
+      ok: false,
+      status: 403,
+      error: `That QR code is for ${otherOffice.trim()}. ` +
+        (names.length > 0
+          ? `Scan the one posted in ${names.join(" or ")}.`
+          : "Scan the one posted in your own office."),
+    };
+  }
+  return {
+    ok: false,
+    status: 403,
+    error: "That is not a current attendance QR. Each office now has its " +
+      "own code: ask your supervisor for this session's.",
+  };
+}
+// #endregion qr rules
+
 // #region record rules
 // records.test.ts runs this region on its own, so it must not use anything
 // from the rest of this file.
@@ -369,6 +442,92 @@ async function getDocument(path: string, token: string) {
   return await response.json();
 }
 
+type QueryRow = {
+  document?: {
+    name: string;
+    fields?: Record<
+      string,
+      { stringValue?: string; booleanValue?: boolean }
+    >;
+  };
+};
+
+/** Runs a structured query; rows without a document (none found) dropped. */
+async function query(structuredQuery: unknown, token: string) {
+  const response = await fetch(`${documentsRoot}:runQuery`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ structuredQuery }),
+  });
+  if (!response.ok) {
+    throw new Error(`Firestore query failed (${response.status}).`);
+  }
+  const rows = await response.json();
+  return (Array.isArray(rows) ? rows : [])
+    .map((row: QueryRow) => row.document)
+    .filter((doc): doc is NonNullable<QueryRow["document"]> => Boolean(doc));
+}
+
+const docId = (name: string) => name.split("/").pop() ?? "";
+
+/**
+ * The active offices that list [userId] among their student assistants.
+ * The office document is the authority, as in the Firestore rules'
+ * officeHeadsStudent. `isActive` is checked here rather than in the query:
+ * a filter on it would drop offices saved without the field.
+ */
+async function officesOf(userId: string, token: string) {
+  const docs = await query({
+    from: [{ collectionId: "offices" }],
+    where: {
+      fieldFilter: {
+        field: { fieldPath: "assistantIds" },
+        op: "ARRAY_CONTAINS",
+        value: { stringValue: userId },
+      },
+    },
+  }, token);
+  return docs
+    .filter((doc) => doc.fields?.isActive?.booleanValue !== false)
+    .map((doc) => ({
+      id: docId(doc.name),
+      name: doc.fields?.name?.stringValue ?? "",
+    }));
+}
+
+/**
+ * The name of the office whose saved code is [scanned], for the message
+ * that tells a student they scanned another office's code. Null when no
+ * office or more than one has it (a copied code names nobody), and the
+ * name comes from the office itself, not from what was saved with the code.
+ */
+async function otherOfficeNameFor(
+  scanned: string,
+  token: string,
+): Promise<string | null> {
+  if (scanned.length > 300) return null;
+  const docs = await query({
+    from: [{ collectionId: "attendanceQr" }],
+    where: {
+      fieldFilter: {
+        field: { fieldPath: "token" },
+        op: "EQUAL",
+        value: { stringValue: scanned },
+      },
+    },
+    limit: 2,
+  }, token);
+  if (docs.length !== 1) return null;
+  const office = await getDocument(
+    `offices/${encodeURIComponent(docId(docs[0].name))}`,
+    token,
+  );
+  return office?.fields?.name?.stringValue ?? null;
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -442,31 +601,6 @@ Deno.serve(async (request) => {
       }, 409);
     }
 
-    const qrDoc = await getDocument("meta/current_qr", token);
-    if (!qrDoc) {
-      return json({ error: "No attendance QR has been generated yet." }, 409);
-    }
-    if (qrDoc.fields?.token?.stringValue !== scanned) {
-      return json({ error: "That is not this session's attendance QR." }, 403);
-    }
-
-    // Codes written before sessions existed carry no sessionKey, so fall
-    // back to the session their generatedAt lands in.
-    let qrSession: string | null = qrDoc.fields?.sessionKey?.stringValue ??
-      null;
-    if (!qrSession && qrDoc.fields?.generatedAt?.timestampValue) {
-      qrSession = sessionKeyFor(
-        wallClock(new Date(qrDoc.fields.generatedAt.timestampValue)),
-      );
-    }
-    if (qrSession !== sessionKey) {
-      return json({
-        error:
-          "That QR code was for an earlier session. Ask your supervisor for " +
-          "the current one.",
-      }, 409);
-    }
-
     const today = formattedDate(wc);
     const now = formattedTime(wc);
 
@@ -532,6 +666,51 @@ Deno.serve(async (request) => {
       openRecords,
       sessionKey.endsWith("AM") ? "AM" : "PM",
     );
+
+    // Each office has its own code (attendanceQr/{officeId}), so a student
+    // assistant can only clock in with a code saved for an office they are
+    // in. Read by office, never looked up by token: a supervisor could copy
+    // a posted code into their own office's document, and a lookup by token
+    // might then find the copy instead of the real office.
+    const mine: OfficeCode[] = [];
+    const codeOf = async (officeId: string, officeName: string) => {
+      const code = await getDocument(
+        `attendanceQr/${encodeURIComponent(officeId)}`,
+        token,
+      );
+      mine.push({
+        officeId,
+        officeName,
+        token: code?.fields?.token?.stringValue ?? null,
+        sessionKey: code?.fields?.sessionKey?.stringValue ?? null,
+      });
+    };
+    for (const office of await officesOf(userId, token)) {
+      await codeOf(office.id, office.name);
+    }
+    // Clocked in this session with an office's code, then moved out of
+    // that office (or it was closed): that office's code still clocks them
+    // out, so the hours already worked aren't lost to a missed time-out.
+    const clockedInAt = current?.doc.fields?.officeId?.stringValue ?? "";
+    if (
+      clockedInAt !== "" &&
+      !mine.some((office) => office.officeId === clockedInAt)
+    ) {
+      const office = await getDocument(
+        `offices/${encodeURIComponent(clockedInAt)}`,
+        token,
+      );
+      await codeOf(clockedInAt, office?.fields?.name?.stringValue ?? "");
+    }
+    const matchesMine = mine.some((office) => office.token === scanned);
+    const otherOffice = mine.length > 0 && !matchesMine
+      ? await otherOfficeNameFor(scanned, token)
+      : null;
+    const verdict = qrVerdict(scanned, sessionKey, mine, otherOffice);
+    if (!verdict.ok) {
+      return json({ error: verdict.error }, verdict.status);
+    }
+
     for (const record of stale) {
       if (record.isInvalid) continue;
       const flagged = await fetch(
@@ -648,6 +827,8 @@ Deno.serve(async (request) => {
       createdAt: { timestampValue: new Date().toISOString() },
     };
     if (academicYear) fields.academicYear = { stringValue: academicYear };
+    // Which office's code was scanned, kept for the record.
+    fields.officeId = { stringValue: verdict.officeId };
 
     const dayKey = String(wc.year).padStart(4, "0") +
       String(wc.month + 1).padStart(2, "0") +

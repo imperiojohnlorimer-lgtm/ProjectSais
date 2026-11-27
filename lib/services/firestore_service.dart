@@ -2299,19 +2299,21 @@ class FirestoreService {
     return {...(doc.data() as Map<String, dynamic>), 'id': doc.id};
   }
 
-  // Attendance QR token (single doc) ------------------------------------------------
-  /// The attendance QR code for [sessionKey]: the one already saved for
-  /// that session, or else [candidate], saved now. Read and written in one
-  /// transaction, so two devices opening the session together settle on
-  /// one code instead of the second overwriting a code that's already
-  /// posted. [sessionOf] tells which session a saved code belongs to.
-  /// Returns the winning code's document.
+  // Attendance QR tokens, one doc per office ---------------------------------------
+  /// The attendance QR code of office [officeId] for [sessionKey]: the one
+  /// already saved for that session, or else [candidate], saved now. Read
+  /// and written in one transaction, so two devices opening the session
+  /// together settle on one code instead of the second overwriting a code
+  /// that's already posted. [sessionOf] tells which session a saved code
+  /// belongs to. Returns the winning code's document.
   Future<Map<String, dynamic>> claimSessionQrToken(
+    String officeId,
+    String officeName,
     String candidate,
     String sessionKey, {
     required String? Function(Map<String, dynamic> doc) sessionOf,
   }) {
-    final doc = _db.collection('meta').doc('current_qr');
+    final doc = _db.collection('attendanceQr').doc(officeId);
     return _db.runTransaction((transaction) async {
       final saved = (await transaction.get(doc)).data();
       if (saved != null &&
@@ -2322,6 +2324,10 @@ class FirestoreService {
       final fresh = <String, dynamic>{
         'token': candidate,
         'sessionKey': sessionKey,
+        // The rules cap it at 200 characters.
+        'officeName': officeName.length > 200
+            ? officeName.substring(0, 200)
+            : officeName,
       };
       transaction.set(doc, {
         ...fresh,

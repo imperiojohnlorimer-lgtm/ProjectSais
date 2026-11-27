@@ -284,6 +284,21 @@ class Office {
   }
 }
 
+/// An office's attendance QR code for one session (`attendanceQr/{officeId}`
+/// in Firestore). Only that office's student assistants can clock in with
+/// it, and only during [sessionKey] (`yyyyMMdd-AM` / `yyyyMMdd-PM`).
+class OfficeQr {
+  final String token;
+  final String sessionKey;
+  final DateTime generatedAt;
+
+  const OfficeQr({
+    required this.token,
+    required this.sessionKey,
+    required this.generatedAt,
+  });
+}
+
 /// What approving a supervisor's request for a student assistant does to
 /// the office it names: creates the office when there's none, or else
 /// makes room in it for what was asked.

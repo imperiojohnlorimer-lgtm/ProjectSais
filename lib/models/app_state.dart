@@ -170,16 +170,46 @@ class AppState extends ChangeNotifier {
   );
 
   // ─── Attendance QR session ─────────────────────────
-  // One QR code per daily session: everyone scanning during the morning
-  // session uses the same code, and the afternoon session gets a different
-  // one. The code stays put for the whole session so a supervisor can print
-  // it once and post it instead of re-generating it every minute.
-  String? currentQrToken;
-  DateTime? qrGeneratedAt;
+  // One QR code per office per daily session: an office's student
+  // assistants scan its code all morning, and the afternoon session gets a
+  // different one. The code stays put for the whole session so a supervisor
+  // can print it once and post it instead of re-generating it every minute.
+  // The clock-attendance server accepts only a code saved for an office the
+  // student is in.
 
-  /// Session key (`yyyyMMdd-AM` / `yyyyMMdd-PM`) that [currentQrToken] belongs
-  /// to. A token is only accepted while its own session is still running.
-  String? currentQrSessionKey;
+  /// The codes this session has fetched or saved, by office id.
+  Map<String, OfficeQr> attendanceQrCodes = {};
+
+  /// The code for [officeId], if this session has it.
+  OfficeQr? attendanceQrFor(String officeId) => attendanceQrCodes[officeId];
+
+  /// The offices the signed-in user may show a code for: active ones whose
+  /// supervisors list this account by id, which is what the Firestore rules
+  /// check (for Supervisors only). An office that names them without the id
+  /// is left out.
+  List<Office> get qrOffices {
+    final id = currentUser?.id;
+    if (id == null || id.isEmpty || currentUser?.role != 'Supervisor') {
+      return const [];
+    }
+    return offices
+        .where((office) => office.isActive && office.headIds.contains(id))
+        .toList();
+  }
+
+  /// Whether the signed-in user heads an active office by name only (the
+  /// office lists no account id for them), so they can't post its code
+  /// until the Head ticks them on the office.
+  bool get headsOfficeByNameOnly {
+    final user = currentUser;
+    if (user == null) return false;
+    return offices.any(
+      (office) =>
+          office.isActive &&
+          !office.headIds.contains(user.id) &&
+          office.hasHead(user.id, user.name),
+    );
+  }
 
   // Attendance QR scanning is only allowed during these two daily windows
   // (morning session and afternoon session, with a lunch break in between).
@@ -258,8 +288,9 @@ class AppState extends ChangeNotifier {
     ).add(Duration(minutes: startMinutes));
   }
 
-  /// Returns the QR token for the session running right now, minting and
-  /// persisting one only when that session doesn't have a token yet.
+  /// Returns [office]'s QR token for the session running right now, minting
+  /// and persisting one only when that office has no token for the session
+  /// yet.
   ///
   /// Calling this again during the same session hands back the same code, so
   /// a printed QR keeps working until the session ends. Returns null outside
@@ -269,15 +300,18 @@ class AppState extends ChangeNotifier {
   /// scan against the saved code, so showing one that isn't saved would
   /// only get every scan rejected — and minting a replacement because a
   /// read failed would break the code already posted for the session.
-  Future<String?> generateAttendanceQrToken([DateTime? at]) async {
+  Future<String?> generateAttendanceQrToken(
+    Office office, [
+    DateTime? at,
+  ]) async {
     final now = at ?? DateTime.now();
     final sessionKey = attendanceQrSessionKey(now);
     if (sessionKey == null) return null;
 
-    // Already holding this session's token locally.
-    if (currentQrToken != null && currentQrSessionKey == sessionKey) {
-      return currentQrToken;
-    }
+    // Already holding this office's token for the session.
+    final held = attendanceQrCodes[office.id];
+    if (held != null && held.sessionKey == sessionKey) return held.token;
+    final account = currentUser?.id;
 
     // Random, not a timestamp: the session is public knowledge and the
     // minute the code was made is easy to narrow down, so anything derived
@@ -292,14 +326,23 @@ class AppState extends ChangeNotifier {
     // Kept only if no other device has saved this session's code already.
     _firestoreService ??= FirestoreService();
     final doc = await _firestoreService!.claimSessionQrToken(
+      office.id,
+      office.name,
       'SAIS-ATT-$sessionKey-$secret',
       sessionKey,
       sessionOf: _sessionKeyOfQrDoc,
     );
     final token = doc['token'] as String;
-    currentQrToken = token;
-    currentQrSessionKey = sessionKey;
-    qrGeneratedAt = _generatedAtOfQrDoc(doc) ?? now;
+    // Signed out (or switched account) while waiting: the code isn't theirs.
+    if (currentUser?.id != account) return null;
+    attendanceQrCodes = {
+      ...attendanceQrCodes,
+      office.id: OfficeQr(
+        token: token,
+        sessionKey: sessionKey,
+        generatedAt: _generatedAtOfQrDoc(doc) ?? now,
+      ),
+    };
     notifyListeners();
     return token;
   }
@@ -2001,6 +2044,7 @@ class AppState extends ChangeNotifier {
     _deletedAccounts = [];
     supervisorAvatars = {};
     _syncedSupervisorCards = null;
+    attendanceQrCodes = {};
   }
 
   // ─── Navigation ────────────────────────────────────

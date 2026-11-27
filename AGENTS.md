@@ -117,6 +117,14 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
 
 - Clock-in/out is by QR and decided by the `clock-attendance` function.
   Dates are saved as `Oct 5, 2026`; times as `8:02 AM`.
+- Each office has its own code per session (`attendanceQr/{officeId}`,
+  made by `AppState.generateAttendanceQrToken(office)`; only the office's
+  supervisors, listed by id in `headIds`, may read or write it). The code
+  stays the same all session so it can be printed. The function accepts a
+  scan only if the code was saved for an active office whose
+  `assistantIds` hold the student, and saves that `officeId` on the
+  clock-in record. `meta/current_qr`, the old school-wide code, is no
+  longer used.
 - Supervisors and Student Assistants use `AttendanceScreen` (QR
   generate/scan). The Head gets `HeadAttendanceScreen`: a summary of every
   Student Assistant (`AppState.assistantAttendance`) with filters, no QR.

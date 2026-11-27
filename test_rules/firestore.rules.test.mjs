@@ -1310,3 +1310,116 @@ test('a profile saved with no Student ID (null) applies with any well-shaped one
     setDoc(doc(as('stu'), 'applications', 'app_stu_2026-2027'), application('stu', { studentNumber: '23B0626' })),
   );
 });
+
+// ── attendance QR codes, one per office ────────────────────────────────
+
+const qrCode = (over = {}) => ({
+  token: 'SAIS-ATT-20261127-AM-0123456789abcdef0123456789abcdef',
+  sessionKey: '20261127-AM',
+  generatedAt: serverTimestamp(),
+  officeName: 'Library',
+  ...over,
+});
+
+// The generator's own write: read the office's code, keep it if it is this
+// session's, else save a new one, in one transaction.
+const claimQr = (db, officeId, over = {}) =>
+  runTransaction(db, async (tx) => {
+    const ref = doc(db, 'attendanceQr', officeId);
+    const saved = await tx.get(ref);
+    if (saved.exists() && saved.data().sessionKey === (over.sessionKey ?? '20261127-AM')) {
+      return saved.data();
+    }
+    tx.set(ref, qrCode(over));
+    return null;
+  });
+
+const seedQr = (officeId, data) =>
+  env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'attendanceQr', officeId), data);
+  });
+
+test("an office's supervisor saves and reads its code in the generator's transaction", async () => {
+  await assertSucceeds(claimQr(as('sup'), 'o1'));
+  await assertSucceeds(getDoc(doc(as('sup'), 'attendanceQr', 'o1')));
+});
+
+test('a second supervisor of the same office reads the code', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'offices', 'o1'), {
+      isActive: true,
+      headIds: ['sup', 'sup2'],
+      assistantIds: ['sa'],
+    });
+  });
+  await assertSucceeds(claimQr(as('sup'), 'o1'));
+  await assertSucceeds(getDoc(doc(as('sup2'), 'attendanceQr', 'o1')));
+});
+
+test("nobody else reads or writes an office's code", async () => {
+  await seedQr('o1', { ...qrCode(), generatedAt: new Date() });
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'offices', 'o2'), {
+      isActive: true,
+      headIds: ['sup2'],
+      assistantIds: [],
+    });
+  });
+  for (const uid of ['sup2', 'head', 'admin', 'sa', 'stu']) {
+    await assertFails(getDoc(doc(as(uid), 'attendanceQr', 'o1')));
+    await assertFails(setDoc(doc(as(uid), 'attendanceQr', 'o1'), qrCode({ sessionKey: '20261127-PM' })));
+  }
+  // Heading o1 gives nothing over o2's code, nor over an office that doesn't exist.
+  await assertFails(setDoc(doc(as('sup'), 'attendanceQr', 'o2'), qrCode()));
+  await assertFails(setDoc(doc(as('sup'), 'attendanceQr', 'nowhere'), qrCode()));
+});
+
+test("an inactive office's supervisor can't post a code", async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), 'offices', 'o1'), {
+      isActive: false,
+      headIds: ['sup'],
+      assistantIds: ['sa'],
+    });
+  });
+  await assertFails(setDoc(doc(as('sup'), 'attendanceQr', 'o1'), qrCode()));
+  await assertFails(getDoc(doc(as('sup'), 'attendanceQr', 'o1')));
+});
+
+test('a code must have exactly its four fields, in shape', async () => {
+  const db = as('sup');
+  const ref = doc(db, 'attendanceQr', 'o1');
+  await assertFails(setDoc(ref, qrCode({ extra: true })));
+  const { officeName, ...noName } = qrCode();
+  await assertFails(setDoc(ref, noName));
+  await assertFails(setDoc(ref, qrCode({ token: 'SHORT' })));
+  await assertFails(setDoc(ref, qrCode({ token: 'x'.repeat(201) })));
+  await assertFails(setDoc(ref, qrCode({ sessionKey: 'tomorrow' })));
+  await assertFails(setDoc(ref, qrCode({ generatedAt: new Date() })));
+  await assertFails(setDoc(ref, qrCode({ officeName: 'x'.repeat(201) })));
+  await assertSucceeds(setDoc(ref, qrCode()));
+});
+
+test("a session's code can't be replaced, but the next session's replaces it", async () => {
+  const ref = doc(as('sup'), 'attendanceQr', 'o1');
+  await assertSucceeds(setDoc(ref, qrCode()));
+  await assertFails(
+    setDoc(ref, qrCode({ token: 'SAIS-ATT-20261127-AM-ffffffffffffffffffffffffffffffff' })),
+  );
+  await assertSucceeds(
+    setDoc(ref, qrCode({
+      token: 'SAIS-ATT-20261127-PM-ffffffffffffffffffffffffffffffff',
+      sessionKey: '20261127-PM',
+    })),
+  );
+  await assertFails(deleteDoc(ref));
+});
+
+test('the old school-wide code is closed to everyone', async () => {
+  for (const uid of ['sup', 'head', 'admin', 'sa']) {
+    await assertFails(getDoc(doc(as(uid), 'meta', 'current_qr')));
+    await assertFails(
+      setDoc(doc(as(uid), 'meta', 'current_qr'), { token: 'X', sessionKey: '20261127-AM' }),
+    );
+  }
+});

@@ -15,9 +15,12 @@ class _FakeFirestore extends FirestoreService with AccountWrites {
   final deletedStudents = <String>[];
   bool failWrites = false;
 
-  /// What meta/current_qr holds.
-  Map<String, dynamic>? qrDoc;
+  /// What attendanceQr/{officeId} holds, by office id.
+  final qrDocs = <String, Map<String, dynamic>>{};
   bool failQr = false;
+
+  /// When set, a QR claim waits for it before answering.
+  Completer<void>? holdQr;
 
   final _lists = <String, StreamController<List<Map<String, dynamic>>>>{};
 
@@ -99,14 +102,21 @@ class _FakeFirestore extends FirestoreService with AccountWrites {
 
   @override
   Future<Map<String, dynamic>> claimSessionQrToken(
+    String officeId,
+    String officeName,
     String candidate,
     String sessionKey, {
     required String? Function(Map<String, dynamic> doc) sessionOf,
   }) async {
+    await holdQr?.future;
     if (failQr) throw Exception('unavailable');
-    final saved = qrDoc;
+    final saved = qrDocs[officeId];
     if (saved != null && sessionOf(saved) == sessionKey) return saved;
-    return qrDoc = {'token': candidate, 'sessionKey': sessionKey};
+    return qrDocs[officeId] = {
+      'token': candidate,
+      'sessionKey': sessionKey,
+      'officeName': officeName,
+    };
   }
 }
 
@@ -522,30 +532,138 @@ void main() {
 
   group('attendance QR', () {
     final morning = DateTime(2026, 9, 28, 9, 0);
+    final supervisor = User(
+      id: 'sup1',
+      name: 'Sam Supervisor',
+      email: 'sup1@example.com',
+      role: 'Supervisor',
+    );
+    const library = Office(
+      id: 'o1',
+      name: 'Library',
+      code: 'LIB',
+      headIds: ['sup1'],
+      headNames: ['Sam Supervisor'],
+    );
+    const clinic = Office(
+      id: 'o2',
+      name: 'Clinic',
+      code: 'CLN',
+      headIds: ['sup1'],
+      headNames: ['Sam Supervisor'],
+    );
+
+    setUp(() {
+      state
+        ..currentUser = supervisor
+        ..offices = [library, clinic];
+    });
 
     test('reuses the code already saved for the session', () async {
-      fake.qrDoc = {'token': 'POSTED', 'sessionKey': '20260928-AM'};
+      fake.qrDocs['o1'] = {'token': 'POSTED', 'sessionKey': '20260928-AM'};
 
-      expect(await state.generateAttendanceQrToken(morning), 'POSTED');
+      expect(await state.generateAttendanceQrToken(library, morning), 'POSTED');
+      expect(state.attendanceQrFor('o1')?.token, 'POSTED');
     });
 
     test('saves a new code for a new session', () async {
-      fake.qrDoc = {'token': 'YESTERDAY', 'sessionKey': '20260927-PM'};
+      fake.qrDocs['o1'] = {'token': 'YESTERDAY', 'sessionKey': '20260927-PM'};
 
-      final token = await state.generateAttendanceQrToken(morning);
+      final token = await state.generateAttendanceQrToken(library, morning);
 
       expect(token, startsWith('SAIS-ATT-20260928-AM-'));
-      expect(fake.qrDoc?['token'], token);
+      expect(fake.qrDocs['o1']?['token'], token);
+      expect(fake.qrDocs['o1']?['officeName'], 'Library');
+    });
+
+    test('each office gets its own code', () async {
+      final first = await state.generateAttendanceQrToken(library, morning);
+      final second = await state.generateAttendanceQrToken(clinic, morning);
+
+      expect(first, isNot(second));
+      expect(state.attendanceQrFor('o1')?.token, first);
+      expect(state.attendanceQrFor('o2')?.token, second);
+      // Asking again in the same session hands back the same codes.
+      expect(await state.generateAttendanceQrToken(library, morning), first);
     });
 
     test("never shows a code it couldn't save", () async {
       fake.failQr = true;
 
       await expectLater(
-        state.generateAttendanceQrToken(morning),
+        state.generateAttendanceQrToken(library, morning),
         throwsException,
       );
-      expect(state.currentQrToken, isNull);
+      expect(state.attendanceQrFor('o1'), isNull);
+    });
+
+    test('no code outside the two sessions', () async {
+      expect(
+        await state.generateAttendanceQrToken(
+          library,
+          DateTime(2026, 9, 28, 12, 15),
+        ),
+        isNull,
+      );
+      expect(fake.qrDocs, isEmpty);
+    });
+
+    test('offers only active offices that list the supervisor by id', () {
+      state.offices = [
+        library,
+        clinic.copyWith(isActive: false),
+        const Office(
+          id: 'o3',
+          name: 'Registrar',
+          code: 'REG',
+          headIds: [''],
+          headNames: ['Sam Supervisor'],
+        ),
+        const Office(
+          id: 'o4',
+          name: 'Cashier',
+          code: 'CSH',
+          headIds: ['someone-else'],
+          headNames: ['Someone Else'],
+        ),
+      ];
+
+      expect(state.qrOffices.map((office) => office.id), ['o1']);
+      expect(state.headsOfficeByNameOnly, isTrue);
+
+      state.offices = [library];
+      expect(state.headsOfficeByNameOnly, isFalse);
+    });
+
+    test('signing out forgets the codes', () async {
+      await state.generateAttendanceQrToken(library, morning);
+      expect(state.attendanceQrFor('o1'), isNotNull);
+
+      state.logout();
+
+      expect(state.attendanceQrCodes, isEmpty);
+    });
+
+    test('a code that arrives after signing out is not kept', () async {
+      fake.holdQr = Completer<void>();
+      final pending = state.generateAttendanceQrToken(library, morning);
+
+      state.logout();
+      fake.holdQr!.complete();
+
+      expect(await pending, isNull);
+      expect(state.attendanceQrCodes, isEmpty);
+    });
+
+    test('only a Supervisor is offered offices to show a code for', () {
+      state.currentUser = User(
+        id: 'sup1',
+        name: 'Sam Supervisor',
+        email: 'sup1@example.com',
+        role: 'Head',
+      );
+
+      expect(state.qrOffices, isEmpty);
     });
   });
 

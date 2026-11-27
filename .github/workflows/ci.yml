@@ -32,7 +32,7 @@ jobs:
           node-version: 24
       - name: clock-attendance
         working-directory: supabase/functions/clock-attendance
-        run: node --test records.test.ts sessions.test.ts
+        run: node --test records.test.ts sessions.test.ts qr.test.ts
       - name: upload-document
         working-directory: supabase/functions/upload-document
         run: node --test paths.test.ts

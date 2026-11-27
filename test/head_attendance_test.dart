@@ -273,4 +273,87 @@ void main() {
     expect(find.byType(HeadAttendanceScreen), findsNothing);
     expect(find.text('Generate QR Code'), findsOneWidget);
   });
+
+  group("a Supervisor's Generate QR Code", () {
+    final sid = User(
+      id: 'sup',
+      name: 'Sid Supervisor',
+      email: 'sid@marsu.edu.ph',
+      role: 'Supervisor',
+    );
+
+    Future<void> pumpAttendance(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final onError = FlutterError.onError;
+      FlutterError.onError = (details) =>
+          details.exceptionAsString().contains('overflowed')
+          ? null
+          : onError?.call(details);
+      addTearDown(() => FlutterError.onError = onError);
+      state
+        ..currentUser = sid
+        ..activeTab = 'attendance';
+      await tester.pumpWidget(
+        ChangeNotifierProvider<AppState>.value(
+          value: state,
+          child: MaterialApp(theme: AppTheme.theme, home: const AppShell()),
+        ),
+      );
+      await tester.pump();
+      await tester.ensureVisible(find.text('Generate QR Code'));
+      await tester.tap(find.text('Generate QR Code'));
+      await tester.pump();
+    }
+
+    testWidgets('says so when they head no office', (tester) async {
+      state.offices = [];
+      await pumpAttendance(tester);
+
+      expect(
+        find.textContaining("You don't head an active office yet"),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('says the Head must re-save an office that lists them by name', (
+      tester,
+    ) async {
+      state.offices = [
+        const Office(
+          id: 'o1',
+          name: 'Library',
+          code: 'LIB',
+          headIds: [''],
+          headNames: ['Sid Supervisor'],
+        ),
+      ];
+      await pumpAttendance(tester);
+
+      expect(
+        find.textContaining('Your office record is missing your account'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('asks which office when they head several', (tester) async {
+      state.offices = [
+        const Office(id: 'o1', name: 'Library', code: 'LIB', headIds: ['sup']),
+        const Office(id: 'o2', name: 'Clinic', code: 'CLN', headIds: ['sup']),
+      ];
+      await pumpAttendance(tester);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Which office?'), findsOneWidget);
+      expect(find.text('Library'), findsOneWidget);
+      expect(find.text('Clinic'), findsOneWidget);
+
+      // Closing the picker makes no code.
+      await tester.tapAt(const Offset(5, 5));
+      await tester.pumpAndSettle();
+      expect(find.text('Which office?'), findsNothing);
+      expect(state.attendanceQrCodes, isEmpty);
+    });
+  });
 }

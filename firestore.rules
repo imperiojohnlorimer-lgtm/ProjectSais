@@ -142,6 +142,16 @@ service cloud.firestore {
         : false;
     }
 
+    // Whether the signed-in Supervisor heads the active office [officeId]
+    // (by account id, as the office document lists it).
+    function supervisorHeadsOffice(officeId) {
+      let office = /databases/$(database)/documents/offices/$(officeId);
+      return isSupervisor() && exists(office)
+        ? get(office).data.get('isActive', true) == true
+          && request.auth.uid in get(office).data.get('headIds', [])
+        : false;
+    }
+
     // ── Field helpers ───────────────────────────────────────────────────
 
     // Whether [field] is the same before and after this write, treating a
@@ -1193,12 +1203,34 @@ service cloud.firestore {
       allow delete: if mayChangeSchedule(resource.data.get('ownerId', ''));
     }
 
-    // The session's attendance code. Only the staff who post it may read
-    // it: anyone else who could read it could clock in without being there.
-    // Students' scans are checked against it on the server, by the
-    // clock-attendance function, which reads it with its own access.
-    match /meta/current_qr {
-      allow read, write: if isStaff();
+    // Each office's attendance code for the session running now, one
+    // document per office. Only that office's own supervisors may read or
+    // post it: anyone else who could read it could clock in without being
+    // there. Students' scans are checked against it on the server, by the
+    // clock-attendance function, which reads it with its own access and
+    // accepts only the code of an office the student is in.
+    //
+    // A session's code is saved once and then stays put, so a printed copy
+    // keeps working all session: an update must start a new session.
+    // The read must not look at `resource`, so the generator's transaction
+    // can read a document that doesn't exist yet.
+    match /attendanceQr/{officeId} {
+      allow read: if supervisorHeadsOffice(officeId);
+      allow create: if supervisorHeadsOffice(officeId) && validAttendanceQr();
+      allow update: if supervisorHeadsOffice(officeId) && validAttendanceQr()
+        && resource.data.get('sessionKey', '')
+          != request.resource.data.sessionKey;
+    }
+
+    function validAttendanceQr() {
+      let d = request.resource.data;
+      let keys = ['token', 'sessionKey', 'generatedAt', 'officeName'];
+      return d.keys().hasOnly(keys) && d.keys().hasAll(keys)
+        && d.token is string && d.token.size() >= 40 && d.token.size() <= 200
+        && d.sessionKey is string
+        && d.sessionKey.matches('^[0-9]{8}-(AM|PM)$')
+        && d.officeName is string && d.officeName.size() <= 200
+        && d.generatedAt == request.time;
     }
 
     match /meta/academic_year_settings {
@@ -1221,15 +1253,15 @@ service cloud.firestore {
 
     // Every other meta document. Firestore allows a request if any matching
     // rule does, and this one matches the documents above too — so it must
-    // leave them out: its read would hand everyone the attendance code, and
-    // its staff write would let a Head or Supervisor change Admin-only
-    // settings.
+    // leave them out: its staff write would let a Head or Supervisor change
+    // Admin-only settings. `current_qr` is the old school-wide attendance
+    // code, replaced by attendanceQr above: nobody reads or writes it now.
     match /meta/{document} {
       allow read: if signedIn() && document != 'current_qr';
       allow write: if isStaff()
         && !(document in [
           'academic_year_settings', 'task_categories', 'task_templates',
-          'heads', 'saCounter'
+          'heads', 'saCounter', 'current_qr'
         ]);
     }
 
