@@ -138,8 +138,20 @@ void main() {
   testWidgets('a missed time-out is flagged, not shown as present', (
     tester,
   ) async {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
-        'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     final now = DateTime.now();
     await pumpScreen(
       tester,
@@ -171,8 +183,20 @@ void main() {
   });
 
   group('Fix on a red weekend row', () {
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug',
-        'Sep', 'Oct', 'Nov', 'Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
 
     /// The first Sunday of this month that is not also a holiday.
     DateTime firstSunday() {
@@ -226,46 +250,47 @@ void main() {
     }
 
     for (final width in [1280.0, 390.0]) {
-      testWidgets('turns a Sunday task back to "Sunday" at ${width.toInt()}px', (
-        tester,
-      ) async {
-        await pumpScreen(
-          tester,
-          Size(width, 1400),
-          user: _head,
-          tasks: [approvedOn(firstSunday())],
-        );
-        await openBuilder(tester);
-        // The summary sits above the table: read it before scrolling down.
-        expect(needReview(tester), '1');
-        await tester.dragUntilVisible(
-          redNote,
-          find.byType(ListView).last,
-          const Offset(0, -300),
-        );
-        expect(redNote, findsOneWidget);
-        expect(find.text('Fix'), findsOneWidget);
+      testWidgets(
+        'turns a Sunday task back to "Sunday" at ${width.toInt()}px',
+        (tester) async {
+          await pumpScreen(
+            tester,
+            Size(width, 1400),
+            user: _head,
+            tasks: [approvedOn(firstSunday())],
+          );
+          await openBuilder(tester);
+          // The summary sits above the table: read it before scrolling down.
+          expect(needReview(tester), '1');
+          await tester.dragUntilVisible(
+            redNote,
+            find.byType(ListView).last,
+            const Offset(0, -300),
+          );
+          expect(redNote, findsOneWidget);
+          expect(find.text('Fix'), findsOneWidget);
 
-        await tester.ensureVisible(find.text('Fix'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('Fix'));
-        await tester.pumpAndSettle();
+          await tester.ensureVisible(find.text('Fix'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Fix'));
+          await tester.pumpAndSettle();
 
-        expect(redNote, findsNothing);
-        expect(find.text('Fix'), findsNothing);
-        await tester.dragUntilVisible(
-          find.text('Need review'),
-          find.byType(ListView).last,
-          const Offset(0, 300),
-        );
-        expect(needReview(tester), '0');
-        // The day now reads like any other Sunday, and the rest is untouched.
-        final sunday = find.byWidgetPredicate(
-          (w) => w is EditableText && w.controller.text == 'Sunday',
-        );
-        expect(sunday, findsWidgets);
-        expect(tester.takeException(), isNull);
-      });
+          expect(redNote, findsNothing);
+          expect(find.text('Fix'), findsNothing);
+          await tester.dragUntilVisible(
+            find.text('Need review'),
+            find.byType(ListView).last,
+            const Offset(0, 300),
+          );
+          expect(needReview(tester), '0');
+          // The day now reads like any other Sunday, and the rest is untouched.
+          final sunday = find.byWidgetPredicate(
+            (w) => w is EditableText && w.controller.text == 'Sunday',
+          );
+          expect(sunday, findsWidgets);
+          expect(tester.takeException(), isNull);
+        },
+      );
     }
 
     testWidgets('a holiday goes back to "Holiday"', (tester) async {
@@ -342,6 +367,80 @@ void main() {
     // Head — who is generating it — approves it, as the template reads.
     expect(_signOffName(tester, 'Verified and checked by'), 'Sam Supervisor');
     expect(_signOffName(tester, 'Approved'), 'Maria Head');
+  });
+
+  group('typing in the day table', () {
+    // A day's hours are the bold maroon fields; its times the others.
+    Finder hoursFields() => find.byWidgetPredicate(
+      (w) => w is TextField && w.style?.fontWeight == FontWeight.w800,
+    );
+    String textOf(WidgetTester tester, Finder field) =>
+        tester.widget<TextField>(field).controller!.text;
+
+    for (final width in [390.0, 1280.0]) {
+      testWidgets('hours stay as typed at ${width.toInt()}px', (tester) async {
+        await pumpScreen(tester, Size(width, 1400), user: _head);
+        await openBuilder(tester);
+        final hours = hoursFields().first;
+
+        await tester.enterText(hours, '1.25');
+        await tester.pump();
+        expect(textOf(tester, hours), '1.25'); // not "1.3"
+
+        // The month's total, a plain Text (the field itself is editable).
+        Finder total(String value) =>
+            find.byWidgetPredicate((w) => w is Text && w.data == value);
+        await tester.enterText(hours, '7.5');
+        await tester.pump();
+        expect(total('7.5'), findsOneWidget);
+
+        await tester.enterText(hours, '');
+        await tester.pump();
+        expect(textOf(tester, hours), '');
+        expect(total('7.5'), findsNothing); // emptied, the day counts 0
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('half-typed hours survive typing elsewhere on the row', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const Size(1280, 1400), user: _head);
+      await openBuilder(tester);
+      final hours = hoursFields().first;
+      final time = find.byWidgetPredicate(
+        (w) => w is TextField && w.style?.fontWeight == FontWeight.w600,
+      );
+
+      await tester.enterText(hours, '2.');
+      await tester.pump();
+      // Typing in a time on the same row rebuilds the table.
+      await tester.enterText(time.first, '8:00 AM');
+      await tester.pump();
+
+      expect(textOf(tester, hours), '2.');
+      expect(textOf(tester, time.first), '8:00 AM');
+    });
+
+    testWidgets('hours the report cannot use give way to the ones it uses', (
+      tester,
+    ) async {
+      await pumpScreen(tester, const Size(1280, 1400), user: _head);
+      await openBuilder(tester);
+      final hours = hoursFields().first;
+      final time = find.byWidgetPredicate(
+        (w) => w is TextField && w.style?.fontWeight == FontWeight.w600,
+      );
+
+      await tester.enterText(hours, '4');
+      await tester.pump();
+      await tester.enterText(hours, '-1'); // not taken: the day keeps 4
+      await tester.pump();
+      await tester.enterText(time.first, '8:00 AM'); // the table rebuilds
+      await tester.pump();
+
+      expect(textOf(tester, hours), '4.0');
+    });
   });
 
   testWidgets('a supervisor can send the report to the Head', (tester) async {

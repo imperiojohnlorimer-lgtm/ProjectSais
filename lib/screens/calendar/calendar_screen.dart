@@ -22,7 +22,10 @@ import 'class_schedule_card.dart';
 typedef _Owner = ({String id, String name});
 
 class CalendarScreen extends StatefulWidget {
-  const CalendarScreen({super.key});
+  const CalendarScreen({super.key, @visibleForTesting this.rulesRepository});
+
+  /// Where recurring schedules are kept; tests pass their own.
+  final RecurringScheduleRepository? rulesRepository;
   @override
   State<CalendarScreen> createState() => _CalendarScreenState();
 }
@@ -586,7 +589,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
   // are stored via [RecurringScheduleRepository] so the DTR report's
   // "Class Schedule" table can auto-fill from the same data.
 
-  final _rulesRepository = const RecurringScheduleRepository();
+  RecurringScheduleRepository get _rulesRepository =>
+      widget.rulesRepository ?? const RecurringScheduleRepository();
 
   Future<List<RecurringScheduleRule>> _loadRules(_Owner owner) =>
       _rulesRepository.loadRules(owner.id);
@@ -894,7 +898,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }) async {
     final isEditing = existingRule != null;
     final existingRules = await _loadRules(owner);
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     final academicYear = context.read<AppState>().academicYear;
     final academicYearEnd = context.read<AppState>().academicYearEnd;
 
@@ -913,7 +917,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return StatefulBuilder(
+        return DisposeWhenGone(
+          notifiers: [labelCtrl],
+          child: StatefulBuilder(
           builder: (context, setDialogState) {
             return Dialog(
               backgroundColor: Colors.white,
@@ -1122,6 +1128,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           icon: icon,
                           academicYear: academicYear,
                           mode: mode,
+                          // What this dialog doesn't edit stays as it was.
+                          units: existingRule?.units ?? '',
+                          isSubject: existingRule?.isSubject ?? false,
+                          instructor: existingRule?.instructor ?? '',
+                          room: existingRule?.room ?? '',
                         );
                         final rules = isEditing
                             ? existingRules
@@ -1153,6 +1164,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
             );
           },
+        ),
         );
       },
     );
@@ -1173,7 +1185,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
   }) async {
     final isEditing = existingRule != null;
     final existingRules = await _loadRules(owner);
-    if (!mounted) return;
+    if (!mounted || !context.mounted) return;
     final academicYear = context.read<AppState>().academicYear;
     final academicYearEnd = context.read<AppState>().academicYearEnd;
 
@@ -1191,7 +1203,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) {
-        return StatefulBuilder(
+        return DisposeWhenGone(
+          notifiers: [labelCtrl, unitsCtrl],
+          child: StatefulBuilder(
           builder: (context, setDialogState) {
             return Dialog(
               backgroundColor: Colors.white,
@@ -1414,6 +1428,8 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           mode: mode,
                           units: units,
                           isSubject: true,
+                          instructor: existingRule?.instructor ?? '',
+                          room: existingRule?.room ?? '',
                         );
                         // Stamp `units` onto every other rule sharing this
                         // subject's label too, so the DTR sync (which groups by
@@ -1456,6 +1472,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
               ),
             );
           },
+        ),
         );
       },
     );
@@ -1477,7 +1494,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (builderContext, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
           ),
@@ -1551,8 +1568,15 @@ class _CalendarScreenState extends State<CalendarScreen> {
                                   tooltip: 'Edit',
                                   onPressed: () {
                                     Navigator.of(dialogContext).pop();
-                                    _showAddScheduleDialog(
-                                      context,
+                                    // The screen's own context: this
+                                    // dialog's is going away. A subject
+                                    // opens the subject form, which keeps
+                                    // its units.
+                                    final open = rule.isSubject
+                                        ? _showAddSubjectDialog
+                                        : _showAddScheduleDialog;
+                                    open(
+                                      this.context,
                                       scheduleService,
                                       owner,
                                       existingRule: rule,

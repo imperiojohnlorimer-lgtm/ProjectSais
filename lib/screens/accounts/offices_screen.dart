@@ -145,7 +145,16 @@ class _OfficesScreenState extends State<OfficesScreen> {
     final saved = await showDialog<bool>(
       context: context,
       barrierColor: AppTheme.slate900.withValues(alpha: 0.45),
-      builder: (dialogContext) => StatefulBuilder(
+      // The controllers go when the dialog has finished closing.
+      builder: (dialogContext) => DisposeWhenGone(
+        notifiers: [
+          nameController,
+          codeController,
+          capacityController,
+          locationController,
+          aboutController,
+        ],
+        child: StatefulBuilder(
         builder: (context, setState) {
           Widget emptyHint(String text) => Container(
             width: double.infinity,
@@ -938,7 +947,7 @@ class _OfficesScreenState extends State<OfficesScreen> {
                                     basedOn: office,
                                   );
                                   if (dialogContext.mounted) {
-                                    Navigator.pop(dialogContext, true);
+                                    popIfCurrent(dialogContext, true);
                                   }
                                 } catch (e) {
                                   if (dialogContext.mounted) {
@@ -979,12 +988,8 @@ class _OfficesScreenState extends State<OfficesScreen> {
           );
         },
       ),
+      ),
     );
-    nameController.dispose();
-    codeController.dispose();
-    capacityController.dispose();
-    locationController.dispose();
-    aboutController.dispose();
     if (saved == true && context.mounted)
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

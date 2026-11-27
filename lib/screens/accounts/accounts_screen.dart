@@ -1466,7 +1466,18 @@ class _AccountsScreenState extends State<AccountsScreen>
 
     final saved = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
+      // The controllers go when the dialog has finished closing.
+      builder: (dialogContext) => DisposeWhenGone(
+        notifiers: [
+          firstNameCtrl,
+          middleNameCtrl,
+          lastNameCtrl,
+          emailCtrl,
+          passwordCtrl,
+          phoneCtrl,
+          studentIdCtrl,
+        ],
+        child: StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           insetPadding: EdgeInsets.symmetric(
             horizontal: isMobile ? 12 : 40,
@@ -1732,7 +1743,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                   );
                   return;
                 }
-                Navigator.pop(dialogContext, true);
+                popIfCurrent(dialogContext, true);
               },
               style: ElevatedButton.styleFrom(
                 backgroundColor: AppTheme.maroon,
@@ -1744,13 +1755,8 @@ class _AccountsScreenState extends State<AccountsScreen>
           ],
         ),
       ),
+      ),
     );
-    firstNameCtrl.dispose();
-    middleNameCtrl.dispose();
-    lastNameCtrl.dispose();
-    emailCtrl.dispose();
-    passwordCtrl.dispose();
-    phoneCtrl.dispose();
     if (saved == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

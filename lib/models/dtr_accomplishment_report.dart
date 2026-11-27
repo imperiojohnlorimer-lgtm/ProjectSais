@@ -41,6 +41,8 @@ class DtrDayEntry {
     String? pmIn,
     String? pmOut,
     double? totalHours,
+    // Empties the day's hours (null above means "keep them").
+    bool clearTotalHours = false,
     String? note,
     bool? isInvalid,
     bool? needsVerification,
@@ -50,7 +52,7 @@ class DtrDayEntry {
     amOut: amOut ?? this.amOut,
     pmIn: pmIn ?? this.pmIn,
     pmOut: pmOut ?? this.pmOut,
-    totalHours: totalHours ?? this.totalHours,
+    totalHours: clearTotalHours ? null : (totalHours ?? this.totalHours),
     note: note ?? this.note,
     isInvalid: isInvalid ?? this.isInvalid,
     needsVerification: needsVerification ?? this.needsVerification,

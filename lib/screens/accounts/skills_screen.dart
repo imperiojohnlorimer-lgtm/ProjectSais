@@ -114,21 +114,24 @@ class _SkillsScreenState extends State<SkillsScreen> {
     final controller = TextEditingController();
     final created = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => _SkillDialog(
-        title: 'Add Skill',
-        subtitle: 'Skills appear as choices on the student application form',
-        icon: Icons.add_rounded,
-        controller: controller,
-        problem: (name) {
-          final existing = state.findSkill(name);
-          return existing == null
-              ? null
-              : '"$existing" is already on the list.';
-        },
-        onSave: () => state.addSkill(controller.text.trim()),
+      // The controller goes when the dialog has finished closing.
+      builder: (dialogContext) => DisposeWhenGone(
+        notifiers: [controller],
+        child: _SkillDialog(
+          title: 'Add Skill',
+          subtitle: 'Skills appear as choices on the student application form',
+          icon: Icons.add_rounded,
+          controller: controller,
+          problem: (name) {
+            final existing = state.findSkill(name);
+            return existing == null
+                ? null
+                : '"$existing" is already on the list.';
+          },
+          onSave: () => state.addSkill(controller.text.trim()),
+        ),
       ),
     );
-    controller.dispose();
     if (created == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -152,21 +155,23 @@ class _SkillsScreenState extends State<SkillsScreen> {
     final controller = TextEditingController(text: skill);
     final updated = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => _SkillDialog(
-        title: 'Edit Skill',
-        subtitle: 'Renaming updates this skill everywhere it is used',
-        icon: Icons.edit_outlined,
-        controller: controller,
-        problem: (name) {
-          final existing = state.findSkill(name);
-          return existing == null || existing == skill
-              ? null
-              : '"$existing" is already on the list.';
-        },
-        onSave: () => state.updateSkill(skill, controller.text.trim()),
+      builder: (dialogContext) => DisposeWhenGone(
+        notifiers: [controller],
+        child: _SkillDialog(
+          title: 'Edit Skill',
+          subtitle: 'Renaming updates this skill everywhere it is used',
+          icon: Icons.edit_outlined,
+          controller: controller,
+          problem: (name) {
+            final existing = state.findSkill(name);
+            return existing == null || existing == skill
+                ? null
+                : '"$existing" is already on the list.';
+          },
+          onSave: () => state.updateSkill(skill, controller.text.trim()),
+        ),
       ),
     );
-    controller.dispose();
     if (updated == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -543,7 +548,7 @@ class _SkillDialogState extends State<_SkillDialog> {
     final ok = await widget.onSave();
     if (!mounted) return;
     if (ok) {
-      Navigator.pop(context, true);
+      popIfCurrent(context, true);
     } else {
       setState(() {
         _saving = false;

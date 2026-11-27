@@ -738,11 +738,14 @@ class _ProgramDialogState extends State<_ProgramDialog> {
 
   void _removeRow(int index) {
     if (_rows.length < 2) return;
+    final removed = _rows[index];
     setState(() {
-      _rows.removeAt(index).dispose();
+      _rows.removeAt(index);
       _error = null;
       _rowErrors = const [];
     });
+    // Its fields stay on screen until this frame is done.
+    WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
   }
 
   /// Turns the pasted lines into rows: empty rows first, then new ones.

@@ -783,60 +783,63 @@ class _AcademicYearSettingsScreenState
     DateTime selectedDate = existing?.date ?? _startDate;
     final result = await showDialog<_MilestoneDraft>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text(index == null ? 'Add milestone' : 'Edit milestone'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: titleController,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  labelText: 'Milestone title',
-                  hintText: 'e.g. Application deadline',
+      // The controller goes when the dialog has finished closing.
+      builder: (dialogContext) => DisposeWhenGone(
+        notifiers: [titleController],
+        child: StatefulBuilder(
+          builder: (context, setDialogState) => AlertDialog(
+            title: Text(index == null ? 'Add milestone' : 'Edit milestone'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  autofocus: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Milestone title',
+                    hintText: 'e.g. Application deadline',
+                  ),
                 ),
+                const SizedBox(height: 14),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_outlined),
+                  title: const Text('Date'),
+                  subtitle: Text(_dateLabel(selectedDate)),
+                  onTap: () async {
+                    final date = await showDatePicker(
+                      context: dialogContext,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2000),
+                      lastDate: DateTime(2100),
+                    );
+                    if (date != null) setDialogState(() => selectedDate = date);
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
               ),
-              const SizedBox(height: 14),
-              ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: const Icon(Icons.event_outlined),
-                title: const Text('Date'),
-                subtitle: Text(_dateLabel(selectedDate)),
-                onTap: () async {
-                  final date = await showDatePicker(
-                    context: dialogContext,
-                    initialDate: selectedDate,
-                    firstDate: DateTime(2000),
-                    lastDate: DateTime(2100),
-                  );
-                  if (date != null) setDialogState(() => selectedDate = date);
+              FilledButton(
+                onPressed: () {
+                  final title = titleController.text.trim();
+                  if (title.isNotEmpty) {
+                    Navigator.pop(
+                      dialogContext,
+                      _MilestoneDraft(title: title, date: selectedDate),
+                    );
+                  }
                 },
+                child: const Text('Save'),
               ),
             ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final title = titleController.text.trim();
-                if (title.isNotEmpty) {
-                  Navigator.pop(
-                    dialogContext,
-                    _MilestoneDraft(title: title, date: selectedDate),
-                  );
-                }
-              },
-              child: const Text('Save'),
-            ),
-          ],
         ),
       ),
     );
-    titleController.dispose();
     if (result == null || !mounted) return;
     setState(() {
       if (index == null) {

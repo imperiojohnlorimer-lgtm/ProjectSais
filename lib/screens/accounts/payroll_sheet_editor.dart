@@ -145,12 +145,9 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
     );
     if (!confirmed || !mounted) return;
     final fresh = widget.systemEntries();
-    setState(() {
-      for (final row in _rows) {
-        row.dispose();
-      }
-      _rows = fresh.map(_EntryFields.new).toList();
-    });
+    final old = _rows;
+    setState(() => _rows = fresh.map(_EntryFields.new).toList());
+    _disposeAfterFrame(old);
     _changed();
   }
 
@@ -182,8 +179,18 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
     );
     if (!confirmed || !mounted) return;
     setState(() => _rows.remove(row));
-    row.dispose();
+    _disposeAfterFrame([row]);
     _changed();
+  }
+
+  /// Disposes rows taken off the sheet once the frame that removes their
+  /// fields is done: until then those fields still use them.
+  void _disposeAfterFrame(List<_EntryFields> rows) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final row in rows) {
+        row.dispose();
+      }
+    });
   }
 
   Future<void> _save() async {
@@ -191,9 +198,12 @@ class _PayrollSheetEditorState extends State<PayrollSheetEditor> {
     setState(() => _saving = true);
     try {
       final saved = await context.read<AppState>().savePayrollSheet(_current);
-      _dirty.value = false;
-      _savedAt = saved.updatedAt;
-      _savedBy = saved.updatedBy;
+      // The editor may have been closed while saving; the message still shows.
+      if (mounted) {
+        _dirty.value = false;
+        _savedAt = saved.updatedAt;
+        _savedBy = saved.updatedBy;
+      }
       _snack(messenger, 'Payroll sheet saved.', AppTheme.emerald500);
     } catch (e) {
       _snack(

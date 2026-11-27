@@ -736,12 +736,23 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   }
 
   void _removeScheduleRow(int i) {
+    final removed = _scheduleCtrls[i];
     setState(() {
       _schedule.removeAt(i);
-      for (final c in _scheduleCtrls[i]) {
+      _scheduleCtrls.removeAt(i);
+    });
+    _disposeAfterFrame(removed);
+  }
+
+  /// Disposes a removed row's controllers once the frame that takes its
+  /// fields off screen is done: disposed in setState, they would still be
+  /// in use until then.
+  void _disposeAfterFrame(Iterable<TextEditingController> controllers) {
+    final list = controllers.toList();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      for (final c in list) {
         c.dispose();
       }
-      _scheduleCtrls.removeAt(i);
     });
   }
 
@@ -795,9 +806,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
         for (var i = _schedule.length - 1; i >= 0; i--) {
           final label = _schedule[i].sourceRuleLabel;
           if (label != null && !currentLabels.contains(label)) {
-            for (final c in _scheduleCtrls[i]) {
-              c.dispose();
-            }
+            _disposeAfterFrame(_scheduleCtrls[i]);
             _schedule.removeAt(i);
             _scheduleCtrls.removeAt(i);
           }
@@ -1393,9 +1402,10 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _generating = true);
 
-    final data = await _buildReportData();
-
     try {
+      // Inside the try: if gathering the report fails, the button comes
+      // back (finally) and says why, instead of staying disabled.
+      final data = await _buildReportData();
       final doc = await const DtrAccomplishmentReportDocumentService()
           .generateDtrAccomplishmentReport(data: data);
       final bytes = doc.bytes;
@@ -1489,9 +1499,8 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     final state = context.read<AppState>();
     setState(() => _sendingToHead = true);
 
-    final data = await _buildReportData();
-
     try {
+      final data = await _buildReportData();
       final doc = await const DtrAccomplishmentReportDocumentService()
           .generateDtrAccomplishmentReport(data: data);
       final bytes = doc.bytes;
@@ -2544,14 +2553,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                         AppTheme.maroon,
                       ),
                     const Spacer(),
-                    _dtrHoursPill(
-                      d.totalHours?.toStringAsFixed(1),
-                      (v) => setState(
-                        () => _days[i] = d.copyWith(
-                          totalHours: double.tryParse(v),
-                        ),
-                      ),
-                    ),
+                    _dtrHoursPill(d.totalHours, (v) => _setHours(i, v)),
                   ],
                 ),
                 const SizedBox(height: 14),
@@ -2563,7 +2565,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       child: _dtrMobileField(
                         'In',
                         d.amIn,
-                        (v) => setState(() => _days[i] = d.copyWith(amIn: v)),
+                        (v) => setState(
+                          () => _days[i] = _days[i].copyWith(amIn: v),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -2571,7 +2575,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       child: _dtrMobileField(
                         'Out',
                         d.amOut,
-                        (v) => setState(() => _days[i] = d.copyWith(amOut: v)),
+                        (v) => setState(
+                          () => _days[i] = _days[i].copyWith(amOut: v),
+                        ),
                       ),
                     ),
                   ],
@@ -2585,7 +2591,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       child: _dtrMobileField(
                         'In',
                         d.pmIn,
-                        (v) => setState(() => _days[i] = d.copyWith(pmIn: v)),
+                        (v) => setState(
+                          () => _days[i] = _days[i].copyWith(pmIn: v),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -2593,7 +2601,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
                       child: _dtrMobileField(
                         'Out',
                         d.pmOut,
-                        (v) => setState(() => _days[i] = d.copyWith(pmOut: v)),
+                        (v) => setState(
+                          () => _days[i] = _days[i].copyWith(pmOut: v),
+                        ),
                       ),
                     ),
                   ],
@@ -2744,36 +2754,39 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           ),
         ),
       ),
-      TextField(
-        controller: TextEditingController(text: initial ?? ''),
-        onChanged: onChanged,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 12.5,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.slate700,
-        ),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: AppTheme.slate50,
-          contentPadding: const EdgeInsets.symmetric(vertical: 10),
-          hintText: '—',
-          hintStyle: const TextStyle(
-            color: AppTheme.slate300,
+      _KeptTextField(
+        text: initial ?? '',
+        builder: (controller) => TextField(
+          controller: controller,
+          onChanged: onChanged,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12.5,
             fontWeight: FontWeight.w600,
+            color: AppTheme.slate700,
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: AppTheme.slate50,
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
+            hintText: '—',
+            hintStyle: const TextStyle(
+              color: AppTheme.slate300,
+              fontWeight: FontWeight.w600,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
+            ),
           ),
         ),
       ),
@@ -2969,32 +2982,27 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
           _dtrCompactField(
             _dtrColWidths[1],
             d.amIn,
-            (v) => setState(() => _days[i] = d.copyWith(amIn: v)),
+            (v) => setState(() => _days[i] = _days[i].copyWith(amIn: v)),
           ),
           _dtrCompactField(
             _dtrColWidths[2],
             d.amOut,
-            (v) => setState(() => _days[i] = d.copyWith(amOut: v)),
+            (v) => setState(() => _days[i] = _days[i].copyWith(amOut: v)),
           ),
           _dtrCompactField(
             _dtrColWidths[3],
             d.pmIn,
-            (v) => setState(() => _days[i] = d.copyWith(pmIn: v)),
+            (v) => setState(() => _days[i] = _days[i].copyWith(pmIn: v)),
           ),
           _dtrCompactField(
             _dtrColWidths[4],
             d.pmOut,
-            (v) => setState(() => _days[i] = d.copyWith(pmOut: v)),
+            (v) => setState(() => _days[i] = _days[i].copyWith(pmOut: v)),
           ),
           SizedBox(
             width: _dtrColWidths[5],
             child: Center(
-              child: _dtrHoursPill(
-                d.totalHours?.toStringAsFixed(1),
-                (v) => setState(
-                  () => _days[i] = d.copyWith(totalHours: double.tryParse(v)),
-                ),
-              ),
+              child: _dtrHoursPill(d.totalHours, (v) => _setHours(i, v)),
             ),
           ),
           _buildNoteField(
@@ -3095,36 +3103,39 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
     width: width,
     child: Padding(
       padding: const EdgeInsets.symmetric(horizontal: 3),
-      child: TextField(
-        controller: TextEditingController(text: initial ?? ''),
-        onChanged: onChanged,
-        textAlign: TextAlign.center,
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: AppTheme.slate700,
-        ),
-        decoration: InputDecoration(
-          isDense: true,
-          filled: true,
-          fillColor: AppTheme.slate50,
-          contentPadding: const EdgeInsets.symmetric(vertical: 9),
-          hintText: '—',
-          hintStyle: const TextStyle(
-            color: AppTheme.slate300,
+      child: _KeptTextField(
+        text: initial ?? '',
+        builder: (controller) => TextField(
+          controller: controller,
+          onChanged: onChanged,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 12,
             fontWeight: FontWeight.w600,
+            color: AppTheme.slate700,
           ),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide.none,
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: BorderSide.none,
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(10),
-            borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
+          decoration: InputDecoration(
+            isDense: true,
+            filled: true,
+            fillColor: AppTheme.slate50,
+            contentPadding: const EdgeInsets.symmetric(vertical: 9),
+            hintText: '—',
+            hintStyle: const TextStyle(
+              color: AppTheme.slate300,
+              fontWeight: FontWeight.w600,
+            ),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: const BorderSide(color: AppTheme.maroon, width: 1.4),
+            ),
           ),
         ),
       ),
@@ -3134,35 +3145,63 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   /// The "Hrs" cell rendered as a small pill rather than a plain boxed
   /// field, so the one number that summarizes the whole row visually
   /// stands apart from the raw in/out times either side of it.
-  Widget _dtrHoursPill(String? initial, ValueChanged<String> onChanged) =>
+  Widget _dtrHoursPill(double? hours, ValueChanged<String> onChanged) =>
       Container(
         width: 52,
         decoration: BoxDecoration(
           color: AppTheme.maroon.withValues(alpha: 0.08),
           borderRadius: BorderRadius.circular(20),
         ),
-        child: TextField(
-          controller: TextEditingController(text: initial ?? ''),
-          onChanged: onChanged,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 12.5,
-            fontWeight: FontWeight.w800,
-            color: AppTheme.maroon,
-          ),
-          decoration: const InputDecoration(
-            isDense: true,
-            filled: false,
-            contentPadding: EdgeInsets.symmetric(vertical: 8),
-            border: InputBorder.none,
-            hintText: '—',
-            hintStyle: TextStyle(
-              color: AppTheme.maroonLight,
-              fontWeight: FontWeight.w700,
+        child: _KeptTextField(
+          text: hours?.toStringAsFixed(1) ?? '',
+          // "1.25" stays as typed, though it would show as "1.3".
+          shows: (typed) => typed.trim().isEmpty
+              ? hours == null
+              : _parseHours(typed) == hours,
+          builder: (controller) => TextField(
+            controller: controller,
+            onChanged: onChanged,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+              color: AppTheme.maroon,
+            ),
+            decoration: const InputDecoration(
+              isDense: true,
+              filled: false,
+              contentPadding: EdgeInsets.symmetric(vertical: 8),
+              border: InputBorder.none,
+              hintText: '—',
+              hintStyle: TextStyle(
+                color: AppTheme.maroonLight,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ),
       );
+
+  /// A day's hours as typed: a number of hours, or null when it isn't one.
+  static double? _parseHours(String typed) {
+    final hours = double.tryParse(typed.trim());
+    if (hours == null || !hours.isFinite || hours < 0 || hours > 24) {
+      return null;
+    }
+    return hours == 0 ? 0.0 : hours; // never "-0.0"
+  }
+
+  /// What typing in a day's hours does: emptied, the day has none; a
+  /// number, that many; anything else changes nothing yet.
+  void _setHours(int i, String typed) {
+    if (typed.trim().isEmpty) {
+      setState(() => _days[i] = _days[i].copyWith(clearTotalHours: true));
+      return;
+    }
+    final hours = _parseHours(typed);
+    if (hours == null) return;
+    setState(() => _days[i] = _days[i].copyWith(totalHours: hours));
+  }
 
   static const _scheduleDayLabels = [
     'Monday',
@@ -3211,6 +3250,9 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
             rows: List.generate(_scheduleCtrls.length, (i) {
               final ctrls = _scheduleCtrls[i];
               return DataRow(
+                // Each row keeps its own fields (and focus) when one above
+                // it is removed.
+                key: ObjectKey(ctrls),
                 cells: [
                   ...List.generate(8, (j) {
                     final width = j == 0 ? 140.0 : (j == 1 ? 56.0 : 110.0);
@@ -3256,6 +3298,7 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
   Widget _scheduleMobileCard(int i) {
     final ctrls = _scheduleCtrls[i];
     return Container(
+      key: ObjectKey(ctrls),
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -3453,4 +3496,54 @@ class _DtrReportBuilderScreenState extends State<_DtrReportBuilderScreen> {
       ),
     ],
   );
+}
+
+/// A field that keeps one controller for as long as it is on screen. The
+/// report rebuilds on every keystroke; a controller made in build would put
+/// the cursor back at the start each time and turn "1." into "1.0".
+///
+/// The text is replaced only when the value changes from outside (Sync,
+/// Fix, a refresh) and [shows] says what was typed doesn't already stand
+/// for it.
+class _KeptTextField extends StatefulWidget {
+  const _KeptTextField({required this.text, required this.builder, this.shows});
+
+  /// What the field shows for the value it edits.
+  final String text;
+
+  /// Whether [typed] already stands for the value. Defaults to the same text.
+  final bool Function(String typed)? shows;
+
+  final Widget Function(TextEditingController controller) builder;
+
+  @override
+  State<_KeptTextField> createState() => _KeptTextFieldState();
+}
+
+class _KeptTextFieldState extends State<_KeptTextField> {
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.text,
+  );
+
+  @override
+  void didUpdateWidget(_KeptTextField oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final shows = widget.shows;
+    // With [shows], checked on every rebuild: something typed that the
+    // value doesn't take ("-1", "abc") gives way to what the report will
+    // really use, instead of staying on screen.
+    final shown = shows != null
+        ? shows(_controller.text)
+        : widget.text == oldWidget.text || _controller.text == widget.text;
+    if (!shown) _controller.text = widget.text;
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(_controller);
 }
