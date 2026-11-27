@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Checks of web/schedule-reader/ (npm test: layout unit tests; npm run check: real-browser read of a made-up schedule)",
   "scripts": {
-    "test": "node --test layout.test.cjs",
+    "test": "node --test layout.test.cjs id_parser.test.cjs",
     "check": "node check.mjs"
   },
   "devDependencies": {

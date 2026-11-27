@@ -10,6 +10,7 @@ import '../services/supabase_storage_service.dart';
 import '../theme/app_theme.dart';
 import '../utils/file_names.dart';
 import '../utils/schedule_reader/schedule_reader.dart';
+import 'class_schedule_summary.dart';
 import 'document_preview.dart';
 
 /// Uploads a file to storage; tests pass their own.
@@ -102,6 +103,11 @@ class ClassScheduleEditor extends StatefulWidget {
   /// file there is).
   final bool withFile;
 
+  /// When true (student uploads), the file must scan into valid, complete
+  /// classes before it is uploaded, and the scanned classes are shown
+  /// read-only (no adding, editing, or removing rows).
+  final bool readOnly;
+
   @visibleForTesting
   final ScheduleUploader? uploader;
   @visibleForTesting
@@ -117,6 +123,7 @@ class ClassScheduleEditor extends StatefulWidget {
     required this.ownerId,
     this.enabled = true,
     this.withFile = true,
+    this.readOnly = false,
     this.uploader,
     this.reader,
     this.picker,
@@ -197,6 +204,11 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       return;
     }
     final pick = ++c._pick;
+    if (widget.readOnly) {
+      final token = ++c._readToken;
+      await _scanThenUpload(pick, token, bytes, file.name, extension);
+      return;
+    }
     c
       ..fileName = file.name
       ..fileBytes = bytes
@@ -207,6 +219,89 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       _upload(pick, bytes, file.name, extension),
       _read(bytes, extension),
     ]);
+  }
+
+  Future<void> _scanThenUpload(
+    int pick,
+    int token,
+    Uint8List bytes,
+    String name,
+    String extension,
+  ) async {
+    final read =
+        widget.reader ??
+        (ScheduleReader.isSupported ? ScheduleReader.read : null);
+    if (read == null) {
+      c
+        ..fileName = null
+        ..filePath = null
+        ..fileBytes = null
+        ..rows.clear()
+        ..reading = false
+        ..readFailed = true
+        ..readMessage = 'Scanning a class schedule requires the web app.';
+      c.changed();
+      return;
+    }
+    c
+      ..reading = true
+      ..uploadError = null
+      ..readMessage = null
+      ..readFailed = false;
+    c.changed();
+    try {
+      final result = await read(bytes, _mimeFor(extension));
+      if (token != c._readToken || pick != c._pick) return;
+      final found = [
+        for (final m in result.meetings) ClassMeetingRow.fromMeeting(m),
+      ];
+      final isValid =
+          result.ok &&
+          found.isNotEmpty &&
+          result.warnings.isEmpty &&
+          classScheduleProblems(found).isEmpty;
+      if (!isValid) {
+        c
+          ..fileName = null
+          ..filePath = null
+          ..fileBytes = null
+          ..rows.clear()
+          ..reading = false
+          ..readFailed = true
+          ..readMessage =
+              "This file was not accepted because it doesn't look like a "
+              'clear, readable class schedule. Upload a screenshot or PDF of '
+              'your class schedule.';
+        c.changed();
+        return;
+      }
+      c.rows
+        ..clear()
+        ..addAll(found);
+      c
+        ..fileName = name
+        ..fileBytes = bytes
+        ..filePath = null
+        ..reading = false
+        ..readFailed = false
+        ..readMessage =
+            'Scanned ${found.length} ${found.length == 1 ? 'class' : 'classes'} '
+            'from your schedule.';
+      c.changed();
+    } catch (error) {
+      if (token != c._readToken || pick != c._pick) return;
+      c
+        ..fileName = null
+        ..filePath = null
+        ..fileBytes = null
+        ..rows.clear()
+        ..reading = false
+        ..readFailed = true
+        ..readMessage = '$error';
+      c.changed();
+      return;
+    }
+    await _upload(pick, bytes, name, extension);
   }
 
   Future<void> _upload(
@@ -303,8 +398,18 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
 
   void _cancelRead() {
     ScheduleReader.cancel();
-    // Drops the read only; the file's upload carries on.
     c._readToken++;
+    if (widget.readOnly) {
+      c._pick++;
+      c
+        ..reading = false
+        ..readFailed = true
+        ..readMessage =
+            'Scanning cancelled. Choose your class schedule file to try again.';
+      c.changed();
+      return;
+    }
+    // Drops the read only; the file's upload carries on.
     c
       ..reading = false
       ..readFailed = true
@@ -330,7 +435,22 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       children: [
         if (widget.withFile) ...[_fileRow(enabled), const SizedBox(height: 10)],
         if (c.reading) _readingBox() else if (c.readMessage != null) _callout(),
-        if (c.rows.isNotEmpty || !widget.withFile) ...[
+        if (widget.readOnly) ...[
+          if (c.rows.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.slate50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: AppTheme.slate200),
+              ),
+              child: ClassScheduleSummary(
+                subjects: c.subjects(ownerName: '', academicYear: null),
+              ),
+            ),
+          ],
+        ] else if (c.rows.isNotEmpty || !widget.withFile) ...[
           const SizedBox(height: 12),
           for (var i = 0; i < c.rows.length; i++)
             _MeetingRowCard(
@@ -448,7 +568,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
               ),
               child: const Text('View'),
             ),
-          if (c.fileBytes != null && !c.reading)
+          if (c.fileBytes != null && !c.reading && !widget.readOnly)
             TextButton(
               onPressed: enabled ? _readAgain : null,
               child: const Text('Read again'),
@@ -491,24 +611,40 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
 
   Widget _callout() {
     final bad = c.readFailed;
+    final rejected = bad && widget.readOnly;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: bad ? AppTheme.amber50 : AppTheme.blue50,
+        color: rejected
+            ? AppTheme.red50
+            : bad
+            ? AppTheme.amber50
+            : AppTheme.blue50,
         borderRadius: BorderRadius.circular(10),
         border: Border.all(
-          color: (bad ? AppTheme.amber500 : AppTheme.blue500).withValues(
-            alpha: 0.5,
-          ),
+          color: (rejected
+                  ? AppTheme.red500
+                  : bad
+                  ? AppTheme.amber500
+                  : AppTheme.blue500)
+              .withValues(alpha: 0.5),
         ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Icon(
-            bad ? Icons.edit_note_outlined : Icons.fact_check_outlined,
+            rejected
+                ? Icons.error_outline_rounded
+                : bad
+                ? Icons.edit_note_outlined
+                : Icons.fact_check_outlined,
             size: 18,
-            color: bad ? _amberText : AppTheme.blue500,
+            color: rejected
+                ? AppTheme.red500
+                : bad
+                ? _amberText
+                : AppTheme.blue500,
           ),
           const SizedBox(width: 8),
           Expanded(

@@ -334,6 +334,52 @@
     return { ...result, source: 'ocr' };
   }
 
+  async function recognizeImageText(job, image, psm) {
+    const canvas = canvasOf(image.width, image.height);
+    canvas.getContext('2d').putImageData(
+      new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height),
+      0,
+      0,
+    );
+    await job.worker.setParameters({ tessedit_pageseg_mode: String(psm) });
+    const { data } = await job.worker.recognize(canvas);
+    return (data && data.text) || '';
+  }
+
+  async function readSchoolId(bytes, type, job) {
+    const parser = window.SaisIdParser;
+    const layout = window.SaisScheduleLayout;
+    let image;
+    if (type === 'application/pdf') {
+      const pdf = await pdfImage(bytes);
+      if (job.cancelled) throw failure('Cancelled.');
+      if (pdf.words.length >= 5) {
+        const parsed = parser.parseSchoolId(pdf.words.map((w) => w.text).join(' '));
+        if (parsed.ok) return parsed;
+      }
+      image = pdf.image;
+    } else {
+      image = await pictureImage(bytes, type);
+    }
+    job.worker = await startTesseract();
+    if (job.cancelled) throw failure('Cancelled.');
+    return withinTimeLimit((async () => {
+      const text1 = await recognizeImageText(job, image, 3);
+      let parsed = parser.parseSchoolId(text1);
+      if (parsed.ok) return parsed;
+      if (job.cancelled) throw failure('Cancelled.');
+      const plain = layout.cropForOcr(
+        image,
+        { x0: 0, y0: 0, x1: image.width, y1: image.height },
+        { plain: true },
+      );
+      const text2 = await recognizeImageText(job, plain, 6);
+      parsed = parser.parseSchoolId(text2);
+      if (parsed.ok) return parsed;
+      return parser.parseSchoolId(text1 + '\n' + text2);
+    })());
+  }
+
   async function saisReadSchedule(bytes, type) {
     window.saisCancelScheduleRead();
     const job = { worker: null, cancelled: false };
@@ -352,7 +398,25 @@
     }
   }
 
+  async function saisReadSchoolId(bytes, type) {
+    window.saisCancelScheduleRead();
+    const job = { worker: null, cancelled: false };
+    reading = job;
+    try {
+      return JSON.stringify(await readSchoolId(bytes, type, job));
+    } catch (error) {
+      if (error && error.saisMessage) throw error;
+      console.warn('School ID reader: ' + (error && error.stack ? error.stack : error));
+      throw failure('This school ID could not be read. Upload a clear photo of the front of your MarSU school ID.');
+    } finally {
+      job.cancelled = true;
+      if (job.worker) job.worker.terminate().catch(() => {});
+      if (reading === job) reading = null;
+    }
+  }
+
   window.saisReadSchedule = saisReadSchedule;
+  window.saisReadSchoolId = saisReadSchoolId;
   window.saisCancelScheduleRead = function () {
     if (!reading) return;
     reading.cancelled = true;

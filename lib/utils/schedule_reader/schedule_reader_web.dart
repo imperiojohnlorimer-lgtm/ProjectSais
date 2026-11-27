@@ -6,9 +6,13 @@ import 'dart:typed_data';
 import 'package:web/web.dart' as web;
 
 import '../../models/class_schedule.dart';
+import 'school_id_read_result.dart';
 
 @JS('saisReadSchedule')
 external JSPromise<JSString> _readSchedule(JSUint8Array bytes, JSString type);
+
+@JS('saisReadSchoolId')
+external JSPromise<JSString> _readSchoolId(JSUint8Array bytes, JSString type);
 
 @JS('saisCancelScheduleRead')
 external void _cancelScheduleRead();
@@ -59,6 +63,30 @@ class ScheduleReader {
   }
 }
 
+/// Reads a MarSU school ID photo or PDF on this device.
+class SchoolIdReader {
+  const SchoolIdReader._();
+
+  static bool get isSupported => true;
+
+  static Future<SchoolIdReadResult> read(
+    Uint8List bytes,
+    String mimeType,
+  ) async {
+    await _loadScripts();
+    try {
+      final json = await _readSchoolId(bytes.toJS, mimeType.toJS).toDart;
+      return SchoolIdReadResult.fromJson(
+        Map<String, dynamic>.from(jsonDecode(json.toDart) as Map),
+      );
+    } catch (error) {
+      throw ScheduleReadError(ScheduleReader._messageOf(error));
+    }
+  }
+
+  static void cancel() => ScheduleReader.cancel();
+}
+
 /// A read that failed, with a message for the student.
 class ScheduleReadError implements Exception {
   final String message;
@@ -76,6 +104,7 @@ Future<void> _loadScripts() {
     try {
       for (final src in const [
         'schedule-reader/sais-schedule-layout.js',
+        'schedule-reader/sais-id-parser.js',
         'schedule-reader/sais-schedule.js',
       ]) {
         final done = Completer<void>();

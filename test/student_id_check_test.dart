@@ -2,6 +2,9 @@
 // types it and sends a photo of their school ID, the Head checks one against
 // the other, and only then can the applicant go to screening or be approved.
 // Approval puts the ID on the profile, verified and reserved.
+import 'dart:typed_data';
+
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -12,6 +15,7 @@ import 'package:projectsais/screens/accounts/applicant_screening_screen.dart';
 import 'package:projectsais/screens/student_portal/announcements_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/theme/app_theme.dart';
+import 'package:projectsais/utils/schedule_reader/schedule_reader.dart';
 
 import 'support/account_writes.dart';
 
@@ -438,13 +442,24 @@ void main() {
       WidgetTester tester,
       Application previous, {
       User? user,
+      SchoolIdFileReader? schoolIdReader,
+      RequirementFilePicker? filePicker,
+      RequirementFileUploader? fileUploader,
     }) async {
       state
         ..currentUser = user ?? _student
         ..users = [user ?? _student]
         ..announcements = [_call()]
         ..applications = [previous];
-      await pump(tester, const AnnouncementsScreen(), const Size(390, 1000));
+      await pump(
+        tester,
+        AnnouncementsScreen(
+          schoolIdReader: schoolIdReader,
+          filePicker: filePicker,
+          fileUploader: fileUploader,
+        ),
+        const Size(390, 1000),
+      );
       await tester.ensureVisible(find.text('Apply Again'));
       await tester.tap(find.text('Apply Again'));
       await tester.pumpAndSettle();
@@ -480,7 +495,7 @@ void main() {
         find.widgetWithText(TextField, 'Student ID'),
       );
       expect(field.controller!.text, '23B0626');
-      expect(field.readOnly, isFalse);
+      expect(field.readOnly, isTrue);
 
       await submit(tester);
 
@@ -491,7 +506,9 @@ void main() {
       expect(saved.isStudentIdChecked, isFalse);
     });
 
-    testWidgets('a missing Student ID or photo stops the form', (tester) async {
+    testWidgets('Student ID is read-only and missing photo stops the form', (
+      tester,
+    ) async {
       await openApplyAgain(
         tester,
         _application(
@@ -502,19 +519,148 @@ void main() {
         ),
       );
 
-      await submit(tester);
-      expect(find.text('Enter your Student ID, e.g. 23B0626.'), findsOneWidget);
-
+      final field = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'Student ID'),
+      );
+      expect(field.readOnly, isTrue);
+      // Typing directly into the read-only field changes nothing.
       await tester.enterText(
         find.widgetWithText(TextField, 'Student ID'),
-        '23b0626',
+        '23B0626',
       );
+      expect(field.controller!.text, isEmpty);
+
       await submit(tester);
       expect(
-        find.text('Upload a photo of your school ID (the front).'),
+        find.text(
+          'Upload a clear photo of the front of your MarSU school ID so your '
+          'Student ID can be scanned.',
+        ),
         findsOneWidget,
       );
       expect(store.applications, isEmpty);
+    });
+
+    testWidgets('scanning a valid school ID fills Student ID and uploads', (
+      tester,
+    ) async {
+      final uploads = <String>[];
+      await openApplyAgain(
+        tester,
+        _application(
+          status: Application.rejected,
+          studentNumber: null,
+          schedule: schedule,
+          documents: [_doc('Resume::pdf', 'resume.pdf')],
+        ),
+        filePicker: (_) async => PlatformFile(
+          name: 'school_id.jpg',
+          size: 4,
+          bytes: Uint8List.fromList([1, 2, 3, 4]),
+        ),
+        schoolIdReader: (bytes, mime) async {
+          expect(mime, 'image/jpeg');
+          expect(uploads, isEmpty);
+          return const SchoolIdReadResult(ok: true, studentId: '24a9876');
+        },
+        fileUploader: (bytes, path, ext) async {
+          uploads.add(path);
+          return 'https://example.com/$path';
+        },
+      );
+
+      await tester.tap(find.text('Upload Document').first);
+      await tester.pumpAndSettle();
+
+      expect(uploads, hasLength(1));
+      final field = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'Student ID'),
+      );
+      expect(field.controller!.text, '24A9876');
+      expect(field.readOnly, isTrue);
+
+      await submit(tester);
+      expect(
+        store.applications['app_stu1_2026-2027']!.studentNumber,
+        '24A9876',
+      );
+    });
+
+    testWidgets('a non-ID photo is rejected and never uploaded', (
+      tester,
+    ) async {
+      final uploads = <String>[];
+      await openApplyAgain(
+        tester,
+        _application(
+          status: Application.rejected,
+          studentNumber: null,
+          schedule: schedule,
+          documents: [_doc('Resume::pdf', 'resume.pdf')],
+        ),
+        filePicker: (_) async => PlatformFile(
+          name: 'selfie.png',
+          size: 4,
+          bytes: Uint8List.fromList([1, 2, 3, 4]),
+        ),
+        schoolIdReader: (bytes, mime) async => const SchoolIdReadResult(
+          ok: false,
+          reason: 'This does not look like a MarSU school ID.',
+        ),
+        fileUploader: (bytes, path, ext) async {
+          uploads.add(path);
+          return 'https://example.com/$path';
+        },
+      );
+
+      await tester.tap(find.text('Upload Document').first);
+      await tester.pumpAndSettle();
+
+      expect(uploads, isEmpty);
+      expect(
+        find.text('This does not look like a MarSU school ID.'),
+        findsOneWidget,
+      );
+      final field = tester.widget<TextField>(
+        find.widgetWithText(TextField, 'Student ID'),
+      );
+      expect(field.controller!.text, isEmpty);
+    });
+
+    testWidgets('a scanned ID mismatching the profile ID is rejected', (
+      tester,
+    ) async {
+      final uploads = <String>[];
+      await openApplyAgain(
+        tester,
+        user: _student.copyWith(studentId: '23b0626'),
+        _application(
+          status: Application.rejected,
+          studentNumber: null,
+          schedule: schedule,
+          documents: [_doc('Resume::pdf', 'resume.pdf')],
+        ),
+        filePicker: (_) async => PlatformFile(
+          name: 'other_id.jpg',
+          size: 4,
+          bytes: Uint8List.fromList([1, 2, 3, 4]),
+        ),
+        schoolIdReader: (bytes, mime) async =>
+            const SchoolIdReadResult(ok: true, studentId: '24C1111'),
+        fileUploader: (bytes, path, ext) async {
+          uploads.add(path);
+          return 'https://example.com/$path';
+        },
+      );
+
+      await tester.tap(find.text('Upload Document').first);
+      await tester.pumpAndSettle();
+
+      expect(uploads, isEmpty);
+      expect(
+        find.textContaining('does not match your account Student ID (23B0626)'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a Student ID on the profile is used, locked', (tester) async {

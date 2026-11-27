@@ -9,16 +9,40 @@ import '../../models/models.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
+import '../../utils/schedule_reader/schedule_reader.dart';
 import '../../widgets/announcement_widgets.dart';
 import '../../widgets/application_status.dart';
 import '../../widgets/class_schedule_editor.dart';
 import 'student_page_widgets.dart';
 
+/// Reads a school ID file; tests pass their own.
+typedef SchoolIdFileReader =
+    Future<SchoolIdReadResult> Function(Uint8List bytes, String mimeType);
+
+/// Picks a requirement file; tests pass their own.
+typedef RequirementFilePicker = Future<PlatformFile?> Function(String req);
+
+/// Uploads a requirement file and returns its URL; tests pass their own.
+typedef RequirementFileUploader =
+    Future<String> Function(Uint8List bytes, String path, String extension);
+
 /// The student's page: one application to be a Student Assistant, then
 /// the Head's announcements to read. A student doesn't apply to an office;
 /// the Head matches applicants' skills to the offices that asked for help.
 class AnnouncementsScreen extends StatelessWidget {
-  const AnnouncementsScreen({super.key});
+  @visibleForTesting
+  final SchoolIdFileReader? schoolIdReader;
+  @visibleForTesting
+  final RequirementFilePicker? filePicker;
+  @visibleForTesting
+  final RequirementFileUploader? fileUploader;
+
+  const AnnouncementsScreen({
+    super.key,
+    this.schoolIdReader,
+    this.filePicker,
+    this.fileUploader,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -45,9 +69,20 @@ class AnnouncementsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 24),
               if (myApplication != null)
-                _MyApplicationCard(application: myApplication, state: state)
+                _MyApplicationCard(
+                  application: myApplication,
+                  state: state,
+                  schoolIdReader: schoolIdReader,
+                  filePicker: filePicker,
+                  fileUploader: fileUploader,
+                )
               else
-                _ApplyCard(state: state),
+                _ApplyCard(
+                  state: state,
+                  schoolIdReader: schoolIdReader,
+                  filePicker: filePicker,
+                  fileUploader: fileUploader,
+                ),
               if (notices.isNotEmpty) ...[
                 const SizedBox(height: 32),
                 const StudentSectionLabel('ANNOUNCEMENTS'),
@@ -69,13 +104,22 @@ void _openApplyDialog(
   AppState state,
   Announcement call, {
   Application? previous,
+  SchoolIdFileReader? schoolIdReader,
+  RequirementFilePicker? filePicker,
+  RequirementFileUploader? fileUploader,
 }) {
   showDialog<void>(
     context: context,
     barrierDismissible: false,
     builder: (_) => ChangeNotifierProvider.value(
       value: state,
-      child: ApplyDialog(call: call, previous: previous),
+      child: ApplyDialog(
+        call: call,
+        previous: previous,
+        schoolIdReader: schoolIdReader,
+        filePicker: filePicker,
+        fileUploader: fileUploader,
+      ),
     ),
   );
 }
@@ -84,7 +128,15 @@ void _openApplyDialog(
 /// Apply button — or why applying isn't possible right now.
 class _ApplyCard extends StatelessWidget {
   final AppState state;
-  const _ApplyCard({required this.state});
+  final SchoolIdFileReader? schoolIdReader;
+  final RequirementFilePicker? filePicker;
+  final RequirementFileUploader? fileUploader;
+  const _ApplyCard({
+    required this.state,
+    this.schoolIdReader,
+    this.filePicker,
+    this.fileUploader,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -270,7 +322,14 @@ class _ApplyCard extends StatelessWidget {
               width: double.infinity,
               height: 50,
               child: ElevatedButton.icon(
-                onPressed: () => _openApplyDialog(context, state, call!),
+                onPressed: () => _openApplyDialog(
+                  context,
+                  state,
+                  call!,
+                  schoolIdReader: schoolIdReader,
+                  filePicker: filePicker,
+                  fileUploader: fileUploader,
+                ),
                 icon: const Icon(Icons.send_rounded, size: 16),
                 label: const Text('Apply Now'),
                 style: ElevatedButton.styleFrom(
@@ -536,7 +595,16 @@ class _Step extends StatelessWidget {
 class _MyApplicationCard extends StatelessWidget {
   final Application application;
   final AppState state;
-  const _MyApplicationCard({required this.application, required this.state});
+  final SchoolIdFileReader? schoolIdReader;
+  final RequirementFilePicker? filePicker;
+  final RequirementFileUploader? fileUploader;
+  const _MyApplicationCard({
+    required this.application,
+    required this.state,
+    this.schoolIdReader,
+    this.filePicker,
+    this.fileUploader,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -679,6 +747,9 @@ class _MyApplicationCard extends StatelessWidget {
                     state,
                     call!,
                     previous: application,
+                    schoolIdReader: schoolIdReader,
+                    filePicker: filePicker,
+                    fileUploader: fileUploader,
                   ),
                   icon: const Icon(Icons.refresh_rounded, size: 16),
                   label: const Text('Apply Again'),
@@ -849,7 +920,21 @@ class ApplyDialog extends StatefulWidget {
   /// The rejected application this replaces: its skills, and its files for
   /// requirements the call still asks for, are filled in to start from.
   final Application? previous;
-  const ApplyDialog({super.key, required this.call, this.previous});
+  @visibleForTesting
+  final SchoolIdFileReader? schoolIdReader;
+  @visibleForTesting
+  final RequirementFilePicker? filePicker;
+  @visibleForTesting
+  final RequirementFileUploader? fileUploader;
+
+  const ApplyDialog({
+    super.key,
+    required this.call,
+    this.previous,
+    this.schoolIdReader,
+    this.filePicker,
+    this.fileUploader,
+  });
 
   @override
   State<ApplyDialog> createState() => _ApplyDialogState();
@@ -863,6 +948,9 @@ class _ApplyDialogState extends State<ApplyDialog> {
   /// Requirements uploading now. Snackbars would be hidden behind the
   /// dialog, so feedback is shown inside it.
   final _uploading = <String>{};
+  bool _scanningId = false;
+  String? _idScanError;
+  int _idScanToken = 0;
   String? _notice;
   var _noticeIsError = false;
   var _submitting = false;
@@ -918,9 +1006,6 @@ class _ApplyDialogState extends State<ApplyDialog> {
     }
     final previous = widget.previous;
     if (previous == null) return;
-    if (_lockedStudentId == null) {
-      _studentIdCtrl.text = previous.studentNumber ?? saved;
-    }
     _selectedSkills.addAll(previous.skills);
     for (final doc in previous.submittedDocuments) {
       // The school ID photo, whatever it was listed as, goes back in its
@@ -938,10 +1023,16 @@ class _ApplyDialogState extends State<ApplyDialog> {
       };
       _kept.add(key);
     }
+    if (_lockedStudentId == null && _uploaded.containsKey(_schoolIdKey)) {
+      _studentIdCtrl.text = (previous.studentNumber ?? saved)
+          .trim()
+          .toUpperCase();
+    }
   }
 
   @override
   void dispose() {
+    if (_scanningId) SchoolIdReader.cancel();
     _schedule.removeListener(_onScheduleChanged);
     _schedule.dispose();
     _skillsCtrl.dispose();
@@ -984,51 +1075,122 @@ class _ApplyDialogState extends State<ApplyDialog> {
 
   Future<void> _upload(String req, AppState state) async {
     final spec = RequirementSpec.parse(req);
+    final isSchoolId = req == _schoolIdKey;
     // The school ID photo takes a photo or a PDF, whatever its spec says.
-    final allowed = req == _schoolIdKey
-        ? _schoolIdTypes
-        : spec.allowedExtensions;
+    final allowed = isSchoolId ? _schoolIdTypes : spec.allowedExtensions;
     var uploadStarted = false;
+    var scanStarted = false;
     try {
-      final result = await FilePicker.platform.pickFiles(
-        type: allowed.isEmpty ? FileType.any : FileType.custom,
-        allowedExtensions: allowed.isEmpty ? null : allowed,
-        allowMultiple: false,
-        withData: true,
-      );
-      if (result == null || result.files.isEmpty) return;
-      final file = result.files.single;
+      final file = widget.filePicker != null
+          ? await widget.filePicker!(req)
+          : await () async {
+              final result = await FilePicker.platform.pickFiles(
+                type: allowed.isEmpty ? FileType.any : FileType.custom,
+                allowedExtensions: allowed.isEmpty ? null : allowed,
+                allowMultiple: false,
+                withData: true,
+              );
+              return result == null || result.files.isEmpty
+                  ? null
+                  : result.files.single;
+            }();
+      if (file == null) return;
       final extension = (file.extension ?? '').toLowerCase();
       if (allowed.isNotEmpty && !allowed.contains(extension)) {
         throw Exception(
-          req == _schoolIdKey
+          isSchoolId
               ? 'The school ID must be a JPG, PNG or PDF file.'
               : 'Only ${spec.fileTypeLabel} files are accepted for this requirement.',
         );
       }
       final fileBytes = file.bytes;
-      if (fileBytes == null) {
+      if (fileBytes == null || fileBytes.isEmpty) {
         throw Exception(
           'This file is not available in the browser session. Please choose '
           'the file again.',
         );
       }
+      if (fileBytes.length > SupabaseStorageService.maxUploadBytes) {
+        throw Exception('The file must be 10 MB or smaller.');
+      }
+
+      String? scannedId;
+      if (isSchoolId) {
+        final reader =
+            widget.schoolIdReader ??
+            (SchoolIdReader.isSupported ? SchoolIdReader.read : null);
+        if (reader == null) {
+          if (!mounted) return;
+          setState(() {
+            _idScanError = 'Scanning a school ID requires the web app.';
+          });
+          return;
+        }
+        final token = ++_idScanToken;
+        if (!mounted) return;
+        setState(() {
+          scanStarted = true;
+          _scanningId = true;
+          _idScanError = null;
+          _notice = null;
+        });
+        final mime = switch (extension) {
+          'pdf' => 'application/pdf',
+          'png' => 'image/png',
+          _ => 'image/jpeg',
+        };
+        final scan = await reader(fileBytes, mime);
+        if (!mounted || token != _idScanToken) return;
+        if (!scan.ok || !isValidStudentId(scan.studentId ?? '')) {
+          setState(() {
+            _scanningId = false;
+            _idScanError =
+                scan.reason ??
+                'This file was not accepted. Upload a clear photo of the front '
+                    'of your MarSU school ID.';
+          });
+          return;
+        }
+        scannedId = scan.studentId!.trim().toUpperCase();
+        if (_lockedStudentId != null && scannedId != _lockedStudentId) {
+          setState(() {
+            _scanningId = false;
+            _idScanError =
+                'The Student ID on this photo ($scannedId) does not match your '
+                'account Student ID ($_lockedStudentId).';
+          });
+          return;
+        }
+        setState(() => _scanningId = false);
+        scanStarted = false;
+      }
+
       final timestamp = DateTime.now().millisecondsSinceEpoch;
+      String? authUid;
+      try {
+        authUid = fb_auth.FirebaseAuth.instance.currentUser?.uid;
+      } catch (_) {}
       final storagePath =
-          'applications/${fb_auth.FirebaseAuth.instance.currentUser?.uid ?? state.currentUser?.id ?? 'user'}/$timestamp/${randomObjectName(file.name)}';
+          'applications/${authUid ?? state.currentUser?.id ?? 'user'}/$timestamp/${randomObjectName(file.name)}';
       if (!mounted) return;
       setState(() {
         uploadStarted = true;
         _uploading.add(req);
         _notice = null;
       });
-      final downloadUrl = await SupabaseStorageService.instance.uploadDocument(
-        bytes: fileBytes,
-        path: storagePath,
-        contentType: SupabaseStorageService.contentTypeForExtension(
-          file.extension ?? '',
-        ),
-      );
+      final downloadUrl = widget.fileUploader != null
+          ? await widget.fileUploader!(
+              fileBytes,
+              storagePath,
+              file.extension ?? '',
+            )
+          : await SupabaseStorageService.instance.uploadDocument(
+              bytes: fileBytes,
+              path: storagePath,
+              contentType: SupabaseStorageService.contentTypeForExtension(
+                file.extension ?? '',
+              ),
+            );
       if (!mounted) return;
       setState(() {
         _uploading.remove(req);
@@ -1041,15 +1203,28 @@ class _ApplyDialogState extends State<ApplyDialog> {
           'storagePath': storagePath,
           'downloadUrl': downloadUrl,
         };
-        _noticeIsError = false;
-        _notice = '${spec.label} uploaded: ${file.name}';
+        if (isSchoolId && scannedId != null) {
+          _studentIdCtrl.text = scannedId;
+          _idScanError = null;
+          _noticeIsError = false;
+          _notice = 'School ID verified ($scannedId) and uploaded: ${file.name}';
+        } else {
+          _noticeIsError = false;
+          _notice = '${spec.label} uploaded: ${file.name}';
+        }
       });
     } catch (e) {
       if (mounted) {
         setState(() {
+          if (scanStarted) {
+            _scanningId = false;
+            _idScanError = '$e';
+          }
           if (uploadStarted) _uploading.remove(req);
-          _noticeIsError = true;
-          _notice = 'Error uploading file: $e';
+          if (!scanStarted) {
+            _noticeIsError = true;
+            _notice = 'Error uploading file: $e';
+          }
         });
       }
     }
@@ -1066,6 +1241,13 @@ class _ApplyDialogState extends State<ApplyDialog> {
             ? 'The deadline (${call.deadline}) has passed, so applications '
                   'are closed.'
             : 'Applications have closed, so this form can no longer be sent.';
+      });
+      return;
+    }
+    if (_scanningId) {
+      setState(() {
+        _noticeIsError = true;
+        _notice = 'Wait for your school ID to finish scanning.';
       });
       return;
     }
@@ -1087,17 +1269,12 @@ class _ApplyDialogState extends State<ApplyDialog> {
       return;
     }
     final studentId = _studentIdCtrl.text.trim().toUpperCase();
-    if (!isValidStudentId(studentId)) {
+    if (!_uploaded.containsKey(_schoolIdKey) || !isValidStudentId(studentId)) {
       setState(() {
         _noticeIsError = true;
-        _notice = 'Enter your Student ID, e.g. 23B0626.';
-      });
-      return;
-    }
-    if (!_uploaded.containsKey(_schoolIdKey)) {
-      setState(() {
-        _noticeIsError = true;
-        _notice = 'Upload a photo of your school ID (the front).';
+        _notice =
+            'Upload a clear photo of the front of your MarSU school ID so '
+            'your Student ID can be scanned.';
       });
       return;
     }
@@ -1218,7 +1395,8 @@ class _ApplyDialogState extends State<ApplyDialog> {
   @override
   Widget build(BuildContext context) {
     final state = context.watch<AppState>();
-    final busy = _uploading.isNotEmpty || _submitting || _schedule.busy;
+    final busy =
+        _uploading.isNotEmpty || _scanningId || _submitting || _schedule.busy;
     final reason = widget.previous?.remarks?.trim() ?? '';
     return AnnouncementDialog(
       title: widget.previous == null
@@ -1296,14 +1474,56 @@ class _ApplyDialogState extends State<ApplyDialog> {
         const StudentSectionLabel('YOUR STUDENT ID'),
         const SizedBox(height: 4),
         const Text(
-          'Type your Student ID and upload a clear photo of the front of your '
-          'school ID. The Head checks that they match before screening.',
+          'Upload a clear photo of the front of your MarSU school ID. Your '
+          'Student ID number is scanned automatically and cannot be edited.',
           style: TextStyle(fontSize: 11, color: AppTheme.slate500, height: 1.4),
         ),
         const SizedBox(height: 10),
+        _requirementTile(
+          _schoolIdKey,
+          state,
+          title: 'Photo of your school ID (front)',
+          hint: 'JPG, PNG or PDF, up to 10 MB',
+        ),
+        if (_idScanError != null) ...[
+          Container(
+            width: double.infinity,
+            margin: const EdgeInsets.only(bottom: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppTheme.red50,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: AppTheme.red500.withValues(alpha: 0.45),
+              ),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Icon(
+                  Icons.error_outline_rounded,
+                  size: 16,
+                  color: AppTheme.red500,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    _idScanError!,
+                    style: const TextStyle(
+                      fontSize: 11.5,
+                      color: AppTheme.red500,
+                      fontWeight: FontWeight.w600,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         TextField(
           controller: _studentIdCtrl,
-          readOnly: _lockedStudentId != null,
+          readOnly: true,
           enabled: !_submitting,
           textCapitalization: TextCapitalization.characters,
           inputFormatters: [StudentIdFormatter()],
@@ -1314,15 +1534,13 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ),
           decoration: InputDecoration(
             labelText: 'Student ID',
-            hintText: 'e.g. 23B0626',
+            hintText: 'Scanned from your school ID photo',
             helperText: _lockedStudentId != null
                 ? "From your profile. If it's wrong, ask the Admin to correct it."
-                : null,
+                : 'Filled automatically from your school ID photo.',
             helperMaxLines: 2,
             filled: true,
-            fillColor: _lockedStudentId != null
-                ? AppTheme.slate100
-                : Colors.white,
+            fillColor: AppTheme.slate100,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: AppTheme.slate200),
@@ -1337,14 +1555,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
             ),
           ),
         ),
-        const SizedBox(height: 12),
-        _requirementTile(
-          _schoolIdKey,
-          state,
-          title: 'Photo of your school ID (front)',
-          hint: 'JPG, PNG or PDF, up to 10 MB',
-        ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 14),
         const StudentSectionLabel('YOUR SKILLS'),
         const SizedBox(height: 4),
         const Text(
@@ -1468,9 +1679,9 @@ class _ApplyDialogState extends State<ApplyDialog> {
         const SizedBox(height: 4),
         const Text(
           'Upload your class schedule (a screenshot, a PDF or a photo of the '
-          'printed copy). Your classes are read from it on this device: check '
-          'each one and add the units. If you are approved, it becomes your '
-          'schedule in SAIS.',
+          'printed copy). Your classes are scanned automatically and cannot be '
+          'edited manually. If you are approved, it becomes your schedule in '
+          'SAIS.',
           style: TextStyle(fontSize: 11, color: AppTheme.slate500, height: 1.4),
         ),
         const SizedBox(height: 10),
@@ -1480,6 +1691,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
           // against.
           ownerId: state.currentUser?.id ?? '',
           enabled: !_submitting,
+          readOnly: true,
         ),
         if (_scheduleProblems.isNotEmpty)
           Padding(
@@ -1554,6 +1766,8 @@ class _ApplyDialogState extends State<ApplyDialog> {
               Text(
                 _submitting
                     ? 'Submitting...'
+                    : _scanningId
+                    ? 'Scanning school ID...'
                     : _uploading.isNotEmpty || _schedule.uploading
                     ? 'Uploading file...'
                     : _schedule.reading
@@ -1635,7 +1849,9 @@ class _ApplyDialogState extends State<ApplyDialog> {
             ? null
             : 'Only ${spec.fileTypeLabel} accepted');
     final uploaded = _uploaded[req];
+    final scanning = req == _schoolIdKey && _scanningId;
     final uploading = _uploading.contains(req);
+    final busyTile = scanning || uploading;
     final kept = _kept.contains(req);
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
@@ -1723,10 +1939,10 @@ class _ApplyDialogState extends State<ApplyDialog> {
               ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: uploading || _submitting
+              onPressed: busyTile || _submitting
                   ? null
                   : () => _upload(req, state),
-              icon: uploading
+              icon: busyTile
                   ? const SizedBox(
                       width: 16,
                       height: 16,
@@ -1734,7 +1950,9 @@ class _ApplyDialogState extends State<ApplyDialog> {
                     )
                   : const Icon(Icons.upload_file_outlined, size: 16),
               label: Text(
-                uploading
+                scanning
+                    ? 'Scanning ID...'
+                    : uploading
                     ? 'Uploading...'
                     : uploaded != null
                     ? 'Replace File'

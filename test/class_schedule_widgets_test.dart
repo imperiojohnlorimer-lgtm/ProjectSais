@@ -88,6 +88,8 @@ void main() {
       WidgetTester tester, {
       required ScheduleFileReader reader,
       List<String>? uploads,
+      bool readOnly = true,
+      bool withFile = true,
     }) async {
       final controller = ClassScheduleController();
       await tester.pumpWidget(
@@ -98,6 +100,8 @@ void main() {
               child: ClassScheduleEditor(
                 controller: controller,
                 ownerId: 'sa',
+                withFile: withFile,
+                readOnly: readOnly,
                 picker: () async => PlatformFile(
                   name: 'my schedule.png',
                   size: 4,
@@ -110,12 +114,14 @@ void main() {
           ),
         ),
       );
-      await tester.tap(find.textContaining('Choose your class schedule'));
-      await tester.pumpAndSettle();
+      if (withFile) {
+        await tester.tap(find.textContaining('Choose your class schedule'));
+        await tester.pumpAndSettle();
+      }
       return controller;
     }
 
-    testWidgets('reads the file into rows to check, and uploads it', (
+    testWidgets('scans first into read-only rows, then uploads', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(900, 1600);
@@ -128,6 +134,8 @@ void main() {
         uploads: uploads,
         reader: (bytes, type) async {
           expect(type, 'image/png');
+          // Upload must not start before scan completes.
+          expect(uploads, isEmpty);
           return const ScheduleReadResult(
             ok: true,
             meetings: [
@@ -154,8 +162,12 @@ void main() {
       expect(controller.hasFile, isTrue);
       expect(controller.rows, hasLength(2));
       expect(find.text('Systems Analysis'), findsOneWidget);
-      expect(find.text('Check'), findsOneWidget);
-      expect(find.textContaining('We read 2 classes'), findsOneWidget);
+      expect(find.textContaining('Scanned 2 classes'), findsOneWidget);
+      // Read-only: no text fields, no Add a class, no Read again, no delete.
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Add a class'), findsNothing);
+      expect(find.text('Read again'), findsNothing);
+      expect(find.byTooltip('Remove this class'), findsNothing);
       expect(controller.problems(), isEmpty);
       final subjects = controller.subjects(
         ownerName: 'Sia Assistant',
@@ -165,13 +177,13 @@ void main() {
       expect(subjects.last.room, 'CL5');
     });
 
-    testWidgets('stopping the reading keeps the upload', (tester) async {
+    testWidgets('cancelling the scan skips uploading', (tester) async {
       tester.view.physicalSize = const Size(900, 1600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       _ignoreOverflow();
-      final upload = Completer<void>();
       final read = Completer<ScheduleReadResult>();
+      final uploads = <String>[];
       final controller = ClassScheduleController();
       await tester.pumpWidget(
         MaterialApp(
@@ -181,12 +193,13 @@ void main() {
               child: ClassScheduleEditor(
                 controller: controller,
                 ownerId: 'sa',
+                readOnly: true,
                 picker: () async => PlatformFile(
                   name: 'my schedule.png',
                   size: 4,
                   bytes: Uint8List.fromList([1, 2, 3, 4]),
                 ),
-                uploader: (bytes, path, ext) => upload.future,
+                uploader: (bytes, path, ext) async => uploads.add(path),
                 reader: (bytes, type) => read.future,
               ),
             ),
@@ -197,12 +210,11 @@ void main() {
       await tester.pump();
       expect(controller.busy, isTrue);
       await tester.tap(find.text('Stop'));
-      await tester.pump();
-      upload.complete();
       await tester.pumpAndSettle();
       expect(controller.busy, isFalse);
-      expect(controller.hasFile, isTrue);
-      expect(controller.rows, hasLength(1));
+      expect(controller.hasFile, isFalse);
+      expect(controller.rows, isEmpty);
+      expect(uploads, isEmpty);
       // The stopped read finishing late changes nothing.
       read.complete(
         const ScheduleReadResult(
@@ -213,24 +225,63 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      expect(controller.rows.single.title, '');
+      expect(controller.rows, isEmpty);
+      expect(uploads, isEmpty);
     });
 
-    testWidgets('a file it cannot read leaves a row to type in', (
+    testWidgets('an unreadable or non-schedule file is rejected and not uploaded', (
       tester,
     ) async {
       tester.view.physicalSize = const Size(900, 1600);
       tester.view.devicePixelRatio = 1.0;
       addTearDown(tester.view.reset);
       _ignoreOverflow();
+      final uploads = <String>[];
       final controller = await pumpEditor(
         tester,
+        uploads: uploads,
         reader: (bytes, type) async =>
             const ScheduleReadResult(ok: false, meetings: []),
       );
-      expect(find.textContaining("couldn't find the classes"), findsOneWidget);
-      expect(controller.rows, hasLength(1));
-      expect(controller.problems().first, startsWith('Row 1'));
+      expect(find.textContaining('was not accepted'), findsOneWidget);
+      expect(controller.hasFile, isFalse);
+      expect(controller.rows, isEmpty);
+      expect(uploads, isEmpty);
+      expect(controller.problems(), contains('Choose your class schedule file.'));
+    });
+
+    testWidgets('Head edit mode stays editable without a file', (tester) async {
+      tester.view.physicalSize = const Size(900, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      _ignoreOverflow();
+      final controller = ClassScheduleController(
+        rows: [
+          ClassMeetingRow(
+            title: 'Math 1',
+            weekday: 1,
+            start: const TimeOfDay(hour: 8, minute: 0),
+            end: const TimeOfDay(hour: 10, minute: 0),
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.theme,
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ClassScheduleEditor(
+                controller: controller,
+                ownerId: 'sa',
+                withFile: false,
+                readOnly: false,
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.text('Add a class'), findsOneWidget);
+      expect(find.byType(TextField), findsWidgets);
     });
   });
 

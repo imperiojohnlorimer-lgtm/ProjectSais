@@ -199,9 +199,10 @@ class _ClassScheduleDialogState extends State<ClassScheduleDialog> {
                     if (_isRequest)
                       const Text(
                         'Upload your new class schedule (a screenshot, a PDF or '
-                        'a photo of the printed copy). Your classes are read '
-                        'from it; check them below. Your schedule stays as it '
-                        'is until the Head approves this one.',
+                        'a photo of the printed copy). Your classes are scanned '
+                        'automatically and cannot be edited manually. Your '
+                        'schedule stays as it is until the Head approves this '
+                        'one.',
                         style: TextStyle(
                           fontSize: 12.5,
                           color: AppTheme.slate600,
@@ -225,6 +226,7 @@ class _ClassScheduleDialogState extends State<ClassScheduleDialog> {
                       ownerId: widget.ownerId,
                       enabled: !_saving,
                       withFile: _isRequest,
+                      readOnly: _isRequest,
                     ),
                     const SizedBox(height: 8),
                     Wrap(
