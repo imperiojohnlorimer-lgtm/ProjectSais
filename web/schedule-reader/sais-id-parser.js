@@ -82,7 +82,7 @@
         if (
           /^\d{2}$/.test(yy) &&
           yearNum >= 15 &&
-          yearNum <= 39 &&
+          yearNum <= 28 &&
           /^\d{4}$/.test(seq)
         ) {
           return yy + OCR_CAMPUS_MAP[m[2]] + seq;
@@ -93,7 +93,7 @@
   }
 
   function looksLikeMarsuSchool(text) {
-    if (/\b(marinduque|marsu|msc|state\s+universit|state\s+colleg|manguera)\b/i.test(text)) {
+    if (/\b(marinduque|marsu|msc|state\s+universit\w*|state\s+colleg\w*|manguera)\b/i.test(text)) {
       return true;
     }
     if (/\btanza\b/i.test(text) && /\bbo[o0]?ac\b/i.test(text)) {

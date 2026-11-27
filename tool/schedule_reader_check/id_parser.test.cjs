@@ -55,6 +55,10 @@ test('recovers campus letter when OCR reads bold B/S/G/T as 8/5/6/7 on MarSU IDs
   );
   assert.deepEqual(realOcr, { ok: true, studentId: '23B1402', reason: null });
 
+  // High-res OCR where only "State College" and the number are clear.
+  const stateCollegeOnly = P.parseSchoolId('Sarindine State College\n2381402');
+  assert.deepEqual(stateCollegeOnly, { ok: true, studentId: '23B1402', reason: null });
+
   assert.equal(
     P.parseSchoolId('MarSU\n2250415').studentId,
     '22S0415',

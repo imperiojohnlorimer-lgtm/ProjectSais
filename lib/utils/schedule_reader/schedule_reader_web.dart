@@ -103,9 +103,9 @@ Future<void> _loadScripts() {
   return _scripts ??= () async {
     try {
       for (final src in const [
-        'schedule-reader/sais-schedule-layout.js',
-        'schedule-reader/sais-id-parser.js',
-        'schedule-reader/sais-schedule.js',
+        'schedule-reader/sais-schedule-layout.js?v=3',
+        'schedule-reader/sais-id-parser.js?v=3',
+        'schedule-reader/sais-schedule.js?v=3',
       ]) {
         final done = Completer<void>();
         final script = web.HTMLScriptElement()

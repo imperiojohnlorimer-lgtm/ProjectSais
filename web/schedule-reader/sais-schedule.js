@@ -334,16 +334,197 @@
     return { ...result, source: 'ocr' };
   }
 
-  async function recognizeImageText(job, image, psm) {
-    const canvas = canvasOf(image.width, image.height);
-    canvas.getContext('2d').putImageData(
+  function canvasFromImage(image) {
+    const src = canvasOf(image.width, image.height);
+    src.getContext('2d').putImageData(
       new ImageData(new Uint8ClampedArray(image.pixels), image.width, image.height),
       0,
       0,
     );
+    return src;
+  }
+
+  function resizeMaxSide(image, maxSide) {
+    const longest = Math.max(image.width, image.height);
+    if (longest <= maxSide) return image;
+    const factor = maxSide / longest;
+    const w = Math.max(1, Math.round(image.width * factor));
+    const h = Math.max(1, Math.round(image.height * factor));
+    const canvas = canvasOf(w, h);
+    canvas.getContext('2d', { willReadFrequently: true }).drawImage(
+      canvasFromImage(image),
+      0,
+      0,
+      w,
+      h,
+    );
+    return imageOf(canvas);
+  }
+
+  function rotate90(image, clockwise) {
+    const canvas = canvasOf(image.height, image.width);
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(clockwise ? Math.PI / 2 : -Math.PI / 2);
+    ctx.drawImage(canvasFromImage(image), -image.width / 2, -image.height / 2);
+    return imageOf(canvas);
+  }
+
+  function findBrightCardRect(image) {
+    const { width, height, pixels } = image;
+    let sum = 0;
+    let samples = 0;
+    for (let y = 0; y < height; y += 4) {
+      for (let x = 0; x < width; x += 4) {
+        const p = (y * width + x) * 4;
+        sum += pixels[p] * 0.299 + pixels[p + 1] * 0.587 + pixels[p + 2] * 0.114;
+        samples++;
+      }
+    }
+    if (!samples) return null;
+    const thresh = Math.max(105, Math.min(165, sum / samples + 18));
+    const sampledRows = Math.ceil(height / 2);
+    const sampledCols = Math.ceil(width / 2);
+    const rowCounts = new Int32Array(sampledRows);
+    const colCounts = new Int32Array(sampledCols);
+    for (let sy = 0, y = 0; y < height; sy++, y += 2) {
+      for (let sx = 0, x = 0; x < width; sx++, x += 2) {
+        const p = (y * width + x) * 4;
+        const luma = pixels[p] * 0.299 + pixels[p + 1] * 0.587 + pixels[p + 2] * 0.114;
+        if (luma >= thresh) {
+          rowCounts[sy]++;
+          colCounts[sx]++;
+        }
+      }
+    }
+    const minRow = Math.max(4, Math.round(sampledCols * 0.15));
+    const minCol = Math.max(4, Math.round(sampledRows * 0.15));
+    let top = -1, bottom = -1, left = -1, right = -1;
+    for (let i = 0; i < sampledRows; i++) {
+      if (rowCounts[i] >= minRow) {
+        if (top < 0) top = i * 2;
+        bottom = Math.min(height, i * 2 + 2);
+      }
+    }
+    for (let i = 0; i < sampledCols; i++) {
+      if (colCounts[i] >= minCol) {
+        if (left < 0) left = i * 2;
+        right = Math.min(width, i * 2 + 2);
+      }
+    }
+    if (top < 0 || left < 0) return null;
+    const cw = right - left;
+    const ch = bottom - top;
+    if (cw < width * 0.25 || ch < height * 0.25) return null;
+    if ((cw * ch) / (width * height) > 0.85) return null;
+    const padX = Math.round(cw * 0.02);
+    const padY = Math.round(ch * 0.02);
+    return {
+      x0: Math.max(0, left - padX),
+      y0: Math.max(0, top - padY),
+      x1: Math.min(width, right + padX),
+      y1: Math.min(height, bottom + padY),
+    };
+  }
+
+  function cropImageRect(image, rect) {
+    const cw = Math.max(1, Math.round(rect.x1 - rect.x0));
+    const ch = Math.max(1, Math.round(rect.y1 - rect.y0));
+    const canvas = canvasOf(cw, ch);
+    canvas.getContext('2d', { willReadFrequently: true }).drawImage(
+      canvasFromImage(image),
+      rect.x0,
+      rect.y0,
+      cw,
+      ch,
+      0,
+      0,
+      cw,
+      ch,
+    );
+    return imageOf(canvas);
+  }
+
+  async function recognizeImageText(job, image, psm) {
+    const canvas = canvasFromImage(image);
     await job.worker.setParameters({ tessedit_pageseg_mode: String(psm) });
     const { data } = await job.worker.recognize(canvas);
     return (data && data.text) || '';
+  }
+
+  async function scanUprightId(job, img, parser, layout) {
+    const hdrScale = Math.min(2, Math.max(1, 1200 / img.width));
+    const midScale = Math.min(2, Math.max(1, 1200 / img.width));
+
+    const text1 = await recognizeImageText(job, img, 3);
+    let combined = text1;
+    let parsed = parser.parseSchoolId(combined);
+    if (parsed.ok) return parsed;
+    if (job.cancelled) throw failure('Cancelled.');
+
+    // Header band: reads "Marinduque State College / University" and
+    // campus address even when dark/glossy areas confuse full-page contrast.
+    const headerCrop = layout.cropForOcr(
+      img,
+      {
+        x0: 0,
+        y0: 0,
+        x1: img.width,
+        y1: Math.max(1, Math.round(img.height * 0.32)),
+      },
+      { plain: true, scale: hdrScale },
+    );
+    const headerText = await recognizeImageText(job, headerCrop, 6);
+    combined = combined + '\n' + headerText;
+    parsed = parser.parseSchoolId(combined);
+    if (parsed.ok) return parsed;
+    if (job.cancelled) throw failure('Cancelled.');
+
+    // Middle-right ID band (raw contrast preserved): avoids over-brightening
+    // dark bold student ID numbers inside translucent label boxes.
+    const midRightCrop = layout.cropForOcr(
+      img,
+      {
+        x0: Math.round(img.width * 0.35),
+        y0: Math.round(img.height * 0.34),
+        x1: img.width,
+        y1: Math.max(1, Math.round(img.height * 0.66)),
+      },
+      { plain: false, scale: Math.min(2, Math.max(1, 800 / (img.width * 0.65))) },
+    );
+    const midRightText = await recognizeImageText(job, midRightCrop, 6);
+    combined = combined + '\n' + midRightText;
+    parsed = parser.parseSchoolId(combined);
+    if (parsed.ok) return parsed;
+    if (job.cancelled) throw failure('Cancelled.');
+
+    // Fallback full-width middle band with contrast normalization.
+    const midCrop = layout.cropForOcr(
+      img,
+      {
+        x0: 0,
+        y0: Math.round(img.height * 0.28),
+        x1: img.width,
+        y1: Math.max(1, Math.round(img.height * 0.72)),
+      },
+      { plain: true, scale: midScale },
+    );
+    const midText = await recognizeImageText(job, midCrop, 6);
+    combined = combined + '\n' + midText;
+    parsed = parser.parseSchoolId(combined);
+    if (parsed.ok) return parsed;
+    if (job.cancelled) throw failure('Cancelled.');
+
+    const sparseText = await recognizeImageText(job, img, 11);
+    if (job.cancelled) throw failure('Cancelled.');
+    const plain = layout.cropForOcr(
+      img,
+      { x0: 0, y0: 0, x1: img.width, y1: img.height },
+      { plain: true },
+    );
+    const text2 = await recognizeImageText(job, plain, 6);
+    combined = combined + '\n' + sparseText + '\n' + text2;
+    return parser.parseSchoolId(combined);
   }
 
   async function readSchoolId(bytes, type, job) {
@@ -364,57 +545,33 @@
     job.worker = await startTesseract();
     if (job.cancelled) throw failure('Cancelled.');
     return withinTimeLimit((async () => {
-      const text1 = await recognizeImageText(job, image, 3);
-      let combined = text1;
-      let parsed = parser.parseSchoolId(combined);
-      if (parsed.ok) return parsed;
-      if (job.cancelled) throw failure('Cancelled.');
-
-      // Header band: reads "Marinduque State College / University" and
-      // campus address even when dark/glossy areas confuse full-page contrast.
-      const headerCrop = layout.cropForOcr(
-        image,
-        {
-          x0: 0,
-          y0: 0,
-          x1: image.width,
-          y1: Math.max(1, Math.round(image.height * 0.32)),
-        },
-        { plain: true, scale: 2 },
-      );
-      const headerText = await recognizeImageText(job, headerCrop, 6);
-      combined = combined + '\n' + headerText;
-      parsed = parser.parseSchoolId(combined);
-      if (parsed.ok) return parsed;
-      if (job.cancelled) throw failure('Cancelled.');
-
-      // Middle band: isolates the Student Number away from photo/footer clutter.
-      const midCrop = layout.cropForOcr(
-        image,
-        {
-          x0: 0,
-          y0: Math.round(image.height * 0.28),
-          x1: image.width,
-          y1: Math.max(1, Math.round(image.height * 0.72)),
-        },
-        { plain: true, scale: 2 },
-      );
-      const midText = await recognizeImageText(job, midCrop, 6);
-      combined = combined + '\n' + midText;
-      parsed = parser.parseSchoolId(combined);
-      if (parsed.ok) return parsed;
-      if (job.cancelled) throw failure('Cancelled.');
-
-      const sparseText = await recognizeImageText(job, image, 11);
-      if (job.cancelled) throw failure('Cancelled.');
-      const plain = layout.cropForOcr(
-        image,
-        { x0: 0, y0: 0, x1: image.width, y1: image.height },
-        { plain: true },
-      );
-      const text2 = await recognizeImageText(job, plain, 6);
-      combined = combined + '\n' + sparseText + '\n' + text2;
-      return parser.parseSchoolId(combined);
+      const norm = resizeMaxSide(image, 1100);
+      let parsed = await scanUprightId(job, norm, parser, layout);
+      if (!parsed.ok) {
+        const cardRect = findBrightCardRect(norm);
+        if (cardRect) {
+          if (job.cancelled) throw failure('Cancelled.');
+          const card = resizeMaxSide(cropImageRect(norm, cardRect), 1100);
+          parsed = await scanUprightId(job, card, parser, layout);
+          if (!parsed.ok && card.width > card.height) {
+            if (job.cancelled) throw failure('Cancelled.');
+            parsed = await scanUprightId(job, rotate90(card, false), parser, layout);
+            if (!parsed.ok) {
+              if (job.cancelled) throw failure('Cancelled.');
+              parsed = await scanUprightId(job, rotate90(card, true), parser, layout);
+            }
+          }
+        }
+      }
+      if (!parsed.ok && norm.width > norm.height) {
+        if (job.cancelled) throw failure('Cancelled.');
+        parsed = await scanUprightId(job, rotate90(norm, false), parser, layout);
+        if (!parsed.ok) {
+          if (job.cancelled) throw failure('Cancelled.');
+          parsed = await scanUprightId(job, rotate90(norm, true), parser, layout);
+        }
+      }
+      return parsed;
     })());
   }
 
