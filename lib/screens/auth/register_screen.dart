@@ -278,16 +278,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     return [
       _modeSwitch(),
-      const SizedBox(height: 22),
+      const SizedBox(height: 20),
 
       if (_error != null) ...[
         AuthErrorBanner(message: _error!),
-        const SizedBox(height: 22),
+        const SizedBox(height: 20),
       ],
 
       // ── Your account ──────────────────────────────────────────────────
       const AuthSectionHeading(label: 'Your account'),
-      const SizedBox(height: 18),
+      const SizedBox(height: 16),
 
       AuthFieldPair(
         left: _nameField(
@@ -303,7 +303,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           AutofillHints.middleName,
         ),
       ),
-      const SizedBox(height: 18),
+      const SizedBox(height: 16),
 
       AuthFieldPair(
         left: _nameField(
@@ -327,7 +327,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
       ),
-      const SizedBox(height: 18),
+      const SizedBox(height: 16),
 
       AuthField(
         label: 'Email address',
@@ -339,10 +339,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
           onChanged: _clearError,
           decoration: const InputDecoration(
             hintText: 'juan@gmail.com or juan@marsu.edu.ph',
+            prefixIcon: Icon(Icons.mail_outline_rounded, size: 19),
           ),
         ),
       ),
-      const SizedBox(height: 18),
+      const SizedBox(height: 16),
 
       AuthField(
         label: 'Password',
@@ -360,6 +361,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
           },
           decoration: InputDecoration(
             hintText: '••••••••',
+            prefixIcon: const Icon(Icons.lock_outline_rounded, size: 19),
             suffixIcon: IconButton(
               tooltip: 'Show or hide password',
               icon: Icon(
@@ -379,23 +381,23 @@ class _RegisterScreenState extends State<RegisterScreen> {
         const SizedBox(height: 12),
         _buildPasswordRequirements(_passwordValidation!),
       ],
-      const SizedBox(height: 32),
+      const SizedBox(height: 24),
 
       // ── Student details ───────────────────────────────────────────────
       if (!_staff) ...[
         const AuthSectionHeading(label: 'Student details'),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
 
         // The Student ID is asked when applying, with a photo of the
         // school ID for the Head to check, not here.
         _phoneField(),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
 
         AuthFieldPair(
           left: _departmentField(state, department),
           right: _campusField(state),
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 16),
 
         AuthFieldPair(
           left: AuthField(
@@ -455,10 +457,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ],
       if (_staff) ..._staffDetails(state, department),
-      const SizedBox(height: 24),
+      const SizedBox(height: 20),
 
       _privacyConsent(),
-      const SizedBox(height: 24),
+      const SizedBox(height: 20),
 
       AuthPrimaryButton(
         label: 'Create Account',
@@ -466,7 +468,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         isLoading: _isLoading,
         onPressed: _handleRegister,
       ),
-      const SizedBox(height: 22),
+      const SizedBox(height: 18),
 
       AuthFooterLink(
         prompt: 'Already have an account?',
@@ -505,14 +507,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   _error = null;
                 }),
           style: ButtonStyle(
-            minimumSize: const WidgetStatePropertyAll(Size(0, 46)),
+            minimumSize: const WidgetStatePropertyAll(Size(0, 44)),
+            shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            side: WidgetStatePropertyAll(
+              BorderSide(color: AuthColors.outline.withValues(alpha: 0.55)),
+            ),
             textStyle: const WidgetStatePropertyAll(
               TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
             ),
             backgroundColor: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.selected)
                   ? LandingColors.maroon
-                  : Colors.white,
+                  : LandingColors.paper,
             ),
             foregroundColor: WidgetStateProperty.resolveWith(
               (states) => states.contains(WidgetState.selected)
@@ -522,14 +530,37 @@ class _RegisterScreenState extends State<RegisterScreen> {
           ),
         ),
         if (_staff) ...[
-          const SizedBox(height: 10),
-          const Text(
-            'A Head of Student Assistantship has to approve a staff account '
-            'before it can be used.',
-            style: TextStyle(
-              fontSize: 13,
-              height: 1.4,
-              color: LandingColors.muted,
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: LandingColors.maroonTint,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: LandingColors.maroon.withValues(alpha: 0.18),
+              ),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.info_outline_rounded,
+                  size: 17,
+                  color: LandingColors.maroon,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'A Head of Student Assistantship has to approve a staff '
+                    'account before it can be used.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      height: 1.4,
+                      color: LandingColors.body,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -541,7 +572,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
   /// they ask for, and where they work. No Student ID, program or year.
   List<Widget> _staffDetails(AppState state, String department) => [
     const AuthSectionHeading(label: 'Staff details'),
-    const SizedBox(height: 18),
+    const SizedBox(height: 16),
     AuthFieldPair(
       left: _phoneField(),
       right: AuthField(
@@ -564,7 +595,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     ),
-    const SizedBox(height: 18),
+    const SizedBox(height: 16),
     AuthFieldPair(
       left: _departmentField(state, department),
       right: _campusField(state),
@@ -581,7 +612,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
         autofillHints: const [AutofillHints.telephoneNumber],
         inputFormatters: [PhoneNumberFormatter()],
         onChanged: _clearError,
-        decoration: const InputDecoration(hintText: '09XX XXX XXXX'),
+        decoration: const InputDecoration(
+          hintText: '09XX XXX XXXX',
+          prefixIcon: Icon(Icons.phone_outlined, size: 19),
+        ),
       ),
     );
   }
@@ -646,59 +680,67 @@ class _RegisterScreenState extends State<RegisterScreen> {
     const sentence =
         'I have read how SAIS collects and uses my personal information, '
         'and I agree to it.';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AuthCheckRow(
-          value: _acceptedPrivacy,
-          onChanged: (value) => setState(() {
-            _acceptedPrivacy = value;
-            _error = null;
-          }),
-          semanticsLabel: sentence,
-          label: const Padding(
-            padding: EdgeInsets.symmetric(vertical: 6),
-            child: Text(
-              sentence,
-              style: TextStyle(
-                fontSize: 13.5,
-                height: 1.45,
-                color: LandingColors.body,
+    return Container(
+      padding: const EdgeInsets.fromLTRB(4, 6, 12, 6),
+      decoration: BoxDecoration(
+        color: LandingColors.paper,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: LandingColors.rule),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AuthCheckRow(
+            value: _acceptedPrivacy,
+            onChanged: (value) => setState(() {
+              _acceptedPrivacy = value;
+              _error = null;
+            }),
+            semanticsLabel: sentence,
+            label: const Padding(
+              padding: EdgeInsets.symmetric(vertical: 6),
+              child: Text(
+                sentence,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  height: 1.45,
+                  color: LandingColors.body,
+                ),
               ),
             ),
           ),
-        ),
-        // On its own line so it wraps cleanly and is a proper target.
-        Padding(
-          padding: const EdgeInsets.only(left: 44),
-          child: TapTarget(
-            onTap: () => showPrivacyNoticeDialog(context),
-            label: 'Read the Privacy Notice',
-            focusColor: LandingColors.maroon,
-            borderRadius: BorderRadius.circular(8),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 44),
-              child: const Align(
-                alignment: Alignment.centerLeft,
-                widthFactor: 1,
-                child: Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 2),
-                  child: Text(
-                    'Read the Privacy Notice',
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      height: 1.4,
-                      fontWeight: FontWeight.w700,
-                      color: LandingColors.maroon,
-                      decoration: TextDecoration.underline,
+          // On its own line so it wraps cleanly and is a proper target.
+          Padding(
+            padding: const EdgeInsets.only(left: 44),
+            child: TapTarget(
+              onTap: () => showPrivacyNoticeDialog(context),
+              label: 'Read the Privacy Notice',
+              focusColor: LandingColors.maroon,
+              borderRadius: BorderRadius.circular(8),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 44),
+                child: const Align(
+                  alignment: Alignment.centerLeft,
+                  widthFactor: 1,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2),
+                    child: Text(
+                      'Read the Privacy Notice',
+                      style: TextStyle(
+                        fontSize: 13.5,
+                        height: 1.4,
+                        fontWeight: FontWeight.w700,
+                        color: LandingColors.maroon,
+                        decoration: TextDecoration.underline,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -772,13 +814,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     ];
 
     final metCount = rules.where((r) => r.met).length;
+    final allMet = metCount == rules.length;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: LandingColors.rule),
+        color: LandingColors.paper,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: allMet
+              ? AuthColors.successText.withValues(alpha: 0.35)
+              : LandingColors.rule,
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -800,12 +847,22 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w700,
-                  color: metCount == rules.length
-                      ? AuthColors.successText
-                      : LandingColors.muted,
+                  color: allMet ? AuthColors.successText : LandingColors.muted,
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(999),
+            child: LinearProgressIndicator(
+              value: metCount / rules.length,
+              minHeight: 4,
+              backgroundColor: LandingColors.ink.withValues(alpha: 0.08),
+              valueColor: AlwaysStoppedAnimation(
+                allMet ? AuthColors.successText : LandingColors.maroon,
+              ),
+            ),
           ),
           const SizedBox(height: 10),
           // Two per row where the panel is wide enough, so the checklist does

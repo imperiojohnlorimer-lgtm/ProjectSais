@@ -352,10 +352,13 @@ class _LoginScreenState extends State<LoginScreen> {
           textInputAction: TextInputAction.next,
           autofillHints: const [AutofillHints.username, AutofillHints.email],
           onChanged: (_) => _clearMessages(),
-          decoration: const InputDecoration(hintText: 'name@univ.edu'),
+          decoration: const InputDecoration(
+            hintText: 'name@univ.edu',
+            prefixIcon: Icon(Icons.mail_outline_rounded, size: 19),
+          ),
         ),
       ),
-      const SizedBox(height: 18),
+      const SizedBox(height: 16),
 
       AuthField(
         label: 'Password',
@@ -369,6 +372,7 @@ class _LoginScreenState extends State<LoginScreen> {
           onChanged: (_) => _clearMessages(),
           decoration: InputDecoration(
             hintText: '••••••••',
+            prefixIcon: const Icon(Icons.lock_outline_rounded, size: 19),
             suffixIcon: IconButton(
               tooltip: 'Show or hide password',
               icon: Icon(
@@ -384,7 +388,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ),
       ),
-      const SizedBox(height: 12),
+      const SizedBox(height: 10),
 
       // Wrapped so the two controls stack instead of overflowing on the
       // narrowest phones.
@@ -432,7 +436,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
         ],
       ),
-      const SizedBox(height: 20),
+      const SizedBox(height: 18),
 
       AuthPrimaryButton(
         label: 'Log In',
@@ -440,13 +444,13 @@ class _LoginScreenState extends State<LoginScreen> {
         isLoading: _isLoading,
         onPressed: _handleLogin,
       ),
-      const SizedBox(height: 20),
+      const SizedBox(height: 16),
 
       _buildDivider(),
-      const SizedBox(height: 20),
+      const SizedBox(height: 16),
 
       _buildGoogleButton(),
-      const SizedBox(height: 20),
+      const SizedBox(height: 18),
 
       AuthFooterLink(
         prompt: "Don't have an account?",
@@ -476,7 +480,7 @@ class _LoginScreenState extends State<LoginScreen> {
         side: const BorderSide(color: LandingColors.maroon),
         minimumSize: const Size(0, 44),
         padding: const EdgeInsets.symmetric(horizontal: 14),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         textStyle: const TextStyle(
           fontFamily: 'Inter',
           fontSize: 14,

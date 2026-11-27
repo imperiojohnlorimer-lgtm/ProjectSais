@@ -86,20 +86,22 @@ class AuthScaffold extends StatelessWidget {
     );
   }
 
-  /// Fields are white with an outline dark enough to find, rather than the
-  /// app's pale grey fill.
+  /// Fields sit on warm cream inside a crisp white card, with an outline dark
+  /// enough to find cleanly.
   static ThemeData _formTheme(ThemeData base) {
     OutlineInputBorder outline(Color color, double width) => OutlineInputBorder(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       borderSide: BorderSide(color: color, width: width),
     );
     return base.copyWith(
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: Colors.white,
+        fillColor: LandingColors.paper,
+        prefixIconColor: LandingColors.muted,
+        suffixIconColor: LandingColors.muted,
         contentPadding: const EdgeInsets.symmetric(
           horizontal: 14,
-          vertical: 15,
+          vertical: 14,
         ),
         hintStyle: const TextStyle(color: LandingColors.muted, fontSize: 14),
         border: outline(AuthColors.outline, 1),
@@ -109,7 +111,7 @@ class AuthScaffold extends StatelessWidget {
         focusedErrorBorder: outline(AuthColors.errorText, 2),
       ),
       checkboxTheme: CheckboxThemeData(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(3)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
         side: const BorderSide(color: AuthColors.outline, width: 1.5),
         fillColor: WidgetStateProperty.resolveWith(
           (states) => states.contains(WidgetState.selected)
@@ -132,40 +134,141 @@ class AuthScaffold extends StatelessWidget {
 
   Widget _desktopForm() {
     return SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(onBack != null ? 12 : 32, 20, 32, 0),
-            child: Row(
-              children: [
-                if (onBack != null) _backButton(LandingColors.ink),
-                const _Lockup(size: 34, onDark: false),
-              ],
-            ),
-          ),
-          Expanded(
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 40,
-                  vertical: 24,
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final narrow = constraints.maxWidth < 540;
+          final wideHeader = constraints.maxWidth >= 520;
+          return Column(
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(
+                  onBack != null ? 12 : 32,
+                  18,
+                  32,
+                  0,
                 ),
-                physics: const BouncingScrollPhysics(),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: maxFormWidth),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      _header(mobile: false),
-                      const SizedBox(height: 32),
-                      ...children,
+                child: Row(
+                  children: [
+                    if (onBack != null) _backButton(LandingColors.ink),
+                    const _Lockup(size: 34, onDark: false),
+                    if (wideHeader) ...[
+                      const SizedBox(width: 14),
+                      Container(
+                        width: 1,
+                        height: 18,
+                        color: LandingColors.rule,
+                      ),
+                      const SizedBox(width: 14),
+                      const Flexible(
+                        child: Text(
+                          'Marinduque State University',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w500,
+                            color: LandingColors.muted,
+                          ),
+                        ),
+                      ),
                     ],
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.symmetric(
+                      horizontal: narrow ? 20 : 36,
+                      vertical: 20,
+                    ),
+                    physics: const BouncingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: maxFormWidth + (narrow ? 48 : 72),
+                      ),
+                      child: _formCard(
+                        mobile: false,
+                        narrow: narrow,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            _header(mobile: false),
+                            const SizedBox(height: 26),
+                            ...children,
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _formCard({
+    required bool mobile,
+    required bool narrow,
+    required Widget child,
+  }) {
+    final radius = mobile ? 14.0 : 18.0;
+    final padding = mobile
+        ? EdgeInsets.fromLTRB(
+            narrow ? 16 : 22,
+            narrow ? 20 : 24,
+            narrow ? 16 : 22,
+            narrow ? 20 : 24,
+          )
+        : EdgeInsets.fromLTRB(
+            narrow ? 24 : 36,
+            narrow ? 26 : 32,
+            narrow ? 24 : 36,
+            narrow ? 24 : 30,
+          );
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(radius),
+        border: Border.all(color: LandingColors.ink.withValues(alpha: 0.08)),
+        boxShadow: [
+          BoxShadow(
+            color: LandingColors.ink.withValues(alpha: 0.06),
+            blurRadius: mobile ? 18 : 28,
+            offset: Offset(0, mobile ? 6 : 10),
+          ),
+          BoxShadow(
+            color: LandingColors.ink.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
           ),
         ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(radius),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              height: 3.5,
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    LandingColors.maroonDeep,
+                    LandingColors.maroon,
+                    LandingColors.brass,
+                  ],
+                  stops: [0.0, 0.72, 1.0],
+                ),
+              ),
+            ),
+            Padding(padding: padding, child: child),
+          ],
+        ),
       ),
     );
   }
@@ -184,38 +287,61 @@ class AuthScaffold extends StatelessWidget {
           color: LandingColors.maroonDeep,
           child: SafeArea(
             bottom: false,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 56),
-              child: Row(
-                children: [
-                  if (onBack != null)
-                    _backButton(Colors.white)
-                  else
-                    const SizedBox(width: 20),
-                  const _Lockup(size: 28, onDark: true),
-                ],
-              ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 56),
+                  child: Row(
+                    children: [
+                      if (onBack != null)
+                        _backButton(Colors.white)
+                      else
+                        const SizedBox(width: 20),
+                      const _Lockup(size: 28, onDark: true),
+                    ],
+                  ),
+                ),
+                Container(
+                  height: 2,
+                  color: LandingColors.brass.withValues(alpha: 0.7),
+                ),
+              ],
             ),
           ),
         ),
         Expanded(
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.fromLTRB(20, 28, 20, 36),
-            child: Align(
-              alignment: Alignment.topCenter,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxWidth: maxFormWidth),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _header(mobile: true),
-                    const SizedBox(height: 28),
-                    ...children,
-                  ],
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow = constraints.maxWidth < 380;
+              return SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                padding: EdgeInsets.fromLTRB(
+                  narrow ? 12 : 18,
+                  18,
+                  narrow ? 12 : 18,
+                  28,
                 ),
-              ),
-            ),
+                child: Align(
+                  alignment: Alignment.topCenter,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: maxFormWidth + 44),
+                    child: _formCard(
+                      mobile: true,
+                      narrow: narrow,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _header(mobile: true),
+                          const SizedBox(height: 22),
+                          ...children,
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
           ),
         ),
       ],
@@ -227,8 +353,9 @@ class AuthScaffold extends StatelessWidget {
     return Stack(
       fit: StackFit.expand,
       children: [
-        // The campus under a flat wash, as in the landing page's closing
-        // section; a failed image leaves the plain maroon.
+        // The campus under a directional maroon wash so the building stays
+        // visible while keeping the typography crisp; a failed image leaves
+        // the deep maroon gradient.
         ExcludeSemantics(
           child: Image.asset(
             'assets/images/marsu_campus.jpg',
@@ -241,7 +368,20 @@ class AuthScaffold extends StatelessWidget {
                 const ColoredBox(color: LandingColors.maroonDeep),
           ),
         ),
-        ColoredBox(color: LandingColors.maroonDeep.withValues(alpha: 0.88)),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topRight,
+              end: Alignment.bottomLeft,
+              colors: [
+                LandingColors.maroonDeep.withValues(alpha: 0.56),
+                LandingColors.maroonDeep.withValues(alpha: 0.80),
+                const Color(0xFF3E0A1B).withValues(alpha: 0.94),
+              ],
+              stops: const [0.0, 0.45, 1.0],
+            ),
+          ),
+        ),
         SafeArea(
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -254,8 +394,8 @@ class AuthScaffold extends StatelessWidget {
                   constraints: BoxConstraints(minHeight: constraints.maxHeight),
                   child: Padding(
                     padding: EdgeInsets.symmetric(
-                      horizontal: 56,
-                      vertical: compact ? 32 : 56,
+                      horizontal: 48,
+                      vertical: compact ? 24 : 48,
                     ),
                     child: Align(
                       alignment: Alignment.centerLeft,
@@ -265,6 +405,47 @@ class AuthScaffold extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.10),
+                                borderRadius: BorderRadius.circular(999),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.18),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: const BoxDecoration(
+                                      color: LandingColors.brass,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Flexible(
+                                    child: Text(
+                                      'MARINDUQUE STATE UNIVERSITY',
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
+                                        letterSpacing: 1.4,
+                                        color: LandingColors.paper.withValues(
+                                          alpha: 0.94,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 14),
                             Text(
                               'STUDENT ASSISTANT INFORMATION SYSTEM',
                               style: TextStyle(
@@ -279,16 +460,20 @@ class AuthScaffold extends StatelessWidget {
                             ),
                             const SizedBox(height: 14),
                             Container(
-                              width: 28,
-                              height: 2,
-                              color: LandingColors.brass,
+                              width: 32,
+                              height: 2.5,
+                              decoration: BoxDecoration(
+                                color: LandingColors.brass,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
                             ),
-                            SizedBox(height: compact ? 14 : 28),
+                            SizedBox(height: compact ? 14 : 24),
                             for (var i = 0; i < brandPoints.length; i++)
                               _LedgerRow(
                                 number: i + 1,
                                 point: brandPoints[i],
                                 first: i == 0,
+                                compact: compact,
                               ),
                           ],
                         ),
@@ -315,7 +500,7 @@ class AuthScaffold extends StatelessWidget {
             title,
             style: TextStyle(
               fontFamily: landingSerif,
-              fontSize: mobile ? 30 : 36,
+              fontSize: mobile ? 28 : 34,
               fontWeight: FontWeight.w600,
               color: LandingColors.ink,
               letterSpacing: -0.8,
@@ -323,7 +508,7 @@ class AuthScaffold extends StatelessWidget {
             ),
           ),
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         Text(
           subtitle,
           style: const TextStyle(
@@ -367,46 +552,59 @@ class _Lockup extends StatelessWidget {
   }
 }
 
-/// One numbered line of the list beside the form: serif numeral, title, one
-/// sentence, a thin rule between lines.
+/// One numbered line of the list beside the form: frosted brass badge,
+/// title, one sentence, and a thin hairline between lines.
 class _LedgerRow extends StatelessWidget {
   final int number;
   final AuthBrandPoint point;
   final bool first;
+  final bool compact;
 
   const _LedgerRow({
     required this.number,
     required this.point,
     required this.first,
+    this.compact = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final verticalPad = compact ? 14.0 : 18.0;
     return Container(
       decoration: BoxDecoration(
         border: first
             ? null
             : Border(
-                top: BorderSide(color: Colors.white.withValues(alpha: 0.18)),
+                top: BorderSide(color: Colors.white.withValues(alpha: 0.16)),
               ),
       ),
-      padding: EdgeInsets.only(top: first ? 0 : 20, bottom: 20),
+      padding: EdgeInsets.only(top: first ? 0 : verticalPad, bottom: verticalPad),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 44,
+          Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: LandingColors.brass.withValues(alpha: 0.14),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: LandingColors.brass.withValues(alpha: 0.35),
+              ),
+            ),
             child: Text(
               number.toString().padLeft(2, '0'),
               style: const TextStyle(
                 fontFamily: landingSerif,
-                fontSize: 20,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: LandingColors.brass,
-                height: 1.2,
+                height: 1.0,
               ),
             ),
           ),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -414,7 +612,7 @@ class _LedgerRow extends StatelessWidget {
                 Text(
                   point.title,
                   style: const TextStyle(
-                    fontSize: 17,
+                    fontSize: 16.5,
                     fontWeight: FontWeight.w600,
                     color: Colors.white,
                     height: 1.3,
@@ -426,7 +624,7 @@ class _LedgerRow extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     height: 1.5,
-                    color: Colors.white.withValues(alpha: 0.78),
+                    color: Colors.white.withValues(alpha: 0.84),
                   ),
                 ),
               ],
@@ -472,7 +670,7 @@ class AuthField extends StatelessWidget {
             color: LandingColors.ink,
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         child,
       ],
     );
@@ -552,14 +750,14 @@ class AuthFieldPair extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
-            children: [left, const SizedBox(height: 18), right],
+            children: [left, const SizedBox(height: 16), right],
           );
         }
         return Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(child: left),
-            const SizedBox(width: 18),
+            const SizedBox(width: 14),
             Expanded(child: right),
           ],
         );
@@ -660,14 +858,18 @@ class _AuthBanner extends StatelessWidget {
     return Semantics(
       liveRegion: true,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(10),
         child: Container(
-          color: background,
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: color.withValues(alpha: 0.22)),
+          ),
           child: IntrinsicHeight(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Container(width: 3, color: color),
+                Container(width: 3.5, color: color),
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(14),
@@ -735,13 +937,13 @@ class AuthPrimaryButton extends StatelessWidget {
     return ElevatedButton(
       onPressed: isLoading ? null : onPressed,
       style: ButtonStyle(
-        minimumSize: const WidgetStatePropertyAll(Size(double.infinity, 52)),
+        minimumSize: const WidgetStatePropertyAll(Size(double.infinity, 50)),
         padding: const WidgetStatePropertyAll(
           EdgeInsets.symmetric(horizontal: 20, vertical: 14),
         ),
         elevation: const WidgetStatePropertyAll(0),
         shape: WidgetStatePropertyAll(
-          RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         ),
         foregroundColor: const WidgetStatePropertyAll(Colors.white),
         // Stays maroon while the spinner shows, rather than greying out.
@@ -783,10 +985,11 @@ class AuthPrimaryButton extends StatelessWidget {
 ButtonStyle authSecondaryButtonStyle() => OutlinedButton.styleFrom(
   foregroundColor: LandingColors.ink,
   backgroundColor: Colors.white,
+  overlayColor: LandingColors.paper,
   side: const BorderSide(color: AuthColors.outline),
-  minimumSize: const Size(double.infinity, 52),
+  minimumSize: const Size(double.infinity, 50),
   padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
   textStyle: const TextStyle(
     fontFamily: 'Inter',
     fontSize: 15,
