@@ -12,7 +12,13 @@ const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8");
 const start = source.indexOf("// #region path rules");
 const end = source.indexOf("// #endregion path rules");
 assert.ok(start >= 0 && end > start, "index.ts lost its path rules region");
-const { staffMayRead, ownedPath, isPublicAnnouncementPath } = await import(
+const {
+  fileExtension,
+  isPublicAnnouncementPath,
+  ownedPath,
+  staffMayRead,
+  validArchiveTarget,
+} = await import(
   "data:text/javascript," +
     encodeURIComponent(stripTypeScriptTypes(source.slice(start, end)))
 );
@@ -90,4 +96,34 @@ test("encoded or backslash tricks cannot climb out of a checked folder", () => {
     assert.equal(staffMayRead(path, "Head"), false, path);
     assert.equal(staffMayRead(path, "Supervisor"), false, path);
   }
+});
+
+test("archive target paths allow only valid academic-year report/application targets", () => {
+  assert.equal(
+    validArchiveTarget("academic_year_archives/2026-2027/reports/r1/file.pdf"),
+    true,
+  );
+  assert.equal(
+    validArchiveTarget("academic_year_archives/2026-2027/applications/app_1/file.docx"),
+    true,
+  );
+  for (
+    const bad of [
+      "academic_year_archives/2026/reports/r1/file.pdf",
+      "academic_year_archives/2026-2027/other/r1/file.pdf",
+      "academic_year_archives/2026-2027/reports/r1/a/b.pdf",
+      "academic_year_archives/2026-2027/reports/../file.pdf",
+      "academic_year_archives/2026-2027/reports/r1/%2e%2e.pdf",
+      "reports/u1/1700/file.pdf",
+    ]
+  ) {
+    assert.equal(validArchiveTarget(bad), false, bad);
+  }
+});
+
+test("fileExtension rejects extensionless names like 'pdf'", () => {
+  assert.equal(fileExtension("report.PDF"), "pdf");
+  assert.equal(fileExtension("doc.v2.docx"), "docx");
+  assert.equal(fileExtension("pdf"), null);
+  assert.equal(fileExtension("file."), null);
 });

@@ -24,9 +24,12 @@ const {
   emailFailureReason,
   emailFor,
   emailState,
+  encodeFirestoreResourceUrl,
+  firestoreDocUrl,
   htmlEscape,
   isFreshNotification,
   validMailbox,
+  validNotificationId,
 } = await import(
   "data:text/javascript," +
     encodeURIComponent(
@@ -185,4 +188,44 @@ test("the reason never contains the secrets, and stays short", () => {
   assert.ok(!reason.includes("sais@gmail.com"));
   assert.ok(reason.length < 400);
   assert.equal(emailFailureReason(""), "The email server did not accept the message.");
+});
+
+test("notification ids reject URL fragment, query, path, and oversize values", () => {
+  for (const ok of ["n_1700_u1", "ay_ending_2026-2027", "clockout_sa_1", "a.b:c"]) {
+    assert.equal(validNotificationId(ok), true, ok);
+  }
+  for (
+    const bad of [
+      "",
+      "victim#x",
+      "n1?updateMask=x",
+      "a/b",
+      "a%20b",
+      "has space",
+      "x".repeat(129),
+    ]
+  ) {
+    assert.equal(validNotificationId(bad), false, bad);
+  }
+});
+
+test("Firestore URL helpers encode # and ? so query params cannot be stripped", () => {
+  const root = "https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents";
+  const docUrl = firestoreDocUrl(root, "notifications", "victim#frag?q=1");
+  assert.equal(
+    docUrl,
+    `${root}/notifications/victim%23frag%3Fq%3D1`,
+  );
+  const full = `${docUrl}?updateMask.fieldPaths=pushedAt&currentDocument.updateTime=2026-01-01T00:00:00Z`;
+  assert.equal(new URL(full).hash, "");
+  assert.equal(new URL(full).searchParams.get("updateMask.fieldPaths"), "pushedAt");
+
+  const tokenUrl = encodeFirestoreResourceUrl(
+    "projects/p/databases/(default)/documents/pushTokens/tok#1?x=2",
+  );
+  assert.equal(
+    tokenUrl,
+    "https://firestore.googleapis.com/v1/projects/p/databases/(default)/documents/pushTokens/tok%231%3Fx%3D2",
+  );
+  assert.equal(new URL(tokenUrl).hash, "");
 });

@@ -580,8 +580,15 @@ Deno.serve(async (request) => {
     if (!userDoc) {
       return json({ error: "This account has no profile." }, 403);
     }
-    if (userDoc.fields?.status?.stringValue === "Archived") {
+    if (
+      userDoc.fields?.deleted?.booleanValue === true ||
+      userDoc.fields?.status?.stringValue === "Archived"
+    ) {
       return json({ error: "This account has been deactivated." }, 403);
+    }
+    const status = userDoc.fields?.status?.stringValue;
+    if (status === "Pending" || status === "Declined") {
+      return json({ error: "This account is not active." }, 403);
     }
     const role = userDoc.fields?.role?.stringValue;
     if (role !== "Student Assistant") {
@@ -644,6 +651,7 @@ Deno.serve(async (request) => {
 
     type AttendanceDoc = {
       name: string;
+      updateTime?: string;
       fields?: Record<string, { stringValue?: string; booleanValue?: boolean }>;
     };
     const rows = await queryResponse.json();
@@ -711,11 +719,12 @@ Deno.serve(async (request) => {
       return json({ error: verdict.error }, verdict.status);
     }
 
+    let newlyInvalidated = 0;
     for (const record of stale) {
       if (record.isInvalid) continue;
       const flagged = await fetch(
-        `https://firestore.googleapis.com/v1/${record.doc.name}` +
-          "?updateMask.fieldPaths=isInvalid",
+        `${documentsRoot}/attendance/${encodeURIComponent(docId(record.doc.name))}` +
+          "?updateMask.fieldPaths=isInvalid&currentDocument.exists=true",
         {
           method: "PATCH",
           headers: {
@@ -727,11 +736,13 @@ Deno.serve(async (request) => {
           }),
         },
       );
+      if (flagged.status === 404) continue;
       if (!flagged.ok) {
         throw new Error(`Could not flag a missed time-out (${flagged.status}).`);
       }
+      newlyInvalidated++;
     }
-    const missedTimeOut = stale.length > 0;
+    const missedTimeOut = newlyInvalidated > 0;
     const open = current?.doc;
 
     const settings = await getDocument("meta/academic_year_settings", token);
@@ -764,8 +775,12 @@ Deno.serve(async (request) => {
         mask += "&updateMask.fieldPaths=hoursBeforeWeeklyCap";
       }
 
+      const updateGuard = open.updateTime
+        ? `&currentDocument.updateTime=${encodeURIComponent(open.updateTime)}`
+        : "";
       const patch = await fetch(
-        `https://firestore.googleapis.com/v1/${open.name}${mask}`,
+        `${documentsRoot}/attendance/${encodeURIComponent(docId(open.name))}` +
+          `${mask}&currentDocument.exists=true${updateGuard}`,
         {
           method: "PATCH",
           headers: {
@@ -775,6 +790,13 @@ Deno.serve(async (request) => {
           body: JSON.stringify({ fields: update }),
         },
       );
+      if (patch.status === 404 || patch.status === 412) {
+        return json({
+          error:
+            "This attendance record was changed or removed while you scanned. " +
+            "Check your attendance and try again.",
+        }, 409);
+      }
       if (!patch.ok) {
         throw new Error(`Could not save the time-out (${patch.status}).`);
       }

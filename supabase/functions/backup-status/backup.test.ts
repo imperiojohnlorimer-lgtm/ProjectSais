@@ -188,6 +188,9 @@ function makeHandler(github: ReturnType<typeof makeGithub>, over: Record<string,
     sv: { role: "Supervisor", status: "Active" },
     sa: { role: "Student Assistant", status: "Active" },
     gone: { role: "Admin", status: "Archived" },
+    deletedAdmin: { role: "Admin", status: "Active", deleted: true },
+    pendingAdmin: { role: "Admin", status: "Pending" },
+    declinedAdmin: { role: "Admin", status: "Declined" },
   };
   return createHandler({
     verify: async (token: string) => {
@@ -259,6 +262,12 @@ test("only an active Admin gets through", async () => {
   }
   assert.equal(
     (await call(makeHandler(makeGithub()), "gone", { action: "list" })).status, 403);
+  for (const who of ["deletedAdmin", "pendingAdmin", "declinedAdmin"]) {
+    const github = makeGithub();
+    const response = await call(makeHandler(github), who, { action: "list" });
+    assert.equal(response.status, 403, who);
+    assert.deepEqual(github.calls, [], who);
+  }
 });
 
 test("token problems are 401 / 403, a profile outage is 503", async () => {

@@ -126,6 +126,31 @@ export function isPublicAnnouncementPath(path: string) {
   return validPathParts(path) && path.split("/")[0] === "announcements";
 }
 
+export function validArchiveTarget(path: string): boolean {
+  if (path.length > 400) return false;
+  if (path.includes("%") || path.includes("\\") || /[\u0000-\u001f]/.test(path)) {
+    return false;
+  }
+  const parts = path.split("/");
+  if (parts.length !== 5) return false;
+  if (parts[0] !== "academic_year_archives") return false;
+  if (!/^\d{4}-\d{4}$/.test(parts[1])) return false;
+  if (parts[2] !== "reports" && parts[2] !== "applications") return false;
+  return [parts[3], parts[4]].every(
+    (part) =>
+      part.length > 0 &&
+      part !== "." &&
+      part !== ".." &&
+      /^[a-zA-Z0-9._-]+$/.test(part),
+  );
+}
+
+export function fileExtension(filename: string): string | null {
+  if (!filename.includes(".")) return null;
+  const ext = filename.split(".").pop()?.toLowerCase();
+  return ext || null;
+}
+
 // #endregion path rules
 
 /** Thrown when the profile can't be read for a reason other than "none". */
@@ -140,7 +165,7 @@ class ProfileUnavailable extends Error {}
 async function loadProfile(
   userId: string,
   firebaseToken: string,
-): Promise<{ role?: string; status?: string } | null> {
+): Promise<{ role?: string; status?: string; deleted?: boolean } | null> {
   const response = await fetch(
     `https://firestore.googleapis.com/v1/projects/${firebaseProjectId}/databases/(default)/documents/users/${encodeURIComponent(userId)}`,
     {
@@ -157,6 +182,7 @@ async function loadProfile(
   return {
     role: document.fields?.role?.stringValue,
     status: document.fields?.status?.stringValue,
+    deleted: document.fields?.deleted?.booleanValue === true,
   };
 }
 
@@ -237,16 +263,82 @@ Deno.serve(async (request) => {
       return json({ error: "Please verify your email address first." }, 403);
     }
     const profile = await loadProfile(userId, token);
-    if (profile?.status === "Archived") {
+    if (!profile) {
+      return json({ error: "This account has no profile." }, 403);
+    }
+    if (profile.deleted === true || profile.status === "Archived") {
       return json({ error: "This account has been deactivated." }, 403);
+    }
+    if (profile.status === "Pending" || profile.status === "Declined") {
+      return json({ error: "This account is not active." }, 403);
     }
 
     const requestContentType =
       request.headers.get("content-type") ?? "";
 
-    // Generate a fresh signed URL.
+    // Generate a fresh signed URL or copy a document into an academic-year archive.
     if (requestContentType.includes("application/json")) {
-      const body = await request.json();
+      const body = await request.json().catch(() => null);
+      if (!body || typeof body !== "object") {
+        return json({ error: "Invalid request." }, 400);
+      }
+
+      if (body.action === "archive") {
+        if (profile.role !== "Head") {
+          return json({ error: "Only the Head can archive documents." }, 403);
+        }
+        if (
+          typeof body.sourcePath !== "string" ||
+          typeof body.archivePath !== "string"
+        ) {
+          return json({ error: "Invalid archive request." }, 400);
+        }
+        const sourcePath = body.sourcePath;
+        const archivePath = body.archivePath;
+        if (
+          !staffMayRead(sourcePath, "Head") ||
+          !validArchiveTarget(archivePath)
+        ) {
+          return json({ error: "Invalid archive path." }, 403);
+        }
+        const ext = fileExtension(archivePath.split("/").pop()!);
+        const contentType = ext ? allowedTypes[ext] : undefined;
+        if (!contentType) {
+          return json({ error: "File type is not allowed." }, 400);
+        }
+
+        const { data: downloaded, error: downloadError } =
+          await adminClient.storage.from("Documents").download(sourcePath);
+        if (downloadError || !downloaded) {
+          return json({ error: "Document not found." }, 404);
+        }
+
+        const archiveBytes = new Uint8Array(await downloaded.arrayBuffer());
+        const { error: uploadError } = await adminClient.storage
+          .from("Documents")
+          .upload(archivePath, archiveBytes, {
+            contentType,
+            upsert: true,
+          });
+        if (uploadError) {
+          console.error("upload-document: archive upload failed:", uploadError.message);
+          return json({ error: "The archived copy could not be saved." }, 500);
+        }
+
+        const { data: signedFile, error: signedUrlError } =
+          await adminClient.storage
+            .from("Documents")
+            .createSignedUrl(archivePath, 3600);
+        if (signedUrlError || !signedFile) {
+          console.error("upload-document: archive signing failed:", signedUrlError?.message);
+          return json({ error: "Unable to create a download link." }, 500);
+        }
+
+        return json({
+          path: archivePath,
+          downloadUrl: signedFile.signedUrl,
+        });
+      }
 
       if (body.action !== "sign" || typeof body.path !== "string") {
         return json({ error: "Invalid signing request." }, 400);
@@ -320,7 +412,7 @@ Deno.serve(async (request) => {
     }
 
     const filename = requestedPath.split("/").pop()!;
-    const extension = filename.split(".").pop()?.toLowerCase();
+    const extension = fileExtension(filename);
     const contentType = extension
       ? allowedTypes[extension]
       : undefined;

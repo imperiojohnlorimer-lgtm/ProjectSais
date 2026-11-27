@@ -1,7 +1,8 @@
--- Runs the clockout-reminders Edge Function at 11:30 AM and 4:30 PM
--- Philippine time, every day: 30 minutes before each attendance session
--- ends. Paste into the Supabase SQL Editor once the function is deployed,
--- and run it. Everything here is on Supabase's free plan.
+-- Runs the clockout-reminders Edge Function at 11:31 AM and 4:31 PM
+-- Philippine time, every day: just inside the 30-minute window before each
+-- attendance session ends (so minor clock skew never misses it). Paste into
+-- the Supabase SQL Editor once the function is deployed, and run it.
+-- Everything here is on Supabase's free plan.
 
 -- 1. The scheduler and the HTTP client it calls the function with.
 create extension if not exists pg_cron;
@@ -14,11 +15,11 @@ select vault.create_secret(
   'clockout_reminder_secret'
 );
 
--- 3. The two daily runs. pg_cron runs on UTC: 03:30 UTC is 11:30 AM and
---    08:30 UTC is 4:30 PM in the Philippines.
+-- 3. The two daily runs. pg_cron runs on UTC: 03:31 UTC is 11:31 AM and
+--    08:31 UTC is 4:31 PM in the Philippines.
 select cron.schedule(
   'clockout-reminders-am',
-  '30 3 * * *',
+  '31 3 * * *',
   $$
   select net.http_post(
     url := 'https://hksswjhioztqsypbrkjy.supabase.co/functions/v1/clockout-reminders',
@@ -30,14 +31,14 @@ select cron.schedule(
       )
     ),
     body := '{}'::jsonb,
-    timeout_milliseconds := 60000
+    timeout_milliseconds := 100000
   );
   $$
 );
 
 select cron.schedule(
   'clockout-reminders-pm',
-  '30 8 * * *',
+  '31 8 * * *',
   $$
   select net.http_post(
     url := 'https://hksswjhioztqsypbrkjy.supabase.co/functions/v1/clockout-reminders',
@@ -49,7 +50,7 @@ select cron.schedule(
       )
     ),
     body := '{}'::jsonb,
-    timeout_milliseconds := 60000
+    timeout_milliseconds := 100000
   );
   $$
 );

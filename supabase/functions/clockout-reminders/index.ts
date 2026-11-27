@@ -269,6 +269,38 @@ export function emailState(
   return "free";
 }
 
+/** Whether [id] is a safe Firestore notification document id. */
+export function validNotificationId(id: string): boolean {
+  return /^[A-Za-z0-9_.:-]{1,128}$/.test(id);
+}
+
+/** URL to a Firestore document, with [id] percent-encoded. */
+export function firestoreDocUrl(
+  root: string,
+  collection: string,
+  id: string,
+): string {
+  return `${root}/${collection}/${encodeURIComponent(id)}`;
+}
+
+/** Encodes every segment after `/documents/` in a Firestore resource name. */
+export function encodeFirestoreResourceUrl(name: string): string {
+  const marker = "/documents/";
+  const idx = name.indexOf(marker);
+  if (idx < 0) {
+    return `https://firestore.googleapis.com/v1/${
+      name.split("/").map((s) => encodeURIComponent(s)).join("/")
+    }`;
+  }
+  const prefix = name.slice(0, idx + marker.length);
+  const tail = name
+    .slice(idx + marker.length)
+    .split("/")
+    .map((s) => encodeURIComponent(s))
+    .join("/");
+  return `https://firestore.googleapis.com/v1/${prefix}${tail}`;
+}
+
 /** Whether a stored timestamp is the instant [ms] (Firestore may write it
  * back with different fractional digits). */
 export function sameInstant(stored: string | undefined, ms: number): boolean {
@@ -675,10 +707,14 @@ async function runQuery(
     .filter((doc): doc is FirestoreDoc => Boolean(doc));
 }
 
-/** Whether the account [userId] has been deactivated. */
+/** Whether the account [userId] cannot access SAIS (missing, deleted, archived, pending, or declined). */
 async function isDeactivated(userId: string, token: string): Promise<boolean> {
   const profile = await getDocument(`users/${encodeURIComponent(userId)}`, token);
-  return profile?.fields?.status?.stringValue === "Archived";
+  const f = profile?.fields;
+  if (!f) return true;
+  if (f.deleted?.booleanValue === true) return true;
+  const status = f.status?.stringValue ?? "";
+  return status === "Archived" || status === "Pending" || status === "Declined";
 }
 
 /** Of [userIds], the accounts that haven't been deactivated. */
@@ -783,7 +819,7 @@ async function send(
     code === "SENDER_ID_MISMATCH" ||
     (code === "INVALID_ARGUMENT" && /registration token/i.test(message));
   if (gone) {
-    await fetch(`https://firestore.googleapis.com/v1/${device.name}`, {
+    await fetch(encodeFirestoreResourceUrl(device.name), {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` },
     }).catch(() => {});
@@ -866,7 +902,11 @@ function emailRecipient(
       );
       const f = profile?.fields;
       if (!f) return null;
-      if (f.status?.stringValue === "Archived") return null;
+      if (
+        f.status?.stringValue === "Archived" ||
+        f.status?.stringValue === "Pending" ||
+        f.status?.stringValue === "Declined"
+      ) return null;
       if (f.deleted?.booleanValue === true) return null;
       if (f.role?.stringValue === "Admin") return null;
       if (!ignoreSwitch && f.emailNotifications?.booleanValue === false) {
@@ -933,7 +973,7 @@ async function emailAllowed(
 }
 
 /**
- * Counts [by] emails (1, or -1 to take one back) against today's limits, and
+ * Counts [by] emails (1, or -1 to take one back) against [day]'s limits, and
  * returns the day's total and this person's after the change. Firestore adds
  * atomically and reports the new figures.
  */
@@ -942,8 +982,8 @@ async function bumpEmailCounts(
   kind: "other" | "clockout",
   by: 1 | -1,
   token: string,
+  day = dayKey(new Date()),
 ): Promise<{ total: number; mine: number }> {
-  const day = dayKey(new Date());
   const bump = (name: string, field: string) => ({
     ...emailCounts(name, field),
     updateTransforms: [
@@ -976,13 +1016,14 @@ async function reserveEmail(
   userId: string,
   kind: "other" | "clockout",
   token: string,
+  day = dayKey(new Date()),
 ): Promise<boolean> {
-  const { total, mine } = await bumpEmailCounts(userId, kind, 1, token);
+  const { total, mine } = await bumpEmailCounts(userId, kind, 1, token, day);
   const personCap = kind === "clockout"
     ? EMAIL_PER_PERSON_CLOCKOUT_CAP
     : EMAIL_PER_PERSON_CAP;
   if (total <= EMAIL_DAILY_CAP && mine <= personCap) return true;
-  await bumpEmailCounts(userId, kind, -1, token);
+  await bumpEmailCounts(userId, kind, -1, token, day);
   return false;
 }
 
@@ -1009,11 +1050,7 @@ async function sendEmail(to: string, message: EmailMessage): Promise<void> {
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
       reject(new EmailTimeout("Email server timed out."));
-      try {
-        client.close();
-      } catch {
-        // already closed
-      }
+      Promise.resolve().then(() => client.close()).catch(() => {});
     }, EMAIL_SEND_TIMEOUT_MS);
   });
   try {
@@ -1040,7 +1077,7 @@ async function sendEmail(to: string, message: EmailMessage): Promise<void> {
  * [clear]), only if it is still as it was when [updateTime] was read.
  * Returns the new updateTime, or null if refused. */
 async function patchNotification(
-  name: string,
+  docUrl: string,
   fields: Record<string, unknown>,
   updateTime: string,
   clear: string[] = [],
@@ -1049,7 +1086,7 @@ async function patchNotification(
     .map((key) => `updateMask.fieldPaths=${key}`)
     .join("&");
   const response = await fetch(
-    `https://firestore.googleapis.com/v1/${name}?${mask}` +
+    `${docUrl}?${mask}` +
       `&currentDocument.updateTime=${encodeURIComponent(updateTime)}`,
     {
       method: "PATCH",
@@ -1078,14 +1115,14 @@ function emailNotification(
   maxAgeMs = FRESH_MS,
 ): Promise<"sent" | "skipped" | "failed"> {
   const path = `notifications/${encodeURIComponent(id)}`;
-  let name = "";
+  const docUrl = firestoreDocUrl(documentsRoot, "notifications", id);
+  let reservedDay: string | null = null;
   const deps: EmailDeps = {
     now: () => Date.now(),
     async read() {
       const doc = await getDocument(path, token);
       const f = doc?.fields;
       if (!doc || !f || !doc.updateTime) return null;
-      name = doc.name;
       return {
         updateTime: doc.updateTime,
         userId: f.userId?.stringValue,
@@ -1101,25 +1138,34 @@ function emailNotification(
       });
       if ("claimAtMs" in change) {
         return patchNotification(
-          name,
+          docUrl,
           { emailClaimedAt: stamp(change.claimAtMs) },
           updateTime,
         );
       }
       if ("sentAtMs" in change) {
         return patchNotification(
-          name,
+          docUrl,
           { emailedAt: stamp(change.sentAtMs) },
           updateTime,
         );
       }
-      return patchNotification(name, {}, updateTime, ["emailClaimedAt"]);
+      return patchNotification(docUrl, {}, updateTime, ["emailClaimedAt"]);
     },
     recipient: (userId) => emailRecipient(userId, token),
     allowed: (userId, kind) => emailAllowed(userId, kind, token),
-    reserve: (userId, kind) => reserveEmail(userId, kind, token),
+    reserve: (userId, kind) => {
+      reservedDay = dayKey(new Date());
+      return reserveEmail(userId, kind, token, reservedDay);
+    },
     refund: async (userId, kind) => {
-      await bumpEmailCounts(userId, kind, -1, token);
+      await bumpEmailCounts(
+        userId,
+        kind,
+        -1,
+        token,
+        reservedDay ?? dayKey(new Date()),
+      );
     },
     send: (address, type) =>
       sendEmail(address, emailFor(type, link, address, about)),
@@ -1290,7 +1336,7 @@ async function pushNotifications(
     [];
   const deactivated = new Map<string, boolean>();
   for (const id of ids) {
-    if (!id || id.includes("/") || id.startsWith("clockout_")) continue;
+    if (!validNotificationId(id) || id.startsWith("clockout_")) continue;
     // One notification that can't be read or claimed must not stop the rest.
     try {
       const doc = await getDocument(
@@ -1301,18 +1347,18 @@ async function pushNotifications(
       const userId = f?.userId?.stringValue;
       if (!doc || !f || !userId || f.pushedAt || !doc.updateTime) continue;
       const savedAt = Date.parse(f.createdAt?.timestampValue ?? "");
-      if (!(Date.now() - savedAt < FRESH_MS)) continue;
+      if (!isFreshNotification(savedAt, Date.now(), FRESH_MS)) continue;
 
       if (!deactivated.has(userId)) {
         deactivated.set(userId, await isDeactivated(userId, token));
       }
       if (deactivated.get(userId)) continue;
 
+      const docUrl = firestoreDocUrl(documentsRoot, "notifications", id);
       // The claim only holds if the notification is unchanged since it was
       // read: of two requests for the same one, the second is refused.
       const marked = await fetch(
-        `https://firestore.googleapis.com/v1/${doc.name}` +
-          "?updateMask.fieldPaths=pushedAt" +
+        `${docUrl}?updateMask.fieldPaths=pushedAt` +
           `&currentDocument.updateTime=${encodeURIComponent(doc.updateTime)}`,
         {
           method: "PATCH",
@@ -1328,7 +1374,7 @@ async function pushNotifications(
       if (!marked.ok) continue; // claimed by another request, or deleted
       due.push({
         id,
-        name: doc.name,
+        name: docUrl,
         userId,
         page: pushPageFor(f.type?.stringValue, f.academicYear?.stringValue),
         ...pushTextFor(
@@ -1384,8 +1430,7 @@ async function pushNotifications(
     // let the app's retry, or the next request, try again.
     if (delivered === 0 && failed > 0) {
       await fetch(
-        `https://firestore.googleapis.com/v1/${n.name}` +
-          "?updateMask.fieldPaths=pushedAt&currentDocument.exists=true",
+        `${n.name}?updateMask.fieldPaths=pushedAt&currentDocument.exists=true`,
         {
           method: "PATCH",
           headers: {
@@ -1500,9 +1545,10 @@ async function sendTestEmail(userId: string): Promise<Response> {
   if (n > 1) {
     return json({ error: "Please wait a minute before sending another." }, 429);
   }
+  const reservedDay = dayKey(new Date());
   let within: boolean;
   try {
-    within = await reserveEmail(userId, "other", token);
+    within = await reserveEmail(userId, "other", token, reservedDay);
   } catch (error) {
     console.error("Test email: counter failed:", error);
     return json({ error: "Could not check the limit. Try again." }, 502);
@@ -1524,7 +1570,7 @@ async function sendTestEmail(userId: string): Promise<Response> {
     console.error("Test email failed:", error);
     // Not sent: its room goes back.
     if (!(error instanceof EmailTimeout)) {
-      await bumpEmailCounts(userId, "other", -1, token).catch(() => {});
+      await bumpEmailCounts(userId, "other", -1, token, reservedDay).catch(() => {});
     }
     return json({
       error: emailFailureReason(error, [emailPassword, emailFrom]),
@@ -1581,7 +1627,7 @@ Deno.serve(async (request) => {
         const started = Date.now();
         await runPool(
           (ids as string[]).filter((id: string) =>
-            id && !id.includes("/") && !id.startsWith("clockout_")
+            validNotificationId(id) && !id.startsWith("clockout_")
           ),
           EMAIL_CONCURRENCY,
           async (id: string) => {

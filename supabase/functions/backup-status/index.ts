@@ -34,7 +34,7 @@ const firebaseKeys = createRemoteJWKSet(
 async function loadProfile(
   userId: string,
   firebaseToken: string,
-): Promise<{ role?: string; status?: string } | null> {
+): Promise<{ role?: string; status?: string; deleted?: boolean } | null> {
   const response = await fetch(
     `https://firestore.googleapis.com/v1/projects/${firebaseProjectId}/databases/(default)/documents/users/${encodeURIComponent(userId)}`,
     { headers: { Authorization: `Bearer ${firebaseToken}` } },
@@ -45,6 +45,7 @@ async function loadProfile(
   return {
     role: document.fields?.role?.stringValue,
     status: document.fields?.status?.stringValue,
+    deleted: document.fields?.deleted?.booleanValue === true,
   };
 }
 
@@ -162,7 +163,7 @@ type Deps = {
   loadProfile: (
     userId: string,
     token: string,
-  ) => Promise<{ role?: string; status?: string } | null>;
+  ) => Promise<{ role?: string; status?: string; deleted?: boolean } | null>;
   fetch: typeof fetch;
   githubToken: string;
   repo: string;
@@ -348,8 +349,11 @@ export function createHandler(deps: Deps) {
           503,
         );
       }
-      if (profile?.status === "Archived") {
+      if (profile?.deleted === true || profile?.status === "Archived") {
         return json({ error: "This account has been deactivated." }, 403);
+      }
+      if (profile?.status === "Pending" || profile?.status === "Declined") {
+        return json({ error: "This account is not active." }, 403);
       }
       if (profile?.role !== "Admin") {
         return json({ error: "Only the Admin can use backups." }, 403);

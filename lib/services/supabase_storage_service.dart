@@ -3,7 +3,6 @@ import 'dart:typed_data';
 
 import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:http/http.dart' as http;
-import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// The server didn't answer in time. Its text is what to tell the person.
 class ServerTimeout implements Exception {
@@ -62,8 +61,6 @@ class SupabaseStorageService {
     'jpeg',
     'png',
   };
-
-  final SupabaseClient _client = Supabase.instance.client;
 
   /// How long a request to a server function may take before the app stops
   /// waiting: without a limit, a stalled connection waits for ever.
@@ -257,15 +254,44 @@ class SupabaseStorageService {
     required String sourcePath,
     required String archivePath,
   }) async {
-    final bytes = await _client.storage.from('Documents').download(sourcePath);
-    await _client.storage
-        .from('Documents')
-        .uploadBinary(
-          archivePath,
-          bytes,
-          fileOptions: const FileOptions(upsert: true),
-        );
-    return _client.storage.from('Documents').createSignedUrl(archivePath, 3600);
+    if (sourcePath.trim().isEmpty || archivePath.trim().isEmpty) {
+      throw const FormatException('Invalid archive document path.');
+    }
+    final token = await fb_auth.FirebaseAuth.instance.currentUser?.getIdToken(
+      true,
+    );
+    if (token == null || token.isEmpty) {
+      throw const FormatException('You must be signed in to archive a file.');
+    }
+
+    final response = await http
+        .post(
+          Uri.parse(uploadDocumentUrl),
+          headers: {
+            'Authorization': 'Bearer $token',
+            'apikey': publishableKey,
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'action': 'archive',
+            'sourcePath': sourcePath,
+            'archivePath': archivePath,
+          }),
+        )
+        .timeout(uploadTimeout, onTimeout: () => throw const ServerTimeout());
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw Exception(
+        'Unable to archive document (${response.statusCode}): ${response.body}',
+      );
+    }
+
+    final result = jsonDecode(response.body) as Map<String, dynamic>;
+    final url = result['downloadUrl']?.toString();
+    if (url == null || url.isEmpty) {
+      throw const FormatException('No archived document URL was returned.');
+    }
+    return url;
   }
 
   static String contentTypeForExtension(String extension) {
