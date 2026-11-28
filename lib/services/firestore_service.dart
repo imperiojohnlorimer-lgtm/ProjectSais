@@ -90,25 +90,9 @@ class FirestoreService {
   /// without `createdAt` (added by hand or by older versions) would vanish.
   /// Those sort last.
   Stream<List<Map<String, dynamic>>> announcementsStream() {
-    return _announcements.snapshots().map((snap) {
-      final list = snap.docs
-          .map((d) => {...(d.data() as Map<String, dynamic>), 'id': d.id})
-          .toList();
-      DateTime? created(Map<String, dynamic> m) {
-        final v = m['createdAt'];
-        return v is Timestamp ? v.toDate() : null;
-      }
-
-      list.sort((a, b) {
-        final ca = created(a);
-        final cb = created(b);
-        if (ca == null && cb == null) return 0;
-        if (ca == null) return 1;
-        if (cb == null) return -1;
-        return cb.compareTo(ca);
-      });
-      return list;
-    });
+    // One just posted from here sorts first, with a time, before the
+    // server confirms it ([withPendingTimestamp]).
+    return _announcements.snapshots().map(_newestFirst);
   }
 
   /// Newest-first by `createdAt`, sorted here rather than with a server-side
@@ -683,6 +667,47 @@ class FirestoreService {
       } catch (error, stack) {
         failed(name, error, stack);
       }
+    }
+    // Class schedules approved in the undone year: the versions inside each
+    // `recurringSchedules` document carry the year (the Calendar and the DTR
+    // only use a version of the year in effect). The field is in a list, so
+    // every document is read; each is rewritten in its own transaction, so
+    // a schedule approved meanwhile isn't overwritten. A document the rules
+    // refuse (an old one without its ownerId) stays as it is.
+    try {
+      final weekly = await _db.collection('recurringSchedules').get();
+      for (final doc in weekly.docs) {
+        final versions = doc.data()['classSchedules'];
+        if (versions is! List ||
+            !versions.any((v) => v is Map && v['academicYear'] == from)) {
+          continue;
+        }
+        try {
+          await _db.runTransaction((tx) async {
+            final fresh = await tx.get(doc.reference);
+            final list = fresh.data()?['classSchedules'];
+            if (list is! List) return;
+            var changed = false;
+            final moved = [
+              for (final v in list)
+                if (v is Map && v['academicYear'] == from)
+                  () {
+                    changed = true;
+                    return {...v, 'academicYear': to};
+                  }()
+                else
+                  v,
+            ];
+            if (changed) tx.update(doc.reference, {'classSchedules': moved});
+          });
+        } catch (error) {
+          debugPrint(
+            'Left the class schedules of ${doc.id} in AY $from: $error',
+          );
+        }
+      }
+    } catch (error, stack) {
+      failed('recurringSchedules', error, stack);
     }
     if (firstError != null) {
       Error.throwWithStackTrace(firstError!, firstStack!);
@@ -2276,6 +2301,18 @@ class FirestoreService {
       for (final doc in docs)
         if (doc.exists) SupervisorCard.fromJson(doc.id, doc.data()!),
     ];
+  }
+
+  /// Deletes the cards of [ids] (people no longer supervisors).
+  Future<void> deleteSupervisorCards(Iterable<String> ids) async {
+    final list = ids.where((id) => id.isNotEmpty).toList();
+    for (var i = 0; i < list.length; i += 500) {
+      final batch = _db.batch();
+      for (final id in list.skip(i).take(500)) {
+        batch.delete(_supervisorCards.doc(id));
+      }
+      await batch.commit();
+    }
   }
 
   /// Saves each of [cards] in one batch (the stored card is replaced).

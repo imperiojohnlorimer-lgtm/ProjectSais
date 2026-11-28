@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/announcement_widgets.dart';
 import '../../widgets/notification_tile.dart';
 import '../../widgets/email_notifications_card.dart';
 import '../../widgets/push_notifications_card.dart';
@@ -217,12 +218,18 @@ class AdminNotificationsScreen extends StatelessWidget {
                   final archiveYear = n.type == 'academic_year'
                       ? n.academicYear ?? state.academicYear
                       : null;
+                  // A mention opens the announcement it is in (a
+                  // Supervisor's own page lists only their requests).
+                  final mentioned = state.announcementMentionedIn(n);
                   return NotificationTile(
                     notif: n,
-                    opensScreen: tab != null || archiveYear != null,
+                    opensScreen:
+                        tab != null || archiveYear != null || mentioned != null,
                     onTap: () {
                       if (!n.isRead) state.markNotificationRead(n.id);
-                      if (archiveYear != null) {
+                      if (mentioned != null) {
+                        showAnnouncementDetailsDialog(context, mentioned);
+                      } else if (archiveYear != null) {
                         state.openAcademicYear(archiveYear);
                       } else if (tab != null) {
                         state.setTab(tab);

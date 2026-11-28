@@ -538,9 +538,13 @@ class _CalendarScreenState extends State<CalendarScreen> {
                 child: _EventTile(
                   event: e.value,
                   // Student Assistant calendars follow their approved uploaded
-                  // class schedule and do not allow manual deletion here;
-                  // computed schedule classes are read-only for all roles.
-                  onDelete: (e.value.computed || ownerIsAssistant) ? null : () async {
+                  // class schedule: computed classes are read-only for all
+                  // roles, and only the Head (`isAdmin` here) may still
+                  // remove an event saved on an assistant's calendar before.
+                  onDelete:
+                      (e.value.computed || (ownerIsAssistant && !isAdmin))
+                      ? null
+                      : () async {
                     final confirmed = await showDialog<bool>(
                       context: context,
                       builder: (dialogContext) => AlertDialog(

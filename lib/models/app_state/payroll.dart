@@ -552,28 +552,32 @@ extension AppStatePayroll on AppState {
     var count = 0;
     var total = 0.0;
 
-    for (final record in preview) {
-      if (record.status != 'Ready') continue;
-      final toSave = record.copyWith(
-        id: PayrollRecord.idFor(
-          record.studentId,
-          record.periodStart,
-          record.periodEnd,
-        ),
-        status: 'Approved',
-        approvedAt: today,
-        approvedBy: currentUser?.name ?? 'Admin',
-      );
-      if (!await _firestoreService!.createPayrollRecord(toSave)) continue;
-      payrollRecords = [
-        toSave,
-        ...payrollRecords.where((p) => p.id != toSave.id),
-      ];
-      count++;
-      total += record.grossPay;
+    // What was saved before an error shows at once (the error still
+    // reaches the caller).
+    try {
+      for (final record in preview) {
+        if (record.status != 'Ready') continue;
+        final toSave = record.copyWith(
+          id: PayrollRecord.idFor(
+            record.studentId,
+            record.periodStart,
+            record.periodEnd,
+          ),
+          status: 'Approved',
+          approvedAt: today,
+          approvedBy: currentUser?.name ?? 'Admin',
+        );
+        if (!await _firestoreService!.createPayrollRecord(toSave)) continue;
+        payrollRecords = [
+          toSave,
+          ...payrollRecords.where((p) => p.id != toSave.id),
+        ];
+        count++;
+        total += record.grossPay;
+      }
+    } finally {
+      _notify();
     }
-
-    _notify();
     return (count, total);
   }
 
@@ -594,43 +598,45 @@ extension AppStatePayroll on AppState {
       (p) => p.status == 'Approved' && p.id.isNotEmpty,
     );
 
-    for (final record in toRelease) {
-      final releasedBy = currentUser?.name ?? 'Admin';
-      // Only the call that finds it still Approved releases (and tells) it.
-      final released = await _firestoreService!.releasePayrollRecord(
-        record.id,
-        {'status': 'Released', 'releasedAt': today, 'releasedBy': releasedBy},
-      );
-      if (!released) continue;
-      payrollRecords = payrollRecords
-          .map(
-            (p) => p.id == record.id
-                ? p.copyWith(
-                    status: 'Released',
-                    releasedAt: today,
-                    releasedBy: releasedBy,
-                  )
-                : p,
-          )
-          .toList();
-      count++;
-      total += record.grossPay;
+    try {
+      for (final record in toRelease) {
+        final releasedBy = currentUser?.name ?? 'Admin';
+        // Only the call that finds it still Approved releases (and tells) it.
+        final released = await _firestoreService!.releasePayrollRecord(
+          record.id,
+          {'status': 'Released', 'releasedAt': today, 'releasedBy': releasedBy},
+        );
+        if (!released) continue;
+        payrollRecords = payrollRecords
+            .map(
+              (p) => p.id == record.id
+                  ? p.copyWith(
+                      status: 'Released',
+                      releasedAt: today,
+                      releasedBy: releasedBy,
+                    )
+                  : p,
+            )
+            .toList();
+        count++;
+        total += record.grossPay;
 
-      _addNotification(
-        AppNotification(
-          id: 'n_${DateTime.now().millisecondsSinceEpoch}_${record.studentId}',
-          userId: record.studentId,
-          title: 'Payout Released',
-          message:
-              'Your pay for ${record.periodLabel} (${record.payableHours.toStringAsFixed(1)} hrs · '
-              '₱${record.grossPay.toStringAsFixed(2)}) has been released.',
-          type: 'payroll',
-          createdAt: today,
-        ),
-      );
+        _addNotification(
+          AppNotification(
+            id: 'n_${DateTime.now().millisecondsSinceEpoch}_${record.studentId}',
+            userId: record.studentId,
+            title: 'Payout Released',
+            message:
+                'Your pay for ${record.periodLabel} (${record.payableHours.toStringAsFixed(1)} hrs · '
+                '₱${record.grossPay.toStringAsFixed(2)}) has been released.',
+            type: 'payroll',
+            createdAt: today,
+          ),
+        );
+      }
+    } finally {
+      _notify();
     }
-
-    _notify();
     return (count, total);
   }
 }

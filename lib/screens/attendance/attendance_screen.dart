@@ -310,9 +310,14 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                           (state.role == 'Head' ||
                                               state.role == 'Supervisor')
                                       ? () async {
+                                          final clock = state
+                                              .philippineClock();
                                           final picked = await showTimePicker(
                                             context: context,
-                                            initialTime: TimeOfDay.now(),
+                                            initialTime: TimeOfDay(
+                                              hour: clock.hour,
+                                              minute: clock.minute,
+                                            ),
                                           );
                                           if (picked == null ||
                                               !context.mounted)
@@ -327,6 +332,19 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                               picked.period == DayPeriod.am
                                               ? 'AM'
                                               : 'PM';
+                                          final problem = state
+                                              .manualTimeOutProblem(
+                                                r,
+                                                '$hour:$minute $period',
+                                              );
+                                          if (problem != null) {
+                                            _snack(
+                                              context,
+                                              problem,
+                                              AppTheme.amber500,
+                                            );
+                                            return;
+                                          }
                                           final confirmed = await showConfirmDialog(
                                             context,
                                             title: 'Record Time-out',
@@ -347,13 +365,15 @@ class _AttendanceScreenState extends State<AttendanceScreen>
                                           final now = state.attendance
                                               .where((a) => a.id == r.id)
                                               .firstOrNull;
-                                          if (!AppState.canSetManualTimeOut(
-                                            now,
-                                          )) {
+                                          final changed = state
+                                              .manualTimeOutProblem(
+                                                now,
+                                                '$hour:$minute $period',
+                                              );
+                                          if (changed != null) {
                                             _snack(
                                               context,
-                                              'This record changed meanwhile. '
-                                              'Check it again.',
+                                              changed,
                                               AppTheme.amber500,
                                             );
                                             return;
@@ -1921,6 +1941,16 @@ class _QrGenerateDialogState extends State<_QrGenerateDialog> {
     final state = context.read<AppState>();
     final sessionLabel = state.attendanceQrSessionLabel();
     final sessionEnd = state.attendanceQrSessionEnd();
+    // The session is over: a printed copy of this code would never work.
+    if (sessionEnd == null) {
+      _showSnack(
+        context,
+        'This session has ended, so its code no longer works. Generate a new '
+        'one when the next session starts.',
+        AppTheme.amber500,
+      );
+      return;
+    }
 
     if (!web_print.WebPrintUtils.isSupported) {
       _showSnack(

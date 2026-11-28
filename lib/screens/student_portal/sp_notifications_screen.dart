@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../models/app_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/announcement_widgets.dart';
 import '../../widgets/notification_tile.dart';
 import '../../widgets/email_notifications_card.dart';
 import '../../widgets/push_notifications_card.dart';
@@ -222,12 +223,19 @@ class SpNotificationsScreen extends StatelessWidget {
               else
                 ...notifs.map((n) {
                   final tab = state.notificationTab(n);
+                  // A mention opens the announcement itself: a hiring call
+                  // or a closed notice isn't on the Apply page.
+                  final mentioned = state.announcementMentionedIn(n);
                   return NotificationTile(
                     notif: n,
-                    opensScreen: tab != null,
+                    opensScreen: tab != null || mentioned != null,
                     onTap: () {
                       if (!n.isRead) state.markNotificationRead(n.id);
-                      if (tab != null) (onOpen ?? state.setTab)(tab);
+                      if (mentioned != null) {
+                        showAnnouncementDetailsDialog(context, mentioned);
+                      } else if (tab != null) {
+                        (onOpen ?? state.setTab)(tab);
+                      }
                     },
                   );
                 }),

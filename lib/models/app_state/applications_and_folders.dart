@@ -400,7 +400,10 @@ extension AppStateApplicationsAndFolders on AppState {
     if (updatedApplication.isApproved) {
       for (final skill in updatedApplication.skills) {
         final normalizedSkill = skill.trim();
+        // One the Head's list can't hold (a "/" in it) stays on the
+        // application only.
         if (normalizedSkill.isEmpty ||
+            AppState.listNameProblem(normalizedSkill) != null ||
             skills.any(
               (existing) =>
                   existing.toLowerCase() == normalizedSkill.toLowerCase(),
@@ -840,9 +843,12 @@ extension AppStateApplicationsAndFolders on AppState {
   List<String> skillsForUser(User user) {
     final names = [...user.skills];
     for (final application in applications) {
-      if ((application.applicantId == user.id ||
-              application.applicantName.trim().toLowerCase() ==
-                  user.name.trim().toLowerCase()) &&
+      if (AppState._isRecordOf(
+            application.applicantId,
+            application.applicantName,
+            {user.id},
+            user.name,
+          ) &&
           (application.status == 'Approved' ||
               application.status == 'Accepted')) {
         names.addAll(application.skills);
@@ -859,12 +865,15 @@ extension AppStateApplicationsAndFolders on AppState {
   /// Finds the most relevant completed screening/assessment record for
   /// [user], matched by applicant id first and falling back to name.
   ScreeningRecord? screeningRecordForUser(User user) {
+    // By applicant id; by name only for a walk-in screening saved without.
     final matches = screeningRecords
         .where(
-          (record) =>
-              record.applicantId == user.id ||
-              (record.fullName.trim().toLowerCase() ==
-                  user.name.trim().toLowerCase()),
+          (record) => AppState._isRecordOf(
+            record.applicantId,
+            record.fullName,
+            {user.id},
+            user.name,
+          ),
         )
         .toList();
     if (matches.isEmpty) return null;
@@ -881,10 +890,12 @@ extension AppStateApplicationsAndFolders on AppState {
   List<ScreeningRecord> screeningHistoryForUser(User user) {
     final matches = screeningRecords
         .where(
-          (record) =>
-              record.applicantId == user.id ||
-              (record.fullName.trim().toLowerCase() ==
-                  user.name.trim().toLowerCase()),
+          (record) => AppState._isRecordOf(
+            record.applicantId,
+            record.fullName,
+            {user.id},
+            user.name,
+          ),
         )
         .toList();
     matches.sort((a, b) {

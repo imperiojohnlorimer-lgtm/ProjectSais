@@ -147,6 +147,17 @@ class _HeadDashboard extends StatelessWidget {
   }
 }
 
+/// Student assistants clocked in right now: an open record from today,
+/// not voided as a missed time-out and not archived.
+int _onDutyNow(AppState state) {
+  final today = state.philippineToday();
+  return state.filteredAttendance
+      .where(
+        (a) => a.isActive && !a.isInvalid && !a.isArchived && a.date == today,
+      )
+      .length;
+}
+
 // ─── Student Assistant dashboard (personal view only) ──
 class _StudentAssistantDashboard extends StatelessWidget {
   const _StudentAssistantDashboard();
@@ -157,9 +168,8 @@ class _StudentAssistantDashboard extends StatelessWidget {
     final name = state.currentUser?.name ?? '';
 
     final myTasks = state.filteredTasks; // already scoped to this SA
-    final myReports = state.filteredReports
-        .where((r) => r.studentName == name)
-        .toList();
+    // Already this assistant's own (by account, or by name on older ones).
+    final myReports = state.filteredReports;
     final myAttendance = state.filteredAttendance; // already scoped to this SA
 
     final totalHours = myAttendance
@@ -1283,14 +1293,12 @@ class _SupervisorDashboard extends StatelessWidget {
     final metrics = DashboardMetrics.of(context);
 
     final assignedStudents = state.filteredStudents.length;
-    final activeToday = state.filteredAttendance
-        .where((e) => e.isActive && !e.isInvalid)
-        .length;
+    final activeToday = _onDutyNow(state);
     final pendingReports = state.filteredReports
         .where((e) => e.status == 'Pending')
         .length;
     final pendingTasks = state.filteredTasks
-        .where((e) => e.status != 'Completed')
+        .where((e) => e.status != 'Completed' && !e.isArchived)
         .length;
 
     return _DashboardPage(
@@ -2307,10 +2315,11 @@ class _SupervisorSummarySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final activeToday = state.filteredAttendance.where((a) => a.isActive).length;
+    final activeToday = _onDutyNow(state);
+    final tasks = state.filteredTasks.where((t) => !t.isArchived);
     final pendingReports = state.filteredReports.where((r) => r.status == 'Pending').length;
-    final pendingTasks = state.filteredTasks.where((t) => t.status != 'Completed').length;
-    final completedTasks = state.filteredTasks.where((t) => t.status == 'Completed').length;
+    final pendingTasks = tasks.where((t) => t.status != 'Completed').length;
+    final completedTasks = tasks.where((t) => t.status == 'Completed').length;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -2714,6 +2723,9 @@ class _AttendanceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // A record left open past its session is a missed time-out, not on duty.
+    final bool missed = record.isInvalid == true;
+    final bool onDuty = record.isActive == true && !missed;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -2727,10 +2739,22 @@ class _AttendanceTile extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: record.isActive ? AppTheme.emerald50 : AppTheme.slate100,
+              color: missed
+                  ? AppTheme.red50
+                  : onDuty
+                  ? AppTheme.emerald50
+                  : AppTheme.slate100,
               shape: BoxShape.circle,
             ),
-            child: Icon(Icons.access_time_rounded, size: 18, color: record.isActive ? AppTheme.emerald500 : AppTheme.slate400),
+            child: Icon(
+              Icons.access_time_rounded,
+              size: 18,
+              color: missed
+                  ? AppTheme.red500
+                  : onDuty
+                  ? AppTheme.emerald500
+                  : AppTheme.slate400,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -2749,7 +2773,13 @@ class _AttendanceTile extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          StatusBadge.fromStatus(record.isActive ? 'On Duty' : 'Completed'),
+          StatusBadge.fromStatus(
+            missed
+                ? 'Missed time-out'
+                : onDuty
+                ? 'On Duty'
+                : 'Completed',
+          ),
         ],
       ),
     );

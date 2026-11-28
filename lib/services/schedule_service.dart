@@ -209,8 +209,9 @@ class ScheduleService extends ChangeNotifier {
     if (_cache.containsKey(ownerId) || _loading.contains(ownerId)) return;
     final generation = _generation;
     await refresh(ownerId);
-    // Signed out meanwhile: don't start watching for the old account.
-    if (generation != _generation) return;
+    // Signed out (or closed) meanwhile: don't start watching for the old
+    // account.
+    if (generation != _generation || _disposed) return;
     _watch(ownerId);
   }
 
@@ -316,8 +317,10 @@ class ScheduleService extends ChangeNotifier {
   }
 
   Future<void> addEvent(ScheduleEvent event) async {
+    final generation = _generation;
     final saved = await _repository.addEvent(event);
-    if (_disposed) return;
+    // Signed out meanwhile: the next account's copy isn't this one's.
+    if (_disposed || generation != _generation) return;
     final ownerId = event.ownerId ?? '';
     final list = List<ScheduleEvent>.from(_cache[ownerId] ?? []);
     list.removeWhere((e) => e.id == saved.id);
@@ -331,7 +334,12 @@ class ScheduleService extends ChangeNotifier {
   /// schedule isn't stored, so there is nothing to delete.
   Future<void> deleteEvent(String ownerId, String id) async {
     if (id.startsWith('class_')) return;
+    final generation = _generation;
     await _repository.deleteEvent(id);
+    if (_disposed || generation != _generation) return;
+    // Nothing loaded for this owner: leave it to the next load (an empty
+    // list here would pass for a loaded one).
+    if (!_cache.containsKey(ownerId)) return;
     _cache[ownerId] = (_cache[ownerId] ?? const <ScheduleEvent>[])
         .where((e) => e.id != id)
         .toList();

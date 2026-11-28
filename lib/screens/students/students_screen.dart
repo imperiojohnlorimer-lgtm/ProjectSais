@@ -1648,6 +1648,14 @@ class _StudentRowState extends State<_StudentRow> {
     AppState state,
     Student s,
   ) {
+    if (state.departments.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No departments yet: the Admin adds them first.'),
+        ),
+      );
+      return;
+    }
     String selected = state.departments.contains(s.department)
         ? s.department
         : state.departments.first;

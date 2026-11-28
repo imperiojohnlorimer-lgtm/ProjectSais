@@ -46,7 +46,9 @@ extension AppStateSupervisorCards on AppState {
             : role == 'Supervisor' && u.id == me.id)
           u,
     ];
-    if (mine.isEmpty) return;
+    // A Head or the Admin also clears the cards of people no longer
+    // supervisors (so there may be nothing left to keep).
+    if (mine.isEmpty && !all) return;
     final signature =
         (mine
                 .map((u) => '${u.id}|${u.name}|${(u.avatar ?? '').hashCode}')
@@ -72,6 +74,19 @@ extension AppStateSupervisorCards on AppState {
         }
       }
       if (changed.isNotEmpty) await fs.saveSupervisorCards(changed);
+      if (all) {
+        // Archived, deleted or no longer a Supervisor: their name and
+        // picture stop being readable by everyone.
+        // A Head who heads an office may have a card too: kept.
+        final keep = {
+          for (final u in users)
+            if ((u.role == 'Supervisor' || u.role == 'Head') &&
+                u.status != 'Archived')
+              u.id,
+        };
+        final stale = stored.keys.where((id) => !keep.contains(id)).toList();
+        if (stale.isNotEmpty) await fs.deleteSupervisorCards(stale);
+      }
     } catch (error) {
       _syncedSupervisorCards = null;
       debugPrint('Could not update the supervisor cards: $error');

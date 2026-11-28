@@ -125,7 +125,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
           problem: (name) {
             final existing = state.findSkill(name);
             return existing == null
-                ? null
+                ? AppState.listNameProblem(name)
                 : '"$existing" is already on the list.';
           },
           onSave: () => state.addSkill(controller.text.trim()),
@@ -165,7 +165,7 @@ class _SkillsScreenState extends State<SkillsScreen> {
           problem: (name) {
             final existing = state.findSkill(name);
             return existing == null || existing == skill
-                ? null
+                ? AppState.listNameProblem(name)
                 : '"$existing" is already on the list.';
           },
           onSave: () => state.updateSkill(skill, controller.text.trim()),

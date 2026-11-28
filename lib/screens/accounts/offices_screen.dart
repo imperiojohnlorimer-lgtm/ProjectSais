@@ -97,6 +97,9 @@ class _OfficesScreenState extends State<OfficesScreen> {
               itemCount: offices.length,
               separatorBuilder: (_, __) => const SizedBox(height: 14),
               itemBuilder: (context, index) => _OfficeCard(
+                // Each card keeps its own search and filters, and a list
+                // that changes never moves them to another office.
+                key: ValueKey(offices[index].id),
                 office: offices[index],
                 acceptedAssistants: acceptedAssistants,
               ),
@@ -1014,7 +1017,11 @@ class _OfficesScreenState extends State<OfficesScreen> {
 class _OfficeCard extends StatefulWidget {
   final Office office;
   final List<User> acceptedAssistants;
-  const _OfficeCard({required this.office, required this.acceptedAssistants});
+  const _OfficeCard({
+    super.key,
+    required this.office,
+    required this.acceptedAssistants,
+  });
 
   @override
   State<_OfficeCard> createState() => _OfficeCardState();
@@ -1682,8 +1689,18 @@ class _OfficeCardState extends State<_OfficeCard> {
               !state.offices.any((item) => item.assistantIds.contains(user.id)),
         )
         .length;
-    final otherOfficeCount =
-        acceptedAssistants.length - assignedHereCount - availableCount;
+    // Placed in another office (never negative: this office's roster may
+    // list archived or name-only people the accepted list doesn't hold).
+    final otherOfficeCount = acceptedAssistants
+        .where(
+          (user) =>
+              !office.assistantIds.contains(user.id) &&
+              state.offices.any(
+                (item) =>
+                    item.id != office.id && item.assistantIds.contains(user.id),
+              ),
+        )
+        .length;
     final hasFilters =
         _search.isNotEmpty ||
         _departmentFilter != 'All departments' ||
@@ -2305,6 +2322,9 @@ class _OfficeCardState extends State<_OfficeCard> {
                                       onChanged: locked
                                           ? null
                                           : (checked) async {
+                                              // The office this card shows
+                                              // now, kept across the awaits.
+                                              final officeId = office.id;
                                               final confirmed = await showConfirmDialog(
                                                 context,
                                                 title: checked == true
@@ -2323,41 +2343,24 @@ class _OfficeCardState extends State<_OfficeCard> {
                                               if (!confirmed ||
                                                   !context.mounted)
                                                 return;
-                                              final ids = [
-                                                ...office.assistantIds,
-                                              ];
-                                              if (checked == true &&
-                                                  !ids.contains(user.id))
-                                                ids.add(user.id);
-                                              if (checked != true)
-                                                ids.remove(user.id);
-                                              final assistants =
-                                                  acceptedAssistants
-                                                      .where(
-                                                        (item) => ids.contains(
-                                                          item.id,
-                                                        ),
-                                                      )
-                                                      .toList();
-                                              final assigned = await runWithBusy(
+                                              final problem = await runWithBusy(
                                                 context,
                                                 () => context
                                                     .read<AppState>()
-                                                    .assignStudentAssistantsToOffice(
-                                                      office.id,
-                                                      assistants,
+                                                    .setOfficeAssistant(
+                                                      officeId,
+                                                      user,
+                                                      member: checked == true,
                                                     ),
                                                 message: 'Saving…',
                                               );
-                                              if (!assigned &&
+                                              if (problem != null &&
                                                   context.mounted) {
                                                 ScaffoldMessenger.of(
                                                   context,
                                                 ).showSnackBar(
                                                   SnackBar(
-                                                    content: Text(
-                                                      '${office.name} can have at most ${office.capacity} student assistant${office.capacity == 1 ? '' : 's'}.',
-                                                    ),
+                                                    content: Text(problem),
                                                     backgroundColor:
                                                         AppTheme.red500,
                                                     behavior: SnackBarBehavior
@@ -2484,6 +2487,8 @@ class _OfficeCardState extends State<_OfficeCard> {
     User user,
     bool checked,
   ) async {
+    // The office this card shows now, kept across the awaits below.
+    final officeId = office.id;
     if (checked && _isLockedElsewhere(context.read<AppState>(), user)) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -2510,18 +2515,25 @@ class _OfficeCardState extends State<_OfficeCard> {
       confirmColor: checked ? AppTheme.maroon : AppTheme.red500,
     );
     if (!confirmed || !context.mounted) return;
-    final ids = [...office.assistantIds];
-    if (checked && !ids.contains(user.id)) ids.add(user.id);
-    if (!checked) ids.remove(user.id);
-    final assistants = acceptedAssistants
-        .where((item) => ids.contains(item.id))
-        .toList();
     final state = context.read<AppState>();
-    await runWithBusy(
+    final problem = await runWithBusy(
       context,
-      () => state.assignStudentAssistantsToOffice(office.id, assistants),
+      () => state.setOfficeAssistant(officeId, user, member: checked),
       message: checked ? 'Assigning…' : 'Removing…',
     );
+    if (problem != null && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(problem),
+          backgroundColor: AppTheme.red500,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          margin: const EdgeInsets.all(16),
+        ),
+      );
+    }
   }
 
   Future<void> _delete(BuildContext context) async {

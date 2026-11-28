@@ -592,6 +592,15 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                         final name = nameCtrl.text.trim();
                         final code = codeCtrl.text.trim();
                         if (name.isEmpty) return;
+                        final badName = AppState.listNameProblem(name);
+                        if (badName != null) {
+                          AppSnackBar.show(
+                            context,
+                            badName,
+                            type: SnackType.warning,
+                          );
+                          return;
+                        }
                         // Another department's name, whatever its capitals.
                         final taken = state.findDepartment(name);
                         if (taken != null && taken != department) {

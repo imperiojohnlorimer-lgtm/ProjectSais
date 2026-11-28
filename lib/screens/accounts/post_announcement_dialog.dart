@@ -511,11 +511,7 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
     // Only people a mention reaches (AppState.mentionedUsers).
     final people = <String, String>{
       for (final user in state.users)
-        if (AppState.mentionableRoles.contains(user.role) &&
-            user.status != 'Archived' &&
-            !user.isDeleted &&
-            user.id != state.currentUser?.id &&
-            user.name.trim().isNotEmpty)
+        if (AppState.isMentionable(user) && user.id != state.currentUser?.id)
           '@${user.name.trim()}': user.role,
     };
     final tabs = {

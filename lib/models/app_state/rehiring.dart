@@ -49,13 +49,11 @@ extension AppStateRehiring on AppState {
   /// "Eligible for Rehire" mark the rehire decision follows up on.
   Evaluation? latestEvaluationForUser(User user) {
     final ids = {user.id, for (final s in _studentRecordsForUser(user)) s.id};
-    final name = user.name.trim().toLowerCase();
     final matches = evaluations
         .where(
           (e) =>
               e.status == 'Submitted' &&
-              (ids.contains(e.studentId) ||
-                  e.studentName.trim().toLowerCase() == name),
+              AppState._isRecordOf(e.studentId, e.studentName, ids, user.name),
         )
         .toList();
     matches.sort((a, b) {
@@ -435,6 +433,14 @@ extension AppStateRehiring on AppState {
         if (office.id == officeId || office.hasAssistant(user.id, user.name))
           office.id,
     };
+    // The office they are to join is gone: not placed, so the decision
+    // must not be marked applied (the caller sees the error).
+    if (officeId != null && !offices.any((o) => o.id == officeId)) {
+      throw StateError(
+        'The office chosen for ${user.name} no longer exists. Pick another '
+        'office for the rehire.',
+      );
+    }
     if (touched.isEmpty) return;
     _firestoreService ??= FirestoreService();
     // One transaction over the offices as stored now: a move never lands on

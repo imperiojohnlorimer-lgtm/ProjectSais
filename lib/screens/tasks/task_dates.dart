@@ -37,7 +37,7 @@ DateTime? parseDueDate(String raw) {
     'dec',
   ];
   final parts = raw.replaceAll(',', '').trim().split(RegExp(r'\s+'));
-  if (parts.length < 3) return null;
+  if (parts.length < 3 || parts[0].length < 3) return null;
   final month = months.indexOf(parts[0].toLowerCase().substring(0, 3)) + 1;
   final day = int.tryParse(parts[1]);
   final year = int.tryParse(parts[2]);

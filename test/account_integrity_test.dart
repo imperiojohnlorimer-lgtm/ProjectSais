@@ -426,6 +426,39 @@ void main() {
       expect(await state.assignSupervisorsToOffice('nope', []), isFalse);
     });
 
+    test('assigning one person keeps everyone else, name-only entries '
+        'included', () async {
+      final shown = _office(ids: ['', 'sa1'], names: ['Old Entry', 'Ana Reyes']);
+      store.officeDocs['o1'] = shown;
+      final state = session(_head)..offices = [shown];
+
+      expect(await state.setOfficeAssistant('o1', ben, member: true), isNull);
+      expect(store.officeDocs['o1']!.assistantNames, [
+        'Old Entry',
+        'Ana Reyes',
+        'Ben Cruz',
+      ]);
+
+      expect(await state.setOfficeAssistant('o1', ana, member: false), isNull);
+      expect(store.officeDocs['o1']!.assistantNames, ['Old Entry', 'Ben Cruz']);
+    });
+
+    test('a full office says so; it is not a generic failure', () async {
+      final shown = _office(ids: ['sa1'], names: ['Ana Reyes'], capacity: 1);
+      store.officeDocs['o1'] = shown;
+      final state = session(_head)..offices = [shown];
+
+      expect(
+        await state.setOfficeAssistant('o1', ben, member: true),
+        contains('at most 1'),
+      );
+      store.failAccountWrites = true;
+      expect(
+        await state.setOfficeAssistant('o1', ana, member: false),
+        contains("Couldn't save"),
+      );
+    });
+
     test('someone listed by name alone can be taken off', () async {
       // An older entry: a name with no account id.
       final shown = _office(

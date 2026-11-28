@@ -1515,7 +1515,17 @@ class _ApplyDialogState extends State<ApplyDialog> {
       });
       return;
     }
-    _addTypedSkills();
+    // Text left in the skills box is a search, not a skill, unless the
+    // student says so with Add.
+    if (_skillsCtrl.text.trim().isNotEmpty) {
+      setState(() {
+        _noticeIsError = true;
+        _notice =
+            'Tap Add to keep "${_skillsCtrl.text.trim()}" as a skill, or clear '
+            'the skills box.';
+      });
+      return;
+    }
     setState(() {
       _submitting = true;
       _notice = null;

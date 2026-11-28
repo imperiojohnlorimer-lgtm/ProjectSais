@@ -1001,8 +1001,20 @@ class _RehireDecisionDialogState extends State<_RehireDecisionDialog> {
     return eligible != _rehire;
   }
 
+  /// The chosen office while it is still active: one closed while the
+  /// dialog was open is no choice at all.
+  String? get _activeOfficeId {
+    final id = _officeId;
+    if (id == null) return null;
+    final ok = context.read<AppState>().offices.any(
+      (o) => o.id == id && o.isActive,
+    );
+    return ok ? id : null;
+  }
+
   void _submit() {
-    if (_rehire && _officeId == null) return;
+    final officeId = _activeOfficeId;
+    if (_rehire && officeId == null) return;
     if (_overridesRecommendation && _remarksCtrl.text.trim().isEmpty) {
       setState(() => _showRemarksError = true);
       return;
@@ -1011,7 +1023,7 @@ class _RehireDecisionDialogState extends State<_RehireDecisionDialog> {
       context,
       _DecisionResult(
         rehire: _rehire,
-        officeId: _rehire ? _officeId : null,
+        officeId: _rehire ? officeId : null,
         remarks: _remarksCtrl.text.trim(),
       ),
     );
@@ -1133,7 +1145,9 @@ class _RehireDecisionDialogState extends State<_RehireDecisionDialog> {
                     const SizedBox(height: 16),
                     if (_rehire) ...[
                       DropdownButtonFormField<String>(
-                        initialValue: _officeId,
+                        // Rebuilt when the choice stops being offered.
+                        key: ValueKey(selectedOffice?.id),
+                        initialValue: selectedOffice?.id,
                         isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Office',
@@ -1209,7 +1223,9 @@ class _RehireDecisionDialogState extends State<_RehireDecisionDialog> {
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
-                    onPressed: _rehire && _officeId == null ? null : _submit,
+                    onPressed: _rehire && selectedOffice == null
+                        ? null
+                        : _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _rehire
                           ? AppTheme.maroon

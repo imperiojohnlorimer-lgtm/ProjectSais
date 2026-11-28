@@ -2172,6 +2172,13 @@ class _AccountsScreenState extends State<AccountsScreen>
                         onPressed: () async {
                           final name = nameCtrl.text.trim();
                           if (name.isEmpty) return;
+                          final badName = AppState.listNameProblem(name);
+                          if (badName != null) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(badName)),
+                            );
+                            return;
+                          }
                           final created = await state.addDepartment(name);
                           if (!context.mounted) return;
                           Navigator.pop(context);

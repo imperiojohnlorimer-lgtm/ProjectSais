@@ -1045,6 +1045,11 @@ class _RecordLineState extends State<_RecordLine> {
         final time =
             '$hour:${picked.minute.toString().padLeft(2, '0')} '
             '${picked.period == DayPeriod.am ? 'AM' : 'PM'}';
+        final problem = state.manualTimeOutProblem(record, time);
+        if (problem != null) {
+          say(problem, AppTheme.amber500);
+          return;
+        }
         final confirmed = await showConfirmDialog(
           context,
           title: 'Record Time-out',
@@ -1061,11 +1066,9 @@ class _RecordLineState extends State<_RecordLine> {
         final now = state.attendance
             .where((a) => a.id == record.id)
             .firstOrNull;
-        if (!AppState.canSetManualTimeOut(now)) {
-          say(
-            'This record changed meanwhile. Check it again.',
-            AppTheme.amber500,
-          );
+        final changed = state.manualTimeOutProblem(now, time);
+        if (changed != null) {
+          say(changed, AppTheme.amber500);
           return;
         }
         final saved = await _busy(

@@ -347,6 +347,7 @@ class StatusBadge extends StatelessWidget {
         );
       case 'Rejected':
       case 'Inactive':
+      case 'Missed time-out':
         return StatusBadge(
           label: status,
           bgColor: AppTheme.red50,

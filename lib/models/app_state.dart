@@ -145,10 +145,17 @@ class AppState extends ChangeNotifier {
     try {
       await _initializeFirebaseAuthUser();
       if (_disposed || currentUser == null) return;
+      // A sign-in by hand (or a sign-out) while this ran takes over: it
+      // loads its own data, and this mustn't restart the listeners under it.
+      final generation = _liveGeneration;
+      final user = currentUser!.id;
+      bool stale() => _loadIsStale(generation) || currentUser?.id != user;
       _beginLoadPending();
       notifyListeners();
       await _loadAllFromFirestore();
+      if (stale()) return;
       await _loadNotificationsForCurrentUser();
+      if (stale()) return;
       _startRealtimeListeners();
     } finally {
       _restoringSession = false;
@@ -3061,9 +3068,12 @@ class AppState extends ChangeNotifier {
         .toSet();
 
     for (final skill in approvedSkills) {
-      if (skills.any(
-        (existing) => existing.toLowerCase() == skill.toLowerCase(),
-      )) {
+      // One the Head's list can't hold (a "/" in it) stays on the
+      // application only.
+      if (listNameProblem(skill) != null ||
+          skills.any(
+            (existing) => existing.toLowerCase() == skill.toLowerCase(),
+          )) {
         continue;
       }
       try {
@@ -3080,6 +3090,28 @@ class AppState extends ChangeNotifier {
   /// Announcement suggests).
   static const mentionableRoles = ['Student', 'Student Assistant', 'Supervisor'];
 
+  /// Whether [u] can be @mentioned: a Student, Student Assistant or
+  /// Supervisor who can sign in. A staff sign-up waiting for the Head (or
+  /// turned down) is saved as a Student with `requestedRole` set: not them.
+  static bool isMentionable(User u) =>
+      mentionableRoles.contains(u.role) &&
+      !blocksSignIn(u.status) &&
+      u.requestedRole == null &&
+      !u.isDeleted &&
+      u.name.trim().isNotEmpty;
+
+  /// The announcement a `mention_<announcementId>_<userId>` notification
+  /// is about, or null. Announcement ids hold `_` themselves (`ann_<ms>`),
+  /// so the known recipient is cut off the end rather than split on `_`.
+  Announcement? announcementMentionedIn(AppNotification n) {
+    const prefix = 'mention_';
+    final suffix = '_${n.userId}';
+    if (!n.id.startsWith(prefix) || !n.id.endsWith(suffix)) return null;
+    if (n.id.length <= prefix.length + suffix.length) return null;
+    final id = n.id.substring(prefix.length, n.id.length - suffix.length);
+    return announcements.where((a) => a.id == id).firstOrNull;
+  }
+
   /// The people @mentioned in [text] by their full name ("@Juan S. Dela
   /// Cruz"), case ignored: active Students, Student Assistants and
   /// Supervisors, each once, never [excludeId] (the poster). Longer names
@@ -3093,11 +3125,7 @@ class AppState extends ChangeNotifier {
     final byName = <String, List<User>>{};
     for (final u in users) {
       final name = u.name.trim().toLowerCase();
-      if (mentionableRoles.contains(u.role) &&
-          u.status != 'Archived' &&
-          !u.isDeleted &&
-          u.id != excludeId &&
-          name.isNotEmpty) {
+      if (isMentionable(u) && u.id != excludeId) {
         (byName[name] ??= []).add(u);
       }
     }
@@ -3615,8 +3643,14 @@ class AppState extends ChangeNotifier {
       .toList();
 
   /// Announcements submitted by the current supervisor (any status).
-  List<Announcement> get myAnnouncements =>
-      announcements.where((a) => a.postedBy == currentUser?.name).toList();
+  /// By who posted it (an older one saved without that, by name).
+  List<Announcement> get myAnnouncements {
+    final me = currentUser;
+    if (me == null) return const [];
+    return announcements
+        .where((a) => _isRecordOf(a.postedById, a.postedBy, {me.id}, me.name))
+        .toList();
+  }
 
   // ─── Students ────────────────────────────────────────
   /// Moves a student to [newDepartment], on their students record and on
@@ -3653,14 +3687,17 @@ class AppState extends ChangeNotifier {
     if (base == null) {
       await _firestoreService!.setOffice(office);
     } else {
-      final removedHeads = [
-        for (var i = 0; i < base.headIds.length; i++)
-          if (!office.headIds.contains(base.headIds[i]))
-            (
-              id: base.headIds[i],
-              name: i < base.headNames.length ? base.headNames[i] : '',
-            ),
-      ];
+      // Also supervisors listed by name alone, even past the end of a
+      // shorter id list.
+      final removedHeads = _removedOfficePeople(
+        base.headIds,
+        base.headNames,
+        {
+          for (final id in office.headIds)
+            if (id.isNotEmpty) id,
+        },
+        {for (final n in office.headNames) n.trim().toLowerCase()},
+      );
       final addedHeads = [
         for (var i = 0; i < office.headIds.length; i++)
           if (!base.headIds.contains(office.headIds[i]))
@@ -3807,6 +3844,95 @@ class AppState extends ChangeNotifier {
   /// two Heads placing different students don't erase each other, and a move
   /// lands on both offices or neither. False when the office is full or gone,
   /// or the save failed.
+  /// Puts [user] in office [officeId] ([member]) or takes them out,
+  /// leaving everyone else on its roster as stored (people listed by name
+  /// alone included; rebuilding the whole roster from the accounts would
+  /// drop them). Joining takes them out of any other office. Returns null
+  /// when it's saved, else why not, for the Head.
+  Future<String?> setOfficeAssistant(
+    String officeId,
+    User user, {
+    required bool member,
+  }) async {
+    final office = offices.where((item) => item.id == officeId).firstOrNull;
+    if (office == null) return 'This office no longer exists.';
+    final touched = {
+      officeId,
+      if (member)
+        for (final other in offices)
+          if (other.id != officeId && other.hasAssistant(user.id, user.name))
+            other.id,
+    };
+    var full = false;
+    _firestoreService ??= FirestoreService();
+    final Map<String, Office>? saved;
+    try {
+      saved = await _firestoreService!.updateOffices(touched, (stored) {
+        full = false;
+        var target = stored[officeId];
+        if (target == null) return null;
+        final already = target.hasAssistant(user.id, user.name);
+        if (member == already) return const {};
+        target = member
+            ? target.withAssistant(user.id, user.name)
+            : target.withoutAssistant(user.id, user.name);
+        if (member &&
+            target.capacity > 0 &&
+            target.assistantCount > target.capacity) {
+          full = true;
+          return null;
+        }
+        final changed = {officeId: target};
+        if (member) {
+          for (final entry in stored.entries) {
+            if (entry.key == officeId) continue;
+            if (entry.value.hasAssistant(user.id, user.name)) {
+              changed[entry.key] = entry.value.withoutAssistant(
+                user.id,
+                user.name,
+              );
+            }
+          }
+        }
+        return changed;
+      }, people: [if (user.id.isNotEmpty) user.id]);
+    } catch (error) {
+      debugPrint('Failed to save the office roster: $error');
+      return "Couldn't save the change. Check your connection and try again.";
+    }
+    if (saved == null) {
+      return full
+          ? '${office.name} can have at most ${office.capacity} student '
+                'assistant${office.capacity == 1 ? '' : 's'}.'
+          : "Couldn't save the change: the office may have been removed.";
+    }
+    if (saved.isEmpty) return null;
+    await _showSavedOffices(saved);
+
+    final now = offices.where((item) => item.id == officeId).firstOrNull;
+    final name = now?.name ?? office.name;
+    if (member) {
+      _addNotification(
+        AppNotification(
+          id: 'n_${DateTime.now().microsecondsSinceEpoch}_office_${user.id}',
+          userId: user.id,
+          title: 'Office Assignment Updated',
+          message: 'You have been assigned to $name.',
+          type: 'office',
+          createdAt: _formattedToday(),
+        ),
+      );
+    }
+    _notifyOfficeUsers(
+      now?.headIds ?? office.headIds,
+      title: 'Office Assignment Updated',
+      message: member
+          ? '${user.name} was assigned to $name.'
+          : 'Student assistant assignments were updated for $name.',
+    );
+    return null;
+  }
+
   Future<bool> assignStudentAssistantsToOffice(
     String officeId,
     List<User> assistants,
@@ -4024,7 +4150,11 @@ class AppState extends ChangeNotifier {
 
   Future<bool> addDepartment(String name, {String code = ''}) async {
     final normalized = name.trim();
-    if (normalized.isEmpty || findDepartment(normalized) != null) return false;
+    if (normalized.isEmpty ||
+        findDepartment(normalized) != null ||
+        listNameProblem(normalized) != null) {
+      return false;
+    }
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.setDepartment(normalized, code: code.trim());
@@ -4758,9 +4888,26 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// Why [name] can't name a skill or department, or null when it can.
+  /// Each is stored under its name as the document id, which can't hold a
+  /// "/" (it would mean a sub-folder), be "." or "..", or look like
+  /// "__name__".
+  static String? listNameProblem(String name) {
+    final n = name.trim();
+    if (n.contains('/')) return 'A name can\'t contain "/". Try "UI-UX" or "UI and UX".';
+    if (n == '.' || n == '..' || RegExp(r'^__.*__$').hasMatch(n)) {
+      return 'That name can\'t be used. Try another.';
+    }
+    return null;
+  }
+
   Future<bool> addSkill(String name) async {
     final normalized = name.trim();
-    if (normalized.isEmpty || findSkill(normalized) != null) return false;
+    if (normalized.isEmpty ||
+        findSkill(normalized) != null ||
+        listNameProblem(normalized) != null) {
+      return false;
+    }
     try {
       _firestoreService ??= FirestoreService();
       await _firestoreService!.setSkill(normalized);
@@ -4796,7 +4943,9 @@ class AppState extends ChangeNotifier {
     // name in another case ("communication skills" to "Communication
     // Skills") is a rename.
     final clash = findSkill(normalized);
-    if (normalized.isEmpty || (clash != null && clash != oldName)) {
+    if (normalized.isEmpty ||
+        (clash != null && clash != oldName) ||
+        listNameProblem(normalized) != null) {
       return false;
     }
     _skillRenames++;
@@ -4837,7 +4986,9 @@ class AppState extends ChangeNotifier {
     // Another department's name, whatever its case; its own is fine (a
     // rename that only changes the capitals).
     final taken = findDepartment(normalized);
-    if (normalized.isEmpty || (taken != null && taken != oldName)) {
+    if (normalized.isEmpty ||
+        (taken != null && taken != oldName) ||
+        listNameProblem(normalized) != null) {
       return false;
     }
     try {
@@ -5737,6 +5888,44 @@ class AppState extends ChangeNotifier {
   static bool canSetManualTimeOut(AttendanceRecord? record) =>
       record != null && !record.isArchived && record.isActive;
 
+  /// Why [timeOut] (`8:05 AM`) can't close [record] by hand, or null when
+  /// it can: after the time-in, no later than its session's end (a time-in
+  /// up to 12:00 PM is the morning session, else the afternoon, as
+  /// [invalidateMissedTimeOuts] decides), and not later than now on today's
+  /// record. [now] stands in for the clock in tests.
+  String? manualTimeOutProblem(
+    AttendanceRecord? record,
+    String timeOut, {
+    DateTime? now,
+  }) {
+    if (!canSetManualTimeOut(record)) {
+      return 'This record changed meanwhile. Check it again.';
+    }
+    final start = _parseTimeOfDayMinutes(record!.timeIn);
+    final end = _parseTimeOfDayMinutes(timeOut);
+    if (start == null || end == null) {
+      return "The time-in or time-out couldn't be read.";
+    }
+    if (end <= start) {
+      return 'The time-out must be after the time-in (${record.timeIn}).';
+    }
+    final morning = start <= _qrMorningEndMinutes;
+    if (end > (morning ? _qrMorningEndMinutes : _qrAfternoonEndMinutes)) {
+      return morning
+          ? "The morning session ends at 12:00 PM: the time-out can't be "
+                'later. Record the afternoon separately.'
+          : "The afternoon session ends at 5:00 PM: the time-out can't be "
+                'later.';
+    }
+    if (record.date == philippineToday(now)) {
+      final clock = philippineClock(now);
+      if (end > clock.hour * 60 + clock.minute) {
+        return "The time-out can't be later than now.";
+      }
+    }
+    return null;
+  }
+
   /// A Head/Supervisor manually completing a student's missed time-out —
   /// the actual verification step the System needs before those hours can
   /// count toward payroll. Sets a real time-out and computes real elapsed
@@ -5752,7 +5941,8 @@ class AppState extends ChangeNotifier {
       (r) => r?.id == recordId,
       orElse: () => null,
     );
-    if (!canSetManualTimeOut(existing)) return false;
+    // The screens check first and say why; this is the backstop.
+    if (manualTimeOutProblem(existing, timeOut) != null) return false;
     final elapsed = _hoursBetween(existing?.timeIn, timeOut);
     // A person confirming the time-out doesn't lift the weekly cap: the
     // clock-attendance function would have trimmed these hours the same way.
@@ -6383,16 +6573,14 @@ class AppState extends ChangeNotifier {
       await _firestoreService!.setReport(report);
       // The live query usually has it already.
       reports = _withAdded(reports, report, (r) => r.id);
-      User? assistant;
-      try {
-        assistant = users.firstWhere((user) {
-          final sameId = user.id == currentUser?.id;
-          final sameName =
-              user.name.trim().toLowerCase() ==
-              report.studentName.trim().toLowerCase();
-          return user.role == 'Student Assistant' && (sameId || sameName);
-        });
-      } catch (_) {}
+      // The assistant it's from: the report's own account (it carries one),
+      // else the signed-in assistant.
+      final ownerId = (report.applicantId ?? '').isNotEmpty
+          ? report.applicantId
+          : currentUser?.id;
+      final assistant = users
+          .where((u) => u.role == 'Student Assistant' && u.id == ownerId)
+          .firstOrNull;
       final assistantId = assistant?.id ?? currentUser?.id;
       final assistantName = assistant?.name ?? report.studentName;
       final supervisorIds = offices
@@ -7855,31 +8043,74 @@ class AppState extends ChangeNotifier {
     return attendance;
   }
 
+  /// Whether a record saved under [recordId] and [recordName] belongs to
+  /// the person known by [ids] and [name]: by id whenever the record has
+  /// one, and by name only for records saved without (older ones, walk-in
+  /// screenings). Two students may share a name; an id never lies.
+  static bool _isRecordOf(
+    String? recordId,
+    String? recordName,
+    Set<String> ids,
+    String? name,
+  ) {
+    final id = recordId?.trim() ?? '';
+    if (id.isNotEmpty) return ids.contains(id);
+    final wanted = name?.trim().toLowerCase() ?? '';
+    return wanted.isNotEmpty &&
+        (recordName ?? '').trim().toLowerCase() == wanted;
+  }
+
+  /// The signed-in person's ids: their account and their roster records.
+  Set<String> _myIdentityIds() {
+    final me = currentUser?.id ?? '';
+    if (me.isEmpty) return const {};
+    return {
+      me,
+      for (final s in students)
+        if (s.userId == me) s.id,
+    };
+  }
+
+  /// Whether a record saved under [recordId] and [recordName] is about one
+  /// of the current Supervisor's students. A record with an id counts when
+  /// that id is one of theirs, or when it is the account of someone their
+  /// office lists by name alone; a record without an id goes by the name.
+  bool Function(String? recordId, String? recordName)
+  _supervisedRecordTest() {
+    final ids = _studentIdentityIdsForSupervisor();
+    final names = {
+      for (final n in _officeStudentNamesForSupervisor) n.trim().toLowerCase(),
+    };
+    final nameOnly = <String>{
+      for (final office in _supervisedOffices)
+        for (var i = 0; i < office.assistantNames.length; i++)
+          if (i >= office.assistantIds.length ||
+              office.assistantIds[i].trim().isEmpty)
+            office.assistantNames[i].trim().toLowerCase(),
+    }..remove('');
+    final nameOf = {for (final u in users) u.id: u.name.trim().toLowerCase()};
+    return (recordId, recordName) {
+      final id = recordId?.trim() ?? '';
+      if (id.isNotEmpty) {
+        return ids.contains(id) || nameOnly.contains(nameOf[id]);
+      }
+      return names.contains((recordName ?? '').trim().toLowerCase());
+    };
+  }
+
   List<Task> get filteredTasks {
     if (role == 'Head') return tasks;
     if (role == 'Supervisor') {
-      final assistantIds = _studentIdentityIdsForSupervisor();
+      final mine = _supervisedRecordTest();
       return tasks
-          .where(
-            (task) =>
-                (task.assignedTo != null &&
-                    assistantIds.contains(task.assignedTo)) ||
-                (task.assignedToName != null &&
-                    _officeStudentNamesForSupervisor.contains(
-                      task.assignedToName,
-                    )),
-          )
+          .where((task) => mine(task.assignedTo, task.assignedToName))
           .toList();
     }
     if (role == 'Student Assistant') {
-      final myId = currentUser?.id;
+      final ids = _myIdentityIds();
       final myName = currentUser?.name;
       return tasks
-          .where(
-            (t) =>
-                (t.assignedTo != null && t.assignedTo == myId) ||
-                (t.assignedToName != null && t.assignedToName == myName),
-          )
+          .where((t) => _isRecordOf(t.assignedTo, t.assignedToName, ids, myName))
           .toList();
     }
     return tasks.where((task) => task.assignedTo == currentUser?.id).toList();
@@ -7888,25 +8119,22 @@ class AppState extends ChangeNotifier {
   List<Report> get filteredReports {
     if (role == 'Head' || role == 'Admin') return reports;
     if (role == 'Student Assistant') {
-      final myId = currentUser?.id;
+      final ids = _myIdentityIds();
       return reports
           .where(
-            (report) =>
-                (myId != null && report.applicantId == myId) ||
-                report.studentName == currentUser?.name,
+            (report) => _isRecordOf(
+              report.applicantId,
+              report.studentName,
+              ids,
+              currentUser?.name,
+            ),
           )
           .toList();
     }
     if (role == 'Supervisor') {
-      final studentNames = _officeStudentNamesForSupervisor.toSet();
-      final studentIds = _studentIdentityIdsForSupervisor();
+      final mine = _supervisedRecordTest();
       return reports
-          .where(
-            (report) =>
-                studentNames.contains(report.studentName) ||
-                (report.applicantId != null &&
-                    studentIds.contains(report.applicantId)),
-          )
+          .where((report) => mine(report.applicantId, report.studentName))
           .toList();
     }
     return reports
@@ -7917,15 +8145,16 @@ class AppState extends ChangeNotifier {
   List<Evaluation> get filteredEvaluations {
     if (role == 'Head') return evaluations;
     if (role == 'Student Assistant') {
+      final ids = _myIdentityIds();
       return evaluations
-          .where((e) => e.studentName == currentUser?.name)
+          .where(
+            (e) => _isRecordOf(e.studentId, e.studentName, ids, currentUser?.name),
+          )
           .toList();
     }
     if (role == 'Supervisor') {
-      final studentNames = _officeStudentNamesForSupervisor.toSet();
-      return evaluations
-          .where((e) => studentNames.contains(e.studentName))
-          .toList();
+      final mine = _supervisedRecordTest();
+      return evaluations.where((e) => mine(e.studentId, e.studentName)).toList();
     }
     return const [];
   }
