@@ -100,4 +100,22 @@ void main() {
       expect(isValidStudentId('new1'), isFalse);
     });
   });
+
+  group('Decimal number', () {
+    final gwa = DecimalNumberFormatter(maxWholeDigits: 1, maxDecimalDigits: 2);
+    final income = DecimalNumberFormatter(maxWholeDigits: 9);
+
+    test('allows digits and a single decimal point within limits', () {
+      expect(_type(gwa, '1.75'), '1.75');
+      expect(_type(gwa, '1.759'), '1.75');
+      expect(_type(gwa, '12.5'), '1.5');
+      expect(_type(income, '120000.50'), '120000.50');
+    });
+
+    test('rejects letters, extra dots, and non-numeric pastes', () {
+      expect(_type(gwa, '1a.b7c5'), '1.75');
+      expect(_type(gwa, '1.7.5'), '1.75');
+      expect(_paste(gwa, '1.75', 'abc'), '1.75');
+    });
+  });
 }

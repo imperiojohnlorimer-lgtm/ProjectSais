@@ -237,10 +237,10 @@ class _HowItWorksCard extends StatelessWidget {
           ),
           const _StepLine(
             number: '3',
-            title: 'Get screened',
+            title: 'Get screened & interviewed',
             text:
-                'The Head picks who goes to screening and rates each '
-                'applicant.',
+                'The Head picks who goes to screening. Bring any requirements '
+                'listed in the announcement and attend your interview.',
           ),
           const _StepLine(
             number: '4',

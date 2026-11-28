@@ -85,6 +85,7 @@ flutter:
     - assets/images/marsu_campus.jpg
     - assets/images/google_logo.png
     - assets/templates/contract_of_appointment_template.docx
+    - assets/templates/application_form_template.docx
     - assets/templates/endorsement_letter_template.docx
     - assets/templates/interview_assessment_form_template.docx
     - assets/templates/performance_evaluation_template.docx

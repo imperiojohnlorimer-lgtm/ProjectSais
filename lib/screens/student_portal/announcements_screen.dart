@@ -6,13 +6,18 @@ import '../../utils/file_names.dart';
 import 'package:file_picker/file_picker.dart';
 import '../../models/app_state.dart';
 import '../../models/models.dart';
+import '../../services/application_form_document_service.dart';
 import '../../services/supabase_storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../utils/schedule_reader/schedule_reader.dart';
 import '../../widgets/announcement_widgets.dart';
+import '../../widgets/application_form_actions.dart';
+import '../../widgets/application_form_dialog.dart';
 import '../../widgets/application_status.dart';
 import '../../widgets/class_schedule_editor.dart';
+import '../../widgets/document_preview.dart';
+import '../../widgets/shared_widgets.dart';
 import 'student_page_widgets.dart';
 
 /// Reads a school ID file; tests pass their own.
@@ -264,6 +269,10 @@ class _ApplyCard extends StatelessWidget {
                   label: 'Student ID + school ID photo',
                 ),
                 const _Step(
+                  icon: Icons.assignment_outlined,
+                  label: 'Application form',
+                ),
+                const _Step(
                   icon: Icons.psychology_outlined,
                   label: 'Your skills',
                 ),
@@ -274,7 +283,8 @@ class _ApplyCard extends StatelessWidget {
                   label: 'Your class schedule',
                 ),
                 for (final req in call.requirements)
-                  if (!Application.isSchoolIdRequirement(req))
+                  if (!Application.isSchoolIdRequirement(req) &&
+                      !Application.isApplicationFormRequirement(req))
                     RequirementChip(label: req),
               ],
             ),
@@ -318,6 +328,43 @@ class _ApplyCard extends StatelessWidget {
                     style: const TextStyle(
                       fontSize: 11.5,
                       color: AppTheme.slate600,
+                      height: 1.5,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: AppTheme.amber50,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: AppTheme.amber500.withValues(alpha: 0.35),
+              ),
+            ),
+            child: const Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.record_voice_over_outlined,
+                  size: 16,
+                  color: AppTheme.amber500,
+                ),
+                SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Important: Please prepare and bring physical copies of '
+                    'any requirements mentioned in the announcement. '
+                    'Shortlisted applicants will be scheduled for an interview '
+                    'with the Head of Student Assistantship.',
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.slate700,
                       height: 1.5,
                     ),
                   ),
@@ -733,6 +780,107 @@ class _MyApplicationCard extends StatelessWidget {
             label: 'What does this mean?',
             onTap: () => showApplicationStatusGuide(context, forStudent: true),
           ),
+          if (status == Application.pending ||
+              status == Application.forScreening) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppTheme.amber50,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: AppTheme.amber500.withValues(alpha: 0.35),
+                ),
+              ),
+              child: const Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Icon(
+                    Icons.assignment_turned_in_outlined,
+                    size: 15,
+                    color: AppTheme.amber500,
+                  ),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Remember to bring physical copies of any requirements '
+                      'mentioned in the announcement and be ready for your '
+                      'interview.',
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        color: AppTheme.slate700,
+                        height: 1.45,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (application.applicationFormDoc != null ||
+              application.applicationForm != null) ...[
+            const SizedBox(height: 14),
+            const StudentSectionLabel('APPLICATION FORM'),
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.slate50,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.slate200),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Your filled Application Form for Student Assistantship '
+                    'is ready to preview or download.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: AppTheme.slate600,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () => previewFilledApplicationForm(
+                          context,
+                          application,
+                        ),
+                        icon: const Icon(Icons.visibility_outlined, size: 15),
+                        label: const Text('Preview Form'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.maroon,
+                          side: const BorderSide(color: AppTheme.maroon200),
+                        ),
+                      ),
+                      AsyncButton(
+                        kind: AsyncButtonKind.elevated,
+                        onPressed: () => downloadFilledApplicationForm(
+                          context,
+                          application,
+                        ),
+                        icon: Icons.download_rounded,
+                        label: 'Download Form',
+                        busyLabel: 'Downloading…',
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.maroon,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
           if (application.remarks?.isNotEmpty == true) ...[
             const SizedBox(height: 10),
             Text(
@@ -994,11 +1142,21 @@ class _ApplyDialogState extends State<ApplyDialog> {
     orElse: () => Application.schoolIdDocument,
   );
 
-  /// The call's requirements other than the school ID, which has its own
-  /// place at the top of the form.
+  /// The call's requirements other than the school ID and the official
+  /// Application Form, which each have their own section on the form.
   List<String> get _otherRequirements => call.requirements
-      .where((r) => !Application.isSchoolIdRequirement(r))
+      .where(
+        (r) =>
+            !Application.isSchoolIdRequirement(r) &&
+            !Application.isApplicationFormRequirement(r),
+      )
       .toList();
+
+  /// Structured responses for the official MarSU Application Form.
+  ApplicationFormData? _applicationForm;
+  bool _formFromLastTime = false;
+  Uint8List? _photoBytes;
+  String? _photoExt;
 
   /// The class schedule: its file and the classes read from it. Asked on
   /// every application; approved, it becomes the student's schedule on the
@@ -1017,19 +1175,33 @@ class _ApplyDialogState extends State<ApplyDialog> {
   void initState() {
     super.initState();
     _schedule.addListener(_onScheduleChanged);
-    final saved = (context.read<AppState>().currentUser?.studentId ?? '')
-        .trim()
-        .toUpperCase();
+    _studentIdCtrl.addListener(_onStudentIdChanged);
+    final savedUser = context.read<AppState>().currentUser;
+    final saved = (savedUser?.studentId ?? '').trim().toUpperCase();
+    final avatar = ApplicationFormDocumentService.decodeAvatarDataUri(
+      savedUser?.avatar,
+    );
+    if (avatar != null) {
+      _photoBytes = avatar.bytes;
+      _photoExt = avatar.ext;
+    }
     if (isValidStudentId(saved)) {
       _lockedStudentId = saved;
       _studentIdCtrl.text = saved;
     }
     final previous = widget.previous;
     if (previous == null) return;
+    if (previous.applicationForm != null) {
+      _applicationForm = previous.applicationForm;
+      _formFromLastTime = true;
+    }
     _selectedSkills.addAll(previous.skills);
     for (final doc in previous.submittedDocuments) {
       // The school ID photo, whatever it was listed as, goes back in its
       // place; other files only for requirements the call still asks for.
+      if (Application.isApplicationFormRequirement(doc.requirementName)) {
+        continue;
+      }
       final key = Application.isSchoolIdRequirement(doc.requirementName)
           ? _schoolIdKey
           : doc.requirementName;
@@ -1063,8 +1235,18 @@ class _ApplyDialogState extends State<ApplyDialog> {
     _schedule.dispose();
     _skillsCtrl.dispose();
     _skillsScrollCtrl.dispose();
+    _studentIdCtrl.removeListener(_onStudentIdChanged);
     _studentIdCtrl.dispose();
     super.dispose();
+  }
+
+  void _onStudentIdChanged() {
+    final form = _applicationForm;
+    if (form == null) return;
+    final id = _studentIdCtrl.text.trim().toUpperCase();
+    if (form.studentNumber != id) {
+      setState(() => _applicationForm = form.copyWith(studentNumber: id));
+    }
   }
 
   void _toggleSkill(String skill, bool selected) {
@@ -1317,10 +1499,19 @@ class _ApplyDialogState extends State<ApplyDialog> {
       });
       return;
     }
-    if (!call.requirements.every(_uploaded.containsKey)) {
+    if (!call.requirements
+        .where((r) => !Application.isApplicationFormRequirement(r))
+        .every(_uploaded.containsKey)) {
       setState(() {
         _noticeIsError = true;
         _notice = 'Please upload all required documents before submitting.';
+      });
+      return;
+    }
+    if (_applicationForm == null || _applicationForm!.problems().isNotEmpty) {
+      setState(() {
+        _noticeIsError = true;
+        _notice = 'Please fill out the Application Form before submitting.';
       });
       return;
     }
@@ -1345,24 +1536,64 @@ class _ApplyDialogState extends State<ApplyDialog> {
     }
     if (!mounted) return;
     final user = state.currentUser!;
-    final now = DateTime.now();
-    const months = [
-      'Jan',
-      'Feb',
-      'Mar',
-      'Apr',
-      'May',
-      'Jun',
-      'Jul',
-      'Aug',
-      'Sep',
-      'Oct',
-      'Nov',
-      'Dec',
-    ];
-    final today = '${months[now.month - 1]} ${now.day}, ${now.year}';
+    final now = state.philippineClock();
+    final today = state.philippineToday(now);
     final id = Application.idFor(user.id, state.academicYear);
     final scheduleName = _schedule.fileName ?? 'Class schedule';
+    final syncedForm = _applicationForm!.copyWith(
+      academicYear: state.academicYear,
+      studentNumber: studentId,
+      dateSubmitted: today,
+    );
+
+    String? authUid;
+    try {
+      authUid = fb_auth.FirebaseAuth.instance.currentUser?.uid;
+    } catch (_) {}
+    final uploadStamp = DateTime.now().millisecondsSinceEpoch;
+    late final ApplicationDocument uploadedFormDoc;
+    try {
+      final generatedForm = await const ApplicationFormDocumentService()
+          .generateApplicationForm(
+            data: syncedForm,
+            applicationId: id,
+            photoBytes: _photoBytes,
+            photoExtension: _photoExt,
+          );
+      final formBytes = generatedForm.bytes!;
+      final formStoragePath =
+          'applications/${authUid ?? user.id}/$uploadStamp/${randomObjectName(generatedForm.fileName)}';
+      final formUrl = widget.fileUploader != null
+          ? await widget.fileUploader!(formBytes, formStoragePath, 'docx')
+          : await SupabaseStorageService.instance.uploadDocument(
+              bytes: formBytes,
+              path: formStoragePath,
+              contentType: SupabaseStorageService.contentTypeForExtension(
+                'docx',
+              ),
+            );
+      uploadedFormDoc = ApplicationDocument(
+        id: 'appdoc_${uploadStamp}_form',
+        applicationId: id,
+        requirementName: Application.applicationFormDocument,
+        fileName: generatedForm.fileName,
+        uploadedAt: today,
+        description: generatedForm.description,
+        fileSize: formBytes.length / 1024 / 1024,
+        storagePath: formStoragePath,
+        downloadUrl: formUrl,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _submitting = false;
+        _noticeIsError = true;
+        _notice =
+            'Could not upload your filled Application Form. Please try again.';
+      });
+      return;
+    }
+
     final app = Application(
       classSchedule: ClassScheduleSubmission(
         fileName: scheduleName,
@@ -1381,10 +1612,11 @@ class _ApplyDialogState extends State<ApplyDialog> {
       skills: _selectedSkills.toList(),
       academicYear: state.academicYear,
       studentNumber: studentId,
+      applicationForm: syncedForm,
       submittedDocuments: [
         for (final e in _uploaded.entries)
           ApplicationDocument(
-            id: 'appdoc_${now.millisecondsSinceEpoch}_${e.key.hashCode}',
+            id: 'appdoc_${uploadStamp}_${e.key.hashCode}',
             applicationId: id,
             requirementName: e.key,
             fileName: e.value['fileName'] ?? 'document',
@@ -1394,10 +1626,11 @@ class _ApplyDialogState extends State<ApplyDialog> {
             storagePath: e.value['storagePath'],
             downloadUrl: e.value['downloadUrl'],
           ),
+        uploadedFormDoc,
         // The schedule file too, so it opens wherever the Head sees the
         // other documents.
         ApplicationDocument(
-          id: 'appdoc_${now.millisecondsSinceEpoch}_schedule',
+          id: 'appdoc_${uploadStamp}_schedule',
           applicationId: id,
           requirementName: ClassScheduleSubmission.requirementName,
           fileName: scheduleName,
@@ -1601,7 +1834,9 @@ class _ApplyDialogState extends State<ApplyDialog> {
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 18),
+        _applicationFormSection(state),
+        const SizedBox(height: 18),
         ..._buildSkillsSection(state),
         const SizedBox(height: 22),
         const StudentSectionLabel('YOUR CLASS SCHEDULE'),
@@ -1685,6 +1920,42 @@ class _ApplyDialogState extends State<ApplyDialog> {
             ),
           ),
         ],
+        const SizedBox(height: 18),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.amber50,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: AppTheme.amber500.withValues(alpha: 0.35),
+            ),
+          ),
+          child: const Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.record_voice_over_outlined,
+                size: 16,
+                color: AppTheme.amber500,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Reminder: Bring physical copies of any requirements '
+                  'mentioned in the announcement. Shortlisted applicants will '
+                  'be interviewed.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.slate700,
+                    height: 1.45,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ],
       submitButton: SizedBox(
         height: 48,
@@ -2002,6 +2273,191 @@ class _ApplyDialogState extends State<ApplyDialog> {
         ),
       ],
     ];
+  }
+
+  Future<void> _openApplicationForm(AppState state) async {
+    final user = state.currentUser;
+    if (user == null) return;
+    final draft = await showApplicationFormDialog(
+      context,
+      user: user,
+      academicYear: state.academicYear,
+      semester: state.academicSemester,
+      studentNumber: _studentIdCtrl.text.trim().toUpperCase(),
+      initialData: _applicationForm,
+      initialPhotoBytes: _photoBytes,
+      initialPhotoExt: _photoExt,
+    );
+    if (draft == null || !mounted) return;
+    setState(() {
+      _applicationForm = draft.data;
+      _photoBytes = draft.photoBytes;
+      _photoExt = draft.photoExtension;
+      _formFromLastTime = false;
+      _notice = null;
+    });
+  }
+
+  Future<void> _previewFilledForm(AppState state) async {
+    final form = _applicationForm;
+    final user = state.currentUser;
+    if (form == null || user == null) return;
+    final synced = form.copyWith(
+      academicYear: state.academicYear,
+      studentNumber: _studentIdCtrl.text.trim().toUpperCase(),
+      dateSubmitted: form.dateSubmitted.isNotEmpty
+          ? form.dateSubmitted
+          : state.philippineToday(),
+    );
+    final doc = await const ApplicationFormDocumentService()
+        .generateApplicationForm(
+          data: synced,
+          applicationId: Application.idFor(user.id, state.academicYear),
+          photoBytes: _photoBytes,
+          photoExtension: _photoExt,
+        );
+    if (!mounted) return;
+    await showDocumentPreview(
+      context,
+      fileName: doc.fileName,
+      bytes: doc.bytes,
+    );
+  }
+
+  Widget _applicationFormSection(AppState state) {
+    final filled = _applicationForm != null;
+    final pillText = !filled
+        ? 'Not filled yet'
+        : _formFromLastTime
+        ? 'From last time'
+        : '✓ Filled';
+    final pillColor = !filled
+        ? AppTheme.amber500
+        : _formFromLastTime
+        ? AppTheme.slate600
+        : AppTheme.emerald500;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const StudentSectionLabel('APPLICATION FORM'),
+        const SizedBox(height: 4),
+        const Text(
+          'Fill out the official MarSU Application Form for Student '
+          'Assistantship. It will be saved as a filled Word document.',
+          style: TextStyle(fontSize: 11, color: AppTheme.slate500, height: 1.4),
+        ),
+        const SizedBox(height: 10),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppTheme.slate50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: !filled || _formFromLastTime
+                  ? AppTheme.slate200
+                  : AppTheme.emerald500,
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Application Form for Student Assistantship',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.slate800,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: pillColor.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: pillColor),
+                    ),
+                    child: Text(
+                      pillText,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w600,
+                        color: pillColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (filled) ...[
+                const SizedBox(height: 6),
+                Text(
+                  [
+                    if (_studentIdCtrl.text.trim().isNotEmpty)
+                      _studentIdCtrl.text.trim().toUpperCase(),
+                    _applicationForm!.fullNameDisplay,
+                    _applicationForm!.programAndYear,
+                  ].where((s) => s.isNotEmpty).join(' · '),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: AppTheme.slate600,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: _submitting
+                        ? null
+                        : () => _openApplicationForm(state),
+                    icon: Icon(
+                      filled ? Icons.edit_outlined : Icons.assignment_outlined,
+                      size: 16,
+                    ),
+                    label: Text(
+                      filled
+                          ? 'Edit Application Form'
+                          : 'Fill Out Application Form',
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.maroon,
+                      side: const BorderSide(color: AppTheme.maroon200),
+                    ),
+                  ),
+                  if (filled)
+                    AsyncButton(
+                      kind: AsyncButtonKind.outlined,
+                      onPressed: _submitting
+                          ? null
+                          : () => _previewFilledForm(state),
+                      icon: Icons.visibility_outlined,
+                      label: 'Preview Filled Form',
+                      busyLabel: 'Preparing…',
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: AppTheme.slate700,
+                        side: const BorderSide(color: AppTheme.slate300),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _noticeBox() {

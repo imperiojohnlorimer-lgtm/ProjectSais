@@ -105,6 +105,31 @@ ApplicationDocument _doc(String requirement, String file) =>
       storagePath: 'applications/stu1/1/$file',
     );
 
+ApplicationFormData _validForm() => const ApplicationFormData(
+  semester: '1st Sem',
+  academicYear: '2026-2027',
+  surname: 'Student',
+  firstName: 'Sam',
+  programAndYear: 'BSIT - 3rd Year',
+  remainingUnits: '24',
+  remainingTerms: '2',
+  dateOfBirth: 'Jan 1, 2005',
+  age: '21',
+  placeOfBirth: 'Boac, Marinduque',
+  email: 'sam@marsu.edu.ph',
+  citizenship: 'Filipino',
+  gender: 'Male',
+  civilStatus: 'Single',
+  religion: 'Catholic',
+  residingAt: "Parent's House",
+  emergencyContactName: 'Maria Student',
+  emergencyContactNumber: '0917 123 4567',
+  permanentAddress: 'Boac, Marinduque',
+  contactNumber: '0917 000 0000',
+  gwa: '1.75',
+  reasonsForAvailing: 'To support my studies.',
+);
+
 Application _application({
   User? user,
   String status = Application.pending,
@@ -113,6 +138,7 @@ Application _application({
   List<ApplicationDocument>? documents,
   ClassScheduleSubmission? schedule,
   String? remarks,
+  ApplicationFormData? applicationForm,
 }) {
   final who = user ?? _student;
   return Application(
@@ -130,6 +156,7 @@ Application _application({
     studentIdCheckedAt: checked ? '2026-11-20T02:00:00.000Z' : null,
     submittedDocuments: documents ?? [_doc('School ID', 'id.jpg')],
     classSchedule: schedule,
+    applicationForm: applicationForm ?? _validForm(),
   );
 }
 
@@ -469,7 +496,9 @@ void main() {
                     const ScheduleReadResult(ok: false, meetings: [])
               : null,
           filePicker: filePicker,
-          fileUploader: fileUploader,
+          fileUploader:
+              fileUploader ??
+              (_, path, _) async => 'https://example.com/$path',
         ),
         const Size(390, 1000),
       );

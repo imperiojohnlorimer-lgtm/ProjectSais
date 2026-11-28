@@ -84,11 +84,18 @@ Students apply **to be a Student Assistant**, never to an office.
    has a valid one) with a **photo of their school ID** (document
    "School ID", Head-only like the other files; the web app reads the ID
    off the photo, the Android app has no reader so the student types it,
-   and the Head's "Student ID checked" step covers both), skills (from the
-   Head's list or typed; typed ones take the Head's spelling) and one file
-   per requirement. One application per student per year, id
-   `app_<uid>_<academicYear>` (`Application.idFor`); the rules enforce the
-   id, the year in effect and an open hiring call. The Apply card also
+   and the Head's "Student ID checked" step covers both), the official
+   **Application Form** (`ApplicationFormData`, `ApplicationFormDialog`,
+   auto-filled into `assets/templates/application_form_template.docx` via
+   `ApplicationFormDocumentService` and uploaded alongside the application
+   so both the Head and the applicant / Student Assistant can preview and
+   download it), skills (from the Head's list or typed; typed ones take
+   the Head's spelling) and one file per requirement. The Apply card
+   and form also remind applicants to bring physical copies of any
+   requirements mentioned in the announcement and that shortlisted
+   applicants will be interviewed. One application per student per year,
+   id `app_<uid>_<academicYear>` (`Application.idFor`); the rules enforce
+   the id, the year in effect and an open hiring call. The Apply card also
    lists the offices with an open approved request, with the skills each
    needs (`officesNeedingAssistants`, information only: office name and
    skills, never the supervisor or the request text); the Head still

@@ -96,3 +96,28 @@ bool _onlyRemoves(String before, String after) {
   }
   return before.endsWith(after.substring(same));
 }
+
+/// Restricts input to non-negative decimal numbers with at most [maxWholeDigits]
+/// digits before the decimal point and [maxDecimalDigits] digits after it.
+class DecimalNumberFormatter extends TextInputFormatter {
+  final int maxWholeDigits;
+  final int maxDecimalDigits;
+
+  DecimalNumberFormatter({
+    required this.maxWholeDigits,
+    this.maxDecimalDigits = 2,
+  });
+
+  late final RegExp _pattern = RegExp(
+    '^\\d{0,$maxWholeDigits}(?:\\.\\d{0,$maxDecimalDigits})?\$',
+  );
+
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    if (_onlyRemoves(oldValue.text, newValue.text)) return newValue;
+    return _pattern.hasMatch(newValue.text) ? newValue : oldValue;
+  }
+}

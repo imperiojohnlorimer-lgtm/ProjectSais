@@ -289,6 +289,40 @@ test('a rejected application can be replaced by its applicant (keeps working)', 
   );
 });
 
+test('a student can apply with a valid applicationForm map and is blocked on invalid ones', async () => {
+  await assertFails(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', { applicationForm: 'not-a-map' }),
+    ),
+  );
+  await assertFails(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', {
+        applicationForm: {
+          siblings: Array.from({ length: 21 }, (_, i) => ({ name: `Sib ${i}` })),
+        },
+      }),
+    ),
+  );
+  await assertSucceeds(
+    setDoc(
+      doc(as('stu'), 'applications', 'app_stu_2026-2027'),
+      application('stu', {
+        applicationForm: {
+          semester: '1st Sem',
+          academicYear: '2026-2027',
+          surname: 'Student',
+          firstName: 'Sam',
+          siblings: [{ name: 'Ana', age: '15', schoolOrOccupation: 'MarSU', program: 'SHS' }],
+          organizations: [{ name: 'CS Society', position: 'Member' }],
+        },
+      }),
+    ),
+  );
+});
+
 // ── moving applications back after the Admin undid a year switch ────────
 
 // The Admin moved to 2027-2028 and undid it; the year in effect is 2026-2027

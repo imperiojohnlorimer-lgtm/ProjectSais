@@ -723,6 +723,30 @@ void main() {
               ],
             ),
             studentNumber: '23B0626',
+            applicationForm: const ApplicationFormData(
+              semester: '1st Sem',
+              academicYear: '2026-2027',
+              surname: 'Student',
+              firstName: 'Sam',
+              programAndYear: 'BSIT - 3rd Year',
+              remainingUnits: '24',
+              remainingTerms: '2',
+              dateOfBirth: 'Jan 1, 2005',
+              age: '21',
+              placeOfBirth: 'Boac, Marinduque',
+              email: 'sam@marsu.edu.ph',
+              citizenship: 'Filipino',
+              gender: 'Male',
+              civilStatus: 'Single',
+              religion: 'Catholic',
+              residingAt: "Parent's House",
+              emergencyContactName: 'Maria Student',
+              emergencyContactNumber: '0917 123 4567',
+              permanentAddress: 'Boac, Marinduque',
+              contactNumber: '0917 000 0000',
+              gwa: '1.75',
+              reasonsForAvailing: 'To support my studies.',
+            ),
             submittedDocuments: [
               ApplicationDocument(
                 id: 'd0',
@@ -746,7 +770,13 @@ void main() {
           ),
         ];
 
-      await pump(tester, const AnnouncementsScreen(), const Size(390, 900));
+      await pump(
+        tester,
+        AnnouncementsScreen(
+          fileUploader: (_, path, _) async => 'https://example.com/$path',
+        ),
+        const Size(390, 900),
+      );
 
       expect(find.text('Reason: Wrong file for "Resume"'), findsOneWidget);
       // The pill names it as the track does; the Head's word isn't shown.
@@ -764,9 +794,9 @@ void main() {
       await tester.tap(find.text('Apply Again'));
       await tester.pumpAndSettle();
 
-      // The form starts from what they sent: the skill and the file.
-      // The resume and the school ID photo.
-      expect(find.text('From last time'), findsNWidgets(2));
+      // The form starts from what they sent: the skill, form, and files.
+      // The resume, school ID photo, and filled application form.
+      expect(find.text('From last time'), findsNWidgets(3));
       expect(find.textContaining('resume.pdf'), findsOneWidget);
       final submit = find.text('Submit Application');
       await tester.ensureVisible(submit);

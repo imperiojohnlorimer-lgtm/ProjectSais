@@ -8,6 +8,7 @@ import '../../theme/app_snackbar.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/input_formats.dart';
 import '../../utils/philippine_dates.dart';
+import '../../widgets/application_form_actions.dart';
 import '../../widgets/avatar_editor.dart';
 import '../../widgets/shared_widgets.dart';
 import '../../widgets/profile_widgets.dart';
@@ -201,6 +202,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final state = context.watch<AppState>();
     final user = state.currentUser;
     final isMobile = MediaQuery.sizeOf(context).width < 900;
+    final saApplication = user?.role == 'Student Assistant'
+        ? (state.myCurrentApplication ??
+              state.myArchivedApplications.firstOrNull)
+        : null;
+    final hasApplicationForm =
+        saApplication != null &&
+        (saApplication.applicationFormDoc != null ||
+            saApplication.applicationForm != null);
 
     if (user == null) {
       return Center(
@@ -243,6 +252,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _identityCard(user, state),
                 const SizedBox(height: 20),
                 _detailsCard(user, state),
+                if (hasApplicationForm) ...[
+                  const SizedBox(height: 20),
+                  _applicationFormCard(saApplication),
+                ],
                 const SizedBox(height: 20),
                 _accountCard(user, state),
               ],
@@ -262,7 +275,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
                 const SizedBox(width: 20),
-                Expanded(child: _detailsCard(user, state)),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _detailsCard(user, state),
+                      if (hasApplicationForm) ...[
+                        const SizedBox(height: 20),
+                        _applicationFormCard(saApplication),
+                      ],
+                    ],
+                  ),
+                ),
               ],
             ),
         ],
@@ -430,6 +454,53 @@ class _ProfileScreenState extends State<ProfileScreen> {
         textCapitalization: TextCapitalization.words,
         inputFormatters: [nameFormatter],
       );
+
+  Widget _applicationFormCard(Application application) {
+    return ProfileCard(
+      icon: Icons.assignment_outlined,
+      title: 'My Application Form',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Download or view a copy of your filled Application Form for '
+            'Student Assistantship.',
+            style: TextStyle(fontSize: 12.5, color: AppTheme.slate600),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () =>
+                    previewFilledApplicationForm(context, application),
+                icon: const Icon(Icons.visibility_outlined, size: 16),
+                label: const Text('Preview Form'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.maroon,
+                  side: const BorderSide(color: AppTheme.maroon200),
+                ),
+              ),
+              AsyncButton(
+                kind: AsyncButtonKind.elevated,
+                onPressed: () =>
+                    downloadFilledApplicationForm(context, application),
+                icon: Icons.download_rounded,
+                label: 'Download (.docx)',
+                busyLabel: 'Downloading…',
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.maroon,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
 
   /// Skills and the Google link are about the account rather than the person,
   /// so they sit in their own card instead of trailing the details.

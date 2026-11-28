@@ -2146,6 +2146,7 @@ class FirestoreService {
       'studentNumber': a.studentNumber,
       'studentIdCheckedBy': a.studentIdCheckedBy,
       'studentIdCheckedAt': a.studentIdCheckedAt,
+      'applicationForm': a.applicationForm?.toJson(),
     }..removeWhere((k, v) => v == null);
     if (a.id.isNotEmpty) {
       await _applications.doc(a.id).set(data);

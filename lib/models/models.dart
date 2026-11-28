@@ -1,8 +1,10 @@
 import 'dart:typed_data';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'application_form.dart';
 import 'class_schedule.dart';
 import 'payroll_requirements.dart';
 
+export 'application_form.dart';
 export 'class_schedule.dart';
 import 'person_name.dart';
 import '../utils/philippine_dates.dart';
@@ -1629,15 +1631,38 @@ class Application {
   /// The name the school ID photo is listed under among the documents.
   static const schoolIdDocument = 'School ID';
 
+  /// The name the filled official Application Form `.docx` is listed under.
+  static const applicationFormDocument = 'Application Form';
+
+  /// Structured responses from the official Application Form for Student
+  /// Assistantship. Null on applications submitted before the form was added.
+  final ApplicationFormData? applicationForm;
+
   /// Whether [requirement] (as saved, maybe "label::type") is the school
   /// ID: by its label, in any case.
   static bool isSchoolIdRequirement(String requirement) =>
       RequirementSpec.parse(requirement).label.trim().toLowerCase() ==
       schoolIdDocument.toLowerCase();
 
+  /// Whether [requirement] refers to the filled Application Form.
+  static bool isApplicationFormRequirement(String requirement) {
+    final label = RequirementSpec.parse(requirement).label.trim().toLowerCase();
+    return label == applicationFormDocument.toLowerCase() ||
+        label == 'application form for student assistantship';
+  }
+
   /// The photo of the school ID, or null when none was sent.
   ApplicationDocument? get schoolIdPhoto => submittedDocuments
       .where((d) => isSchoolIdRequirement(d.requirementName))
+      .firstOrNull;
+
+  /// The filled Application Form `.docx` document, or null when none was sent.
+  ApplicationDocument? get applicationFormDoc => submittedDocuments
+      .where(
+        (d) =>
+            isApplicationFormRequirement(d.requirementName) ||
+            d.fileName.toLowerCase().startsWith('application-form-'),
+      )
       .firstOrNull;
 
   bool get isStudentIdChecked => studentIdCheckedAt != null;
@@ -1658,6 +1683,7 @@ class Application {
     this.studentNumber,
     this.studentIdCheckedBy,
     this.studentIdCheckedAt,
+    this.applicationForm,
   });
 
   /// 'Accepted' is how some older approvals were saved.
@@ -1695,6 +1721,11 @@ class Application {
     studentNumber: _textOrNull(json['studentNumber']),
     studentIdCheckedBy: _textOrNull(json['studentIdCheckedBy']),
     studentIdCheckedAt: _textOrNull(json['studentIdCheckedAt']),
+    applicationForm: json['applicationForm'] is Map
+        ? ApplicationFormData.fromJson(
+            Map<String, dynamic>.from(json['applicationForm'] as Map),
+          )
+        : null,
   );
 
   static String? _textOrNull(Object? value) {
@@ -1709,11 +1740,13 @@ class Application {
     List<ApplicationDocument>? submittedDocuments,
     String? studentIdCheckedBy,
     String? studentIdCheckedAt,
+    ApplicationFormData? applicationForm,
   }) => Application(
     classSchedule: classSchedule,
     studentNumber: studentNumber,
     studentIdCheckedBy: studentIdCheckedBy ?? this.studentIdCheckedBy,
     studentIdCheckedAt: studentIdCheckedAt ?? this.studentIdCheckedAt,
+    applicationForm: applicationForm ?? this.applicationForm,
     id: id,
     announcementId: announcementId,
     announcementTitle: announcementTitle,

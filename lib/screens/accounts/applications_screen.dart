@@ -11,6 +11,7 @@ import '../../utils/philippine_dates.dart';
 import '../../utils/web_download_stub.dart'
     if (dart.library.html) '../../utils/web_download.dart'
     as web_download;
+import '../../widgets/application_form_actions.dart';
 import '../../widgets/application_status.dart';
 import '../../widgets/class_schedule_summary.dart';
 import '../../widgets/document_preview.dart';
@@ -1445,10 +1446,14 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
   Application get app => widget.app;
   AppState get state => widget.state;
 
-  /// The documents other than the school ID photo, which has its own place
-  /// in the STUDENT ID part.
+  /// The documents other than the school ID photo and filled Application Form,
+  /// which each have their own section on the card.
   List<ApplicationDocument> get _otherDocuments => app.submittedDocuments
-      .where((d) => !Application.isSchoolIdRequirement(d.requirementName))
+      .where(
+        (d) =>
+            !Application.isSchoolIdRequirement(d.requirementName) &&
+            !Application.isApplicationFormRequirement(d.requirementName),
+      )
       .toList();
   BuildContext get ctx => widget.ctx;
 
@@ -1741,6 +1746,13 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
                   // check one against the other before screening.
                   _studentIdSection(applicant),
                   const SizedBox(height: 16),
+                  // The filled official Application Form (.docx), ready to view
+                  // or download.
+                  if (app.applicationFormDoc != null ||
+                      app.applicationForm != null) ...[
+                    _applicationFormSection(),
+                    const SizedBox(height: 16),
+                  ],
                   // The class schedule: the classes read from the file,
                   // to compare with it. They become the student's schedule
                   // when the application is approved.
@@ -2024,6 +2036,86 @@ class _AdminApplicationCardState extends State<_AdminApplicationCard> {
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _applicationFormSection() {
+    final form = app.applicationForm;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Row(
+            children: [
+              Icon(
+                Icons.assignment_outlined,
+                size: 14,
+                color: AppTheme.maroon,
+              ),
+              SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'APPLICATION FORM',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.slate500,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (form != null) ...[
+            Wrap(
+              spacing: 18,
+              runSpacing: 6,
+              children: [
+                if (form.programAndYear.isNotEmpty)
+                  _applicationDetail('Program & Year', form.programAndYear),
+                if (form.gwa.isNotEmpty) _applicationDetail('GWA', form.gwa),
+                if (form.dateSubmitted.isNotEmpty)
+                  _applicationDetail('Submitted', form.dateSubmitted),
+              ],
+            ),
+            const SizedBox(height: 10),
+          ],
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                onPressed: () => previewFilledApplicationForm(context, app),
+                icon: const Icon(Icons.visibility_outlined, size: 15),
+                label: const Text('View Filled Form'),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.maroon,
+                  side: const BorderSide(color: AppTheme.maroon200),
+                ),
+              ),
+              AsyncButton(
+                kind: AsyncButtonKind.outlined,
+                onPressed: () => downloadFilledApplicationForm(context, app),
+                icon: Icons.download_rounded,
+                label: 'Download (.docx)',
+                busyLabel: 'Downloading…',
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: AppTheme.slate700,
+                  side: const BorderSide(color: AppTheme.slate300),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -25,7 +25,16 @@ class StudentDocumentsScreen extends StatefulWidget {
   State<StudentDocumentsScreen> createState() => _StudentDocumentsScreenState();
 }
 
-enum _DocKind { requirement, contract, endorsement, report, evaluation, dtrReport, uploaded }
+enum _DocKind {
+  applicationForm,
+  requirement,
+  contract,
+  endorsement,
+  report,
+  evaluation,
+  dtrReport,
+  uploaded,
+}
 
 class _DocEntry {
   final String studentKey;
@@ -104,6 +113,7 @@ const String _unassignedLabel = 'Unassigned';
 }
 
 const Map<_DocKind, String> _kindLabels = {
+  _DocKind.applicationForm: 'Application Form',
   _DocKind.requirement: 'Requirement',
   _DocKind.contract: 'Contract of Appointment',
   _DocKind.endorsement: 'Endorsement Letter',
@@ -114,6 +124,7 @@ const Map<_DocKind, String> _kindLabels = {
 };
 
 const Map<_DocKind, IconData> _kindIcons = {
+  _DocKind.applicationForm: Icons.assignment_outlined,
   _DocKind.requirement: Icons.folder_copy_outlined,
   _DocKind.contract: Icons.assignment_turned_in_outlined,
   _DocKind.endorsement: Icons.mail_outline_rounded,
@@ -124,6 +135,7 @@ const Map<_DocKind, IconData> _kindIcons = {
 };
 
 const Map<_DocKind, Color> _kindColors = {
+  _DocKind.applicationForm: AppTheme.maroon,
   _DocKind.requirement: AppTheme.slate500,
   _DocKind.contract: AppTheme.maroon,
   _DocKind.endorsement: AppTheme.amber500,
@@ -160,6 +172,11 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
             ? _DocKind.contract
             : fileName.contains('endorsement-letter')
                 ? _DocKind.endorsement
+                : (Application.isApplicationFormRequirement(
+                        doc.requirementName,
+                      ) ||
+                      fileName.contains('application-form-'))
+                ? _DocKind.applicationForm
                 : _DocKind.requirement;
         entries.add(
           _DocEntry(

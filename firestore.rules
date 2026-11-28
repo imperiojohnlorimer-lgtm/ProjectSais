@@ -484,7 +484,8 @@ service cloud.firestore {
           // Only the Head marks the Student ID as checked.
           && request.resource.data.get('studentIdCheckedBy', null) == null
           && request.resource.data.get('studentIdCheckedAt', null) == null
-          && validStudentNumber(request.resource.data.get('studentNumber', null));
+          && validStudentNumber(request.resource.data.get('studentNumber', null))
+          && validApplicationForm(request.resource.data.get('applicationForm', null));
       }
 
       // The Head moving an application out of the year the Admin undid, to
@@ -527,6 +528,20 @@ service cloud.firestore {
             number is string
             && number.matches('^[0-9]{2}[A-Z][0-9]{4}$')
             && (!saved.matches('^[0-9]{2}[A-Z][0-9]{4}$') || number == saved)
+          );
+      }
+
+      // Structured responses for the official MarSU Application Form.
+      // Bounded in size so an applicant cannot pack oversized arrays.
+      function validApplicationForm(form) {
+        return form == null
+          || (
+            form is map
+            && form.size() <= 45
+            && form.get('siblings', []) is list
+            && form.get('siblings', []).size() <= 20
+            && form.get('organizations', []) is list
+            && form.get('organizations', []).size() <= 20
           );
       }
 
