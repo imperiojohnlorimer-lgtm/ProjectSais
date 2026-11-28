@@ -1142,7 +1142,9 @@ class _AppShellState extends State<AppShell> {
                     // floated to the middle with empty bands above and below.
                     child: SizedBox.expand(
                       key: ValueKey(activeTab),
-                      child: InitialDataGate(child: _buildBody(activeTab)),
+                      child: BackToTopHost(
+                        child: InitialDataGate(child: _buildBody(activeTab)),
+                      ),
                     ),
                   ),
                 ),

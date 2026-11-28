@@ -1145,7 +1145,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                     ),
                     if (ann.skills.isNotEmpty) ...[
                       const SizedBox(height: 18),
-                      SkillsNeeded(ann.skills),
+                      SkillsNeeded(ann.skills, limit: null),
                     ],
                     if (ann.requirements.isNotEmpty) ...[
                       const SizedBox(height: 18),
@@ -1398,7 +1398,7 @@ class _ApproveConfirmDialogState extends State<_ApproveConfirmDialog> {
                   ],
                   if (ann.skills.isNotEmpty) ...[
                     const SizedBox(height: 10),
-                    SkillsNeeded(ann.skills),
+                    SkillsNeeded(ann.skills, limit: null),
                   ],
                 ],
               ),

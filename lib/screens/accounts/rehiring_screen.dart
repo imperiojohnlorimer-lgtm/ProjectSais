@@ -193,6 +193,12 @@ class _RehiringScreenState extends State<RehiringScreen> {
                         ),
                       ),
               ),
+            ],
+            // On a phone the term and the filter go behind one button.
+            activeFilterCount:
+                (term != state.defaultRehireTerm ? 1 : 0) +
+                (_filter == 'All' ? 0 : 1),
+            sheetFilters: [
               _dropdown<_Term>(
                 value: term,
                 minWidth: 230,

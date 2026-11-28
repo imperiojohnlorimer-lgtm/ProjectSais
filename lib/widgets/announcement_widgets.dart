@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/models.dart';
@@ -460,7 +461,7 @@ class AnnouncementDetailsDialog extends StatelessWidget {
                     ),
                     if (announcement.skills.isNotEmpty) ...[
                       const SizedBox(height: 20),
-                      SkillsNeeded(announcement.skills),
+                      SkillsNeeded(announcement.skills, limit: null),
                     ],
                     if (announcement.requirements.isNotEmpty) ...[
                       const SizedBox(height: 20),
@@ -677,13 +678,62 @@ class AnnouncementTextField extends StatelessWidget {
 
 /// The skills an announcement says the student assistant needs, under a
 /// small "Skills needed" label.
-class SkillsNeeded extends StatelessWidget {
+class SkillsNeeded extends StatefulWidget {
   final List<String> skills;
 
-  const SkillsNeeded(this.skills, {super.key});
+  /// How many skills a card shows before "+N more"; null shows them all
+  /// (details dialogs).
+  final int? limit;
+
+  const SkillsNeeded(this.skills, {super.key, this.limit = 3});
+
+  @override
+  State<SkillsNeeded> createState() => _SkillsNeededState();
+}
+
+class _SkillsNeededState extends State<SkillsNeeded> {
+  bool _all = false;
+
+  @override
+  void didUpdateWidget(SkillsNeeded old) {
+    super.didUpdateWidget(old);
+    // Another announcement in this spot (a filtered list) starts short.
+    if (!listEquals(old.skills, widget.skills)) _all = false;
+  }
+
+  Widget _toggle(String label, String semantics) => Semantics(
+    button: true,
+    label: semantics,
+    excludeSemantics: true,
+    child: InkWell(
+      borderRadius: BorderRadius.circular(20),
+      onTap: () => setState(() => _all = !_all),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: AppTheme.maroon.withValues(alpha: 0.35)),
+        ),
+        child: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: AppTheme.maroon,
+          ),
+        ),
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
+    final limit = widget.limit;
+    final skills = widget.skills;
+    final hidden = limit == null || _all || skills.length <= limit + 1
+        ? 0
+        : skills.length - limit;
+    final shown = hidden == 0 ? skills : skills.take(limit!).toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -700,7 +750,7 @@ class SkillsNeeded extends StatelessWidget {
           spacing: 6,
           runSpacing: 6,
           children: [
-            for (final skill in skills)
+            for (final skill in shown)
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
@@ -717,6 +767,12 @@ class SkillsNeeded extends StatelessWidget {
                   ),
                 ),
               ),
+            if (hidden > 0)
+              _toggle('+$hidden more', 'Show $hidden more skills')
+            else if (_all &&
+                widget.limit != null &&
+                skills.length > widget.limit! + 1)
+              _toggle('Show less', 'Show fewer skills'),
           ],
         ),
       ],

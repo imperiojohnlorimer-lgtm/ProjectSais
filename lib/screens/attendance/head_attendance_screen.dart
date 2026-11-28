@@ -305,7 +305,25 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
                 ],
               ),
               const SizedBox(height: 16),
-              _filters(departments, activeOffices),
+              // On a phone the filter card goes behind one Filters button
+              // (the same width test as HeroBanner's).
+              LayoutBuilder(
+                builder: (context, box) => box.maxWidth < HeroBanner.phoneWidth
+                    ? Align(
+                        alignment: Alignment.centerLeft,
+                        child: FilterSheetButton(
+                          filters: _filterGroups(departments, activeOffices),
+                          activeCount: [
+                            _period != _Period.thisMonth,
+                            _status != _all,
+                            _office != _all,
+                            _department != _all,
+                            _sort != 'Name',
+                          ].where((on) => on).length,
+                        ),
+                      )
+                    : _filters(departments, activeOffices),
+              ),
               const SizedBox(height: 16),
               if (rows.isEmpty &&
                   !(state.isLoaded('Users') && state.isLoaded('Attendance')))
@@ -393,78 +411,84 @@ class _HeadAttendanceScreenState extends State<HeadAttendanceScreen> {
       child: Wrap(
         spacing: 24,
         runSpacing: 14,
-        children: [
-          _group(
-            'Period',
-            Icons.date_range_rounded,
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final period in _Period.values)
-                  _chip(
-                    _periodLabel(period),
-                    selected: _period == period,
-                    onTap: period == _Period.custom
-                        ? _pickCustom
-                        : () => setState(() => _period = period),
-                  ),
-              ],
-            ),
-          ),
-          _group(
-            'Status',
-            Icons.flag_outlined,
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final status in _statuses)
-                  _chip(
-                    status,
-                    selected: _status == status,
-                    onTap: () => setState(() => _status = status),
-                  ),
-              ],
-            ),
-          ),
-          _group(
-            'Office',
-            Icons.account_balance_outlined,
-            _dropdown(
-              value: _office,
-              items: {
-                _all: 'All offices',
-                _unassigned: 'No office yet',
-                for (final office in offices) office.id: office.name,
-              },
-              onChanged: (value) => setState(() => _office = value),
-            ),
-          ),
-          _group(
-            'Department',
-            Icons.apartment_outlined,
-            _dropdown(
-              value: _department,
-              items: {
-                _all: 'All departments',
-                for (final department in departments) department: department,
-              },
-              onChanged: (value) => setState(() => _department = value),
-            ),
-          ),
-          _group(
-            'Sort',
-            Icons.sort_rounded,
-            _dropdown(
-              value: _sort,
-              items: {for (final sort in _sorts) sort: sort},
-              onChanged: (value) => setState(() => _sort = value),
-            ),
-          ),
-        ],
+        children: _filterGroups(departments, offices),
       ),
     );
+  }
+
+  /// Period, Status, Office, Department and Sort: in a card on wide
+  /// screens, in the Filters sheet on a phone.
+  List<Widget> _filterGroups(List<String> departments, List<Office> offices) {
+    return [
+      _group(
+        'Period',
+        Icons.date_range_rounded,
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final period in _Period.values)
+              _chip(
+                _periodLabel(period),
+                selected: _period == period,
+                onTap: period == _Period.custom
+                    ? _pickCustom
+                    : () => setState(() => _period = period),
+              ),
+          ],
+        ),
+      ),
+      _group(
+        'Status',
+        Icons.flag_outlined,
+        Wrap(
+          spacing: 6,
+          runSpacing: 6,
+          children: [
+            for (final status in _statuses)
+              _chip(
+                status,
+                selected: _status == status,
+                onTap: () => setState(() => _status = status),
+              ),
+          ],
+        ),
+      ),
+      _group(
+        'Office',
+        Icons.account_balance_outlined,
+        _dropdown(
+          value: _office,
+          items: {
+            _all: 'All offices',
+            _unassigned: 'No office yet',
+            for (final office in offices) office.id: office.name,
+          },
+          onChanged: (value) => setState(() => _office = value),
+        ),
+      ),
+      _group(
+        'Department',
+        Icons.apartment_outlined,
+        _dropdown(
+          value: _department,
+          items: {
+            _all: 'All departments',
+            for (final department in departments) department: department,
+          },
+          onChanged: (value) => setState(() => _department = value),
+        ),
+      ),
+      _group(
+        'Sort',
+        Icons.sort_rounded,
+        _dropdown(
+          value: _sort,
+          items: {for (final sort in _sorts) sort: sort},
+          onChanged: (value) => setState(() => _sort = value),
+        ),
+      ),
+    ];
   }
 
   Widget _group(String label, IconData icon, Widget child) => Column(

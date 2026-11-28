@@ -321,7 +321,9 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                     // the middle (as in AppShell).
                     child: SizedBox.expand(
                       key: ValueKey(_tab),
-                      child: InitialDataGate(child: _body()),
+                      child: BackToTopHost(
+                        child: InitialDataGate(child: _body()),
+                      ),
                     ),
                   ),
                 ),

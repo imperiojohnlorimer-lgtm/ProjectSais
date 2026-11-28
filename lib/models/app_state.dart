@@ -3026,6 +3026,63 @@ class AppState extends ChangeNotifier {
   }
 
   // ─── Announcements ─────────────────────────────────
+  /// Roles the Head can @mention in an announcement (what Post
+  /// Announcement suggests).
+  static const mentionableRoles = ['Student', 'Student Assistant', 'Supervisor'];
+
+  /// The people @mentioned in [text] by their full name ("@Juan S. Dela
+  /// Cruz"), case ignored: active Students, Student Assistants and
+  /// Supervisors, each once, never [excludeId] (the poster). Longer names
+  /// are matched first and taken out of the text, so "@Ana Marie" doesn't
+  /// also count as "@Ana"; a name must not run on into a letter or digit
+  /// ("@Anabel" isn't "@Ana").
+  List<User> mentionedUsers(String text, {String? excludeId}) {
+    if (!text.contains('@')) return const [];
+    // Grouped by name: two people with the same name are both told, since
+    // "@Name" can't say which one was meant.
+    final byName = <String, List<User>>{};
+    for (final u in users) {
+      final name = u.name.trim().toLowerCase();
+      if (mentionableRoles.contains(u.role) &&
+          u.status != 'Archived' &&
+          !u.isDeleted &&
+          u.id != excludeId &&
+          name.isNotEmpty) {
+        (byName[name] ??= []).add(u);
+      }
+    }
+    final names = byName.keys.toList()
+      ..sort((x, y) => y.length.compareTo(x.length));
+    final wordChar = RegExp(r'[\p{L}\p{N}]', unicode: true);
+    var rest = text.toLowerCase();
+    final found = <String, User>{};
+    for (final name in names) {
+      final mention = '@$name';
+      var from = 0;
+      while (true) {
+        final at = rest.indexOf(mention, from);
+        if (at < 0) break;
+        final end = at + mention.length;
+        // Not inside a word or an email address ("x@ana"), and not running
+        // on into a longer name ("@Anabel" isn't "@Ana").
+        final joined =
+            (at > 0 && wordChar.hasMatch(rest[at - 1])) ||
+            (end < rest.length && wordChar.hasMatch(rest[end]));
+        if (joined) {
+          from = at + 1;
+          continue;
+        }
+        for (final u in byName[name]!) {
+          found.putIfAbsent(u.id, () => u);
+        }
+        // Blank it out so a shorter name inside it doesn't match too.
+        rest = rest.replaceRange(at, end, ' ' * mention.length);
+        from = end;
+      }
+    }
+    return found.values.toList();
+  }
+
   Future<bool> postAnnouncement(Announcement a) async {
     // Persist announcement to Firestore first. Only update local state on success
     // so announcements are always sourced from Firebase.
@@ -3083,8 +3140,31 @@ class AppState extends ChangeNotifier {
 
       // Update local state and notify users now that Firestore write succeeded.
       announcements = _withAdded(announcements, created, (a) => a.id);
+      // Everyone @mentioned in the text is told, with the text itself
+      // (a Supervisor's Announcements page doesn't list the Head's notices).
+      final mentioned = mentionedUsers(created.body, excludeId: currentUser?.id);
+      for (final u in mentioned) {
+        _addNotification(
+          AppNotification(
+            id: 'mention_${created.id}_${u.id}',
+            userId: u.id,
+            title: 'You were mentioned',
+            message:
+                '${created.postedBy} mentioned you in "${created.title}": '
+                '${created.body}',
+            type: 'announcement',
+            createdAt: _formattedToday(),
+          ),
+          id: 'mention_${created.id}_${u.id}',
+        );
+      }
+      final mentionedIds = {for (final u in mentioned) u.id};
       final studentUsers = users.where(
-        (u) => u.role == 'Student' && u.requestedRole == null,
+        (u) =>
+            u.role == 'Student' &&
+            u.requestedRole == null &&
+            // A mentioned student already has the mention.
+            !mentionedIds.contains(u.id),
       );
       for (final u in studentUsers) {
         _addNotification(
@@ -5128,6 +5208,9 @@ class AppState extends ChangeNotifier {
   /// an evaluation result, a rehire decision). Student Portal tabs use the
   /// same ids: 'announcements' and 'profile'.
   String? notificationTab(AppNotification n) {
+    // A Supervisor's Announcements page lists only their own requests, not
+    // the notice they were mentioned in; the mention carries its text.
+    if (n.id.startsWith('mention_') && role == 'Supervisor') return null;
     return switch ((n.type, role)) {
       ('announcement', 'Head') => 'announcements_admin',
       ('announcement', 'Supervisor') => 'sv_announcements',

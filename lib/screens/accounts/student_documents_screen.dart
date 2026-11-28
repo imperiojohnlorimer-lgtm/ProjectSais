@@ -391,6 +391,27 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
     final isCompact = screenWidth < 420;
     final horizontalPadding = isCompact ? 16.0 : 28.0;
 
+    final dropdowns = [
+      _FilterDropdown(
+        value: campus,
+        options: campusOptions,
+        icon: Icons.location_city_outlined,
+        onChanged: (v) => setState(() => _campusFilter = v),
+      ),
+      _FilterDropdown(
+        value: department,
+        options: departmentOptions,
+        icon: Icons.business_outlined,
+        onChanged: (v) => setState(() => _departmentFilter = v),
+      ),
+      _FilterDropdown(
+        value: office,
+        options: officeOptions,
+        icon: Icons.account_balance_outlined,
+        onChanged: (v) => setState(() => _officeFilter = v),
+      ),
+    ];
+
     final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -515,29 +536,22 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
         const SizedBox(height: 10),
         Padding(
           padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              _FilterDropdown(
-                value: campus,
-                options: campusOptions,
-                icon: Icons.location_city_outlined,
-                onChanged: (v) => setState(() => _campusFilter = v),
-              ),
-              _FilterDropdown(
-                value: department,
-                options: departmentOptions,
-                icon: Icons.business_outlined,
-                onChanged: (v) => setState(() => _departmentFilter = v),
-              ),
-              _FilterDropdown(
-                value: office,
-                options: officeOptions,
-                icon: Icons.account_balance_outlined,
-                onChanged: (v) => setState(() => _officeFilter = v),
-              ),
-            ],
+          // On a phone the three dropdowns go behind one Filters button
+          // (the same width test as HeroBanner's).
+          child: LayoutBuilder(
+            builder: (context, box) => box.maxWidth < HeroBanner.phoneWidth
+                ? Align(
+                    alignment: Alignment.centerLeft,
+                    child: FilterSheetButton(
+                      filters: dropdowns,
+                      activeCount: [
+                        campus != 'All Campuses',
+                        department != 'All Departments',
+                        office != 'All Offices',
+                      ].where((on) => on).length,
+                    ),
+                  )
+                : Wrap(spacing: 10, runSpacing: 10, children: dropdowns),
           ),
         ),
         const SizedBox(height: 18),

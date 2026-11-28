@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:provider/provider.dart';
 import '../models/app_state.dart';
 import '../theme/app_snackbar.dart';
@@ -1282,6 +1283,19 @@ class HeroBanner extends StatelessWidget {
   /// Extra controls placed beside the search field, such as dropdowns.
   final List<Widget> filters;
 
+  /// Filters that sit beside the search field on wide screens and behind
+  /// one "Filters" button on phones (actions such as Export stay in
+  /// [filters], always in view).
+  final List<Widget> sheetFilters;
+
+  /// How many of [sheetFilters] are away from their default, shown on the
+  /// phone's button as "Filters (2)".
+  final int activeFilterCount;
+
+  /// Below this width the figures become one line of text and
+  /// [sheetFilters] go behind a button.
+  static const phoneWidth = 520.0;
+
   const HeroBanner({
     super.key,
     required this.isMobile,
@@ -1294,6 +1308,8 @@ class HeroBanner extends StatelessWidget {
     this.onSearch,
     required this.stats,
     this.filters = const [],
+    this.sheetFilters = const [],
+    this.activeFilterCount = 0,
   });
 
   @override
@@ -1371,11 +1387,27 @@ class HeroBanner extends StatelessWidget {
           ],
         );
 
-        final metrics = Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [for (final stat in stats) _MetricChip(data: stat)],
-        );
+        final phone = width < HeroBanner.phoneWidth;
+        // On a phone the chips stacked two or three rows deep; one line of
+        // figures says the same in a fraction of the height.
+        final metrics = phone
+            ? CompactFigures(stats)
+            : Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [for (final stat in stats) _MetricChip(data: stat)],
+              );
+        final filters = [
+          ...this.filters,
+          if (sheetFilters.isNotEmpty)
+            if (phone)
+              FilterSheetButton(
+                filters: sheetFilters,
+                activeCount: activeFilterCount,
+              )
+            else
+              ...sheetFilters,
+        ];
 
         final searchField = SizedBox(
           height: 40,
@@ -1524,6 +1556,283 @@ class _MetricChip extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A header's figures as one line of text, for phones:
+/// "**4** Recommended · **0** Not recommended · **10** No evaluation".
+/// Each figure keeps its label on the same line; lines break at the dots.
+class CompactFigures extends StatelessWidget {
+  final List<HeroStatData> stats;
+
+  const CompactFigures(this.stats, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    const nbsp = ' ';
+    return Text.rich(
+      TextSpan(
+        children: [
+          for (final (i, stat) in stats.indexed) ...[
+            if (i > 0)
+              const TextSpan(
+                text: '  ·  ',
+                style: TextStyle(color: AppTheme.slate300),
+              ),
+            TextSpan(
+              text: stat.value.replaceAll(' ', nbsp),
+              style: const TextStyle(
+                fontWeight: FontWeight.w800,
+                color: AppTheme.slate900,
+              ),
+            ),
+            TextSpan(text: '$nbsp${stat.label.replaceAll(' ', nbsp)}'),
+          ],
+        ],
+      ),
+      style: const TextStyle(
+        fontSize: 13,
+        height: 1.5,
+        color: AppTheme.slate500,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+  }
+}
+
+/// One "Filters" button standing in for a row of filter controls on a
+/// phone. It opens a sheet with the controls stacked full width; the sheet
+/// shows their current values as they change. [activeCount] (filters away
+/// from their default) is shown as "Filters (2)".
+class FilterSheetButton extends StatefulWidget {
+  final List<Widget> filters;
+  final int activeCount;
+
+  const FilterSheetButton({
+    super.key,
+    required this.filters,
+    this.activeCount = 0,
+  });
+
+  @override
+  State<FilterSheetButton> createState() => _FilterSheetButtonState();
+}
+
+class _FilterSheetButtonState extends State<FilterSheetButton> {
+  // The page rebuilds the filters with their new values; the open sheet is
+  // another route, so it gets them through this.
+  late final _filters = ValueNotifier<List<Widget>>(widget.filters);
+
+  @override
+  void didUpdateWidget(FilterSheetButton old) {
+    super.didUpdateWidget(old);
+    // Not during this build: the sheet would be marked to rebuild while
+    // the page is building.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _filters.value = widget.filters;
+    });
+  }
+
+  /// The open sheet, if any: it closes when this button goes (the page
+  /// left, or a wider screen put the filters back inline), so it never
+  /// shows stale values or changes a page that's gone.
+  Route<void>? _sheet;
+
+  @override
+  void dispose() {
+    final sheet = _sheet;
+    if (sheet != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (sheet.isActive) sheet.navigator?.removeRoute(sheet);
+      });
+    }
+    _filters.dispose();
+    super.dispose();
+  }
+
+  void _open() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18)),
+      ),
+      builder: (sheetContext) {
+        _sheet = ModalRoute.of(sheetContext);
+        return SafeArea(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+            child: ValueListenableBuilder<List<Widget>>(
+              valueListenable: _filters,
+              builder: (_, filters, _) => Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const Text(
+                    'Filters',
+                    style: TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w800,
+                      color: AppTheme.slate900,
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  for (final filter in filters) ...[
+                    Align(alignment: Alignment.centerLeft, child: filter),
+                    const SizedBox(height: 12),
+                  ],
+                  const SizedBox(height: 4),
+                  ElevatedButton(
+                    onPressed: () => Navigator.of(sheetContext).pop(),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.maroon,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      padding: const EdgeInsets.symmetric(vertical: 13),
+                    ),
+                    child: const Text('Done'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    ).whenComplete(() => _sheet = null);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final count = widget.activeCount;
+    final active = count > 0;
+    return SizedBox(
+      height: 40,
+      child: OutlinedButton.icon(
+        onPressed: _open,
+        icon: const Icon(Icons.tune_rounded, size: 17),
+        label: Text(active ? 'Filters ($count)' : 'Filters'),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: active ? AppTheme.maroon : AppTheme.slate700,
+          backgroundColor: active
+              ? AppTheme.maroon.withValues(alpha: 0.06)
+              : Colors.white,
+          side: BorderSide(color: active ? AppTheme.maroon : AppTheme.slate200),
+          textStyle: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+        ),
+      ),
+    );
+  }
+}
+
+/// Wraps a page and, once its scroller is well down the page, shows a small
+/// round "Back to top" button in the corner that scrolls it back up.
+/// Listens only to the page's own vertical scroller (depth 0), not to lists
+/// or chip rows inside it.
+class BackToTopHost extends StatefulWidget {
+  final Widget child;
+
+  /// How far down the button appears.
+  static const showAfter = 600.0;
+
+  const BackToTopHost({super.key, required this.child});
+
+  @override
+  State<BackToTopHost> createState() => _BackToTopHostState();
+}
+
+class _BackToTopHostState extends State<BackToTopHost> {
+  bool _show = false;
+  BuildContext? _scroller;
+
+  bool _onScroll(ScrollNotification n) {
+    if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
+    final show = n.metrics.pixels > BackToTopHost.showAfter;
+    _scroller = n.context;
+    if (show == _show) return false;
+    // A scroll can be reported while a frame is being laid out; the
+    // button then changes on the next frame.
+    if (SchedulerBinding.instance.schedulerPhase ==
+        SchedulerPhase.persistentCallbacks) {
+      SchedulerBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _show = show);
+      });
+    } else {
+      setState(() => _show = show);
+    }
+    return false;
+  }
+
+  void _toTop() {
+    final context = _scroller;
+    if (context == null || !context.mounted) return;
+    Scrollable.maybeOf(context)?.position.animateTo(
+      0,
+      duration: const Duration(milliseconds: 450),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      children: [
+        Positioned.fill(
+          child: NotificationListener<ScrollNotification>(
+            onNotification: _onScroll,
+            child: widget.child,
+          ),
+        ),
+        Positioned(
+          right: 16,
+          bottom: 16 + MediaQuery.viewPaddingOf(context).bottom,
+          child: IgnorePointer(
+            ignoring: !_show,
+            child: AnimatedOpacity(
+              opacity: _show ? 1 : 0,
+              duration: const Duration(milliseconds: 180),
+              child: AnimatedScale(
+                scale: _show ? 1 : 0.8,
+                duration: const Duration(milliseconds: 180),
+                child: Material(
+                  color: Colors.white,
+                  shape: const CircleBorder(
+                    side: BorderSide(color: AppTheme.slate200),
+                  ),
+                  elevation: 4,
+                  shadowColor: Colors.black26,
+                  child: InkWell(
+                    customBorder: const CircleBorder(),
+                    onTap: _toTop,
+                    child: const Tooltip(
+                      message: 'Back to top',
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Icon(
+                          Icons.arrow_upward_rounded,
+                          size: 20,
+                          color: AppTheme.maroon,
+                          semanticLabel: 'Back to top',
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

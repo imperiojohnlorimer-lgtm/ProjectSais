@@ -231,6 +231,9 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
     }
 
     final now = DateTime.now();
+    final mentioned = state
+        .mentionedUsers(body, excludeId: state.currentUser?.id)
+        .length;
     final ok = await state.postAnnouncement(
       Announcement(
         id: 'ann_${now.millisecondsSinceEpoch}',
@@ -259,12 +262,18 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
       return;
     }
     navigator.pop();
+    final mentions = switch (mentioned) {
+      0 => '',
+      1 => ' The person you mentioned was notified.',
+      _ => ' The $mentioned people you mentioned were notified.',
+    };
     AppSnackBar.showWithMessenger(
       messenger,
-      hiringCall
-          ? 'Hiring call posted. Students can now apply to be a Student '
-                'Assistant.'
-          : 'Announcement posted. Students have been notified.',
+      (hiringCall
+              ? 'Hiring call posted. Students can now apply to be a Student '
+                    'Assistant.'
+              : 'Announcement posted. Students have been notified.') +
+          mentions,
       type: SnackType.success,
     );
   }
@@ -499,10 +508,15 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
   Widget _bodyField() {
     final state = context.watch<AppState>();
     final fragment = _mentionFragment();
-    const roles = ['Student', 'Student Assistant', 'Supervisor'];
+    // Only people a mention reaches (AppState.mentionedUsers).
     final people = <String, String>{
       for (final user in state.users)
-        if (roles.contains(user.role)) '@${user.name}': user.role,
+        if (AppState.mentionableRoles.contains(user.role) &&
+            user.status != 'Archived' &&
+            !user.isDeleted &&
+            user.id != state.currentUser?.id &&
+            user.name.trim().isNotEmpty)
+          '@${user.name.trim()}': user.role,
     };
     final tabs = {
       'All': people.keys.toList(),
@@ -553,7 +567,8 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
         const Padding(
           padding: EdgeInsets.only(top: 6, left: 2),
           child: Text(
-            'Type @ to mention a student, assistant or supervisor by name.',
+            'Type @ to mention a student, assistant or supervisor; they get '
+            'a notification.',
             style: TextStyle(fontSize: 11, color: AppTheme.slate500),
           ),
         ),
