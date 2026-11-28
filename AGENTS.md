@@ -161,7 +161,25 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
   through `AppState.setManualTimeOut` / `setAttendanceArchived` /
   `deleteAttendance`: they save `editedBy`/`editedAt`/`editNote`, tell the
   student, and put back only their own record if the save fails. Rebuild
-  records with `copyWith` so the edit fields aren't dropped.
+  records with `copyWith` so the edit fields aren't dropped. A manual
+  time-out must pass `AppState.manualTimeOutProblem` (after the time-in,
+  not past the record's session end, not later than now on today's
+  record); screens call it before the confirm and show the reason.
+- Records are matched to a person by id, and by name only when the record
+  was saved without one (`AppState._isRecordOf`): two students may share a
+  name. Supervisors' lists use `_supervisedRecordTest` (students the office
+  lists by name alone count by their roster ids).
+- Sent to Head: a forward must name one of the Supervisor's own students
+  (the rules refuse an empty `studentId`; `_forwardStudentId` resolves one
+  or throws `SendToHeadProblem` before uploading). Reports and evaluations
+  write the forward first under a fixed id (`report_<id>`/`evaluation_<id>`,
+  `FirestoreService.addHeadForwardOnce`), then mark the item sent.
+- Notifications from Students/Student Assistants are limited by the rules
+  to what the app raises (application → Heads, schedule → Heads from an
+  SA, report from an SA, task → staff) and every notification must carry
+  `createdAt` = server time. Mention notifications
+  (`mention_<announcementId>_<uid>`) open the announcement
+  (`AppState.announcementMentionedIn`).
 - "Today" and the week for hours are Philippine time (`philippineToday`,
   `philippineClock`), never the machine's: tests must not use
   `DateTime.now()` for a date the app stamps (CI runs in UTC).
