@@ -77,14 +77,17 @@ extension AppStateSupervisorCards on AppState {
       if (all) {
         // Archived, deleted or no longer a Supervisor: their name and
         // picture stop being readable by everyone.
-        // A Head who heads an office may have a card too: kept.
-        final keep = {
+        // Only people known not to be staff any more (a Head who heads an
+        // office may have a card too): someone simply missing from a list
+        // that is still arriving keeps theirs.
+        final gone = {
           for (final u in users)
-            if ((u.role == 'Supervisor' || u.role == 'Head') &&
-                u.status != 'Archived')
+            if (!(u.role == 'Supervisor' || u.role == 'Head') ||
+                u.status == 'Archived')
               u.id,
+          for (final u in _deletedAccounts) u.id,
         };
-        final stale = stored.keys.where((id) => !keep.contains(id)).toList();
+        final stale = stored.keys.where(gone.contains).toList();
         if (stale.isNotEmpty) await fs.deleteSupervisorCards(stale);
       }
     } catch (error) {

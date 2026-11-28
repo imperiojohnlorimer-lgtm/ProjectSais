@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:projectsais/models/app_state.dart';
 import 'package:projectsais/models/models.dart';
@@ -122,6 +124,21 @@ void main() {
     expect(await state.sendReportToHead('r1'), isTrue);
 
     expect(store.forwards['report_r1']!.studentId, 'sa1');
+  });
+
+  test('a DTR for a student not linked to the office says so before '
+      'uploading anything', () async {
+    await expectLater(
+      state.sendDtrReportToHead(
+        studentId: '',
+        studentName: 'Nobody Here',
+        monthLabel: 'November 2026',
+        bytes: Uint8List.fromList([1, 2, 3]),
+        fileName: 'dtr.docx',
+      ),
+      throwsA(isA<SendToHeadProblem>()),
+    );
+    expect(store.forwards, isEmpty);
   });
 
   test(

@@ -1233,6 +1233,9 @@ class AppState extends ChangeNotifier {
           .getStudentIdsForUser(user.id)
           .then((ids) {
             if (generation != _liveGeneration) return;
+            // An assistant can't list the roster, so their own roster ids
+            // come from here (a task may be assigned to one of them).
+            _myRosterIds = {...ids};
             if (ids.isEmpty) {
               _markLoaded('Tasks: student record');
               notifyListeners();
@@ -2241,6 +2244,7 @@ class AppState extends ChangeNotifier {
     notifications = [];
     documents = [];
     _deletedAccounts = [];
+    _myRosterIds = {};
     supervisorAvatars = {};
     _syncedSupervisorCards = null;
     attendanceQrCodes = {};
@@ -6844,6 +6848,36 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  /// The id a forward about [studentId] / [studentName] goes under: one
+  /// the rules accept for the current Supervisor (an assistant of their
+  /// offices by account, or a roster record linked to one), else the one
+  /// Student Assistant of that name in their offices. Throws a
+  /// [SendToHeadProblem] when there is none, before anything is uploaded.
+  String _forwardStudentId(String studentId, String studentName) {
+    final me = currentUser?.id ?? '';
+    final mine = offices.where((o) => o.headIds.contains(me)).toList();
+    bool inMyOffice(String accountId) =>
+        accountId.isNotEmpty &&
+        mine.any((o) => o.assistantIds.contains(accountId));
+    final id = studentId.trim();
+    if (inMyOffice(id)) return id;
+    final roster = students.where((s) => s.id == id).firstOrNull;
+    if (roster != null && inMyOffice(roster.userId ?? '')) return id;
+    final name = studentName.trim().toLowerCase();
+    final matches = {
+      for (final u in users)
+        if (u.role == 'Student Assistant' &&
+            u.name.trim().toLowerCase() == name &&
+            inMyOffice(u.id))
+          u.id,
+    };
+    if (matches.length == 1) return matches.single;
+    throw const SendToHeadProblem(
+      "This student isn't linked to an account in your office. Ask the Head "
+      "to link the student's account to your office first.",
+    );
+  }
+
   /// The account of the student an older report (saved without
   /// [Report.applicantId]) is from: the one Student Assistant of that name
   /// in the current Supervisor's offices, or null when there is none or more
@@ -6876,6 +6910,16 @@ class AppState extends ChangeNotifier {
     // second evaluation. One already on its way isn't sent twice.
     if (evaluation.id.isEmpty || !_evaluationsBeingSent.add(evaluation.id)) {
       return false;
+    }
+    final String forwardStudentId;
+    try {
+      forwardStudentId = _forwardStudentId(
+        evaluation.studentId,
+        evaluation.studentName,
+      );
+    } catch (_) {
+      _evaluationsBeingSent.remove(evaluation.id);
+      rethrow;
     }
     _firestoreService ??= FirestoreService();
     try {
@@ -6938,7 +6982,7 @@ class AppState extends ChangeNotifier {
       // The forward first, as for reports (see [sendReportToHead]).
       await _recordHeadForward(
         type: 'evaluation',
-        studentId: withAttachment.studentId,
+        studentId: forwardStudentId,
         studentName: withAttachment.studentName,
         title: 'Performance Evaluation (${withAttachment.term})',
         fileName: doc.fileName,
@@ -6971,6 +7015,8 @@ class AppState extends ChangeNotifier {
     required Uint8List bytes,
     required String fileName,
   }) async {
+    // Said before the file is uploaded (an upload would be left unused).
+    final forwardStudentId = _forwardStudentId(studentId, studentName);
     try {
       final timestamp = DateTime.now().millisecondsSinceEpoch;
       // Reuses the 'reports/<uploaderUid>/...' path shape that the
@@ -6992,7 +7038,7 @@ class AppState extends ChangeNotifier {
 
       await _recordHeadForward(
         type: 'dtr_report',
-        studentId: studentId,
+        studentId: forwardStudentId,
         studentName: studentName,
         title: 'DTR/Accomplishment Report ($monthLabel)',
         fileName: fileName,
@@ -8060,12 +8106,17 @@ class AppState extends ChangeNotifier {
         (recordName ?? '').trim().toLowerCase() == wanted;
   }
 
+  /// The signed-in person's roster record ids, as the Tasks lookup found
+  /// them (an assistant can't list the roster). Cleared on sign-out.
+  Set<String> _myRosterIds = {};
+
   /// The signed-in person's ids: their account and their roster records.
   Set<String> _myIdentityIds() {
     final me = currentUser?.id ?? '';
     if (me.isEmpty) return const {};
     return {
       me,
+      ..._myRosterIds,
       for (final s in students)
         if (s.userId == me) s.id,
     };
@@ -8077,17 +8128,37 @@ class AppState extends ChangeNotifier {
   /// office lists by name alone; a record without an id goes by the name.
   bool Function(String? recordId, String? recordName)
   _supervisedRecordTest() {
-    final ids = _studentIdentityIdsForSupervisor();
-    final names = {
-      for (final n in _officeStudentNamesForSupervisor) n.trim().toLowerCase(),
-    };
+    final supervised = _supervisedOffices;
     final nameOnly = <String>{
-      for (final office in _supervisedOffices)
+      for (final office in supervised)
         for (var i = 0; i < office.assistantNames.length; i++)
           if (i >= office.assistantIds.length ||
               office.assistantIds[i].trim().isEmpty)
             office.assistantNames[i].trim().toLowerCase(),
     }..remove('');
+    // Placed by id in an office of someone else: never one of these.
+    final placedElsewhere = {
+      for (final office in offices)
+        if (!supervised.any((o) => o.id == office.id))
+          for (final id in office.assistantIds)
+            if (id.trim().isNotEmpty) id,
+    };
+    final ids = {
+      ..._studentIdentityIdsForSupervisor(),
+      // Students the office lists by name alone: their roster records and
+      // accounts (unless that person is placed in another office by id, a
+      // namesake).
+      for (final s in _officeStudentsForSupervisor)
+        if (nameOnly.contains(s.name.trim().toLowerCase()) &&
+            !placedElsewhere.contains(s.id) &&
+            !placedElsewhere.contains(s.userId)) ...[
+          if (s.id.isNotEmpty) s.id,
+          if ((s.userId ?? '').isNotEmpty) s.userId!,
+        ],
+    };
+    final names = {
+      for (final n in _officeStudentNamesForSupervisor) n.trim().toLowerCase(),
+    };
     final nameOf = {for (final u in users) u.id: u.name.trim().toLowerCase()};
     return (recordId, recordName) {
       final id = recordId?.trim() ?? '';

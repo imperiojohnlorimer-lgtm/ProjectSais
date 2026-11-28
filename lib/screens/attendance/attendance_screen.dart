@@ -549,7 +549,10 @@ class _AttendanceScreenState extends State<AttendanceScreen>
           // A code seen while the scanner is already closing (or after it
           // closed) is dropped: it would pop the page underneath and clock
           // in a second time.
-          if (!(ModalRoute.of(dialogContext)?.isCurrent ?? false)) return;
+          if (!dialogContext.mounted ||
+              !(ModalRoute.of(dialogContext)?.isCurrent ?? false)) {
+            return;
+          }
           Navigator.of(dialogContext).pop();
           _handleScannedCode(context, code);
         },
