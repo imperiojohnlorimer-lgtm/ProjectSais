@@ -74,7 +74,7 @@ class _PerformanceEvaluationScreenState
         ? 0.0
         : submittedCount / allForTerm.length;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -112,31 +112,36 @@ class _PerformanceEvaluationScreenState
         const SizedBox(height: 14),
 
         // ── Content ─────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (allForTerm.isNotEmpty) ...[
-                  ProgressStrip(
-                    label: 'Evaluated',
-                    icon: Icons.how_to_reg_rounded,
-                    progress: evaluatedFraction,
-                    trailing: '$submittedCount/${allForTerm.length}',
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                if (students.isEmpty)
-                  _emptyState(allForTerm.isEmpty)
-                else
-                  for (final student in students)
-                    _studentCard(context, state, student),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (allForTerm.isNotEmpty) ...[
+                ProgressStrip(
+                  label: 'Evaluated',
+                  icon: Icons.how_to_reg_rounded,
+                  progress: evaluatedFraction,
+                  trailing: '$submittedCount/${allForTerm.length}',
+                ),
+                const SizedBox(height: 14),
               ],
-            ),
+              if (students.isEmpty)
+                _emptyState(allForTerm.isEmpty)
+              else
+                for (final student in students)
+                  _studentCard(context, state, student),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 

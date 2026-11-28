@@ -29,7 +29,7 @@ class SvAnnouncementsScreen extends StatelessWidget {
         ? 0.0
         : (mine.length - pending) / mine.length;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -76,83 +76,88 @@ class SvAnnouncementsScreen extends StatelessWidget {
         const SizedBox(height: 14),
 
         // ── Content ─────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (mine.isNotEmpty) ...[
-                  ProgressStrip(
-                    label: 'Reviewed',
-                    icon: Icons.fact_check_rounded,
-                    progress: reviewedFraction,
-                    trailing: '${mine.length - pending}/${mine.length}',
-                  ),
-                  const SizedBox(height: 14),
-                ],
-                if (mine.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 60),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: const BoxDecoration(
-                              color: AppTheme.slate100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.campaign_outlined,
-                              size: 36,
-                              color: AppTheme.slate300,
-                            ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (mine.isNotEmpty) ...[
+                ProgressStrip(
+                  label: 'Reviewed',
+                  icon: Icons.fact_check_rounded,
+                  progress: reviewedFraction,
+                  trailing: '${mine.length - pending}/${mine.length}',
+                ),
+                const SizedBox(height: 14),
+              ],
+              if (mine.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: const BoxDecoration(
+                            color: AppTheme.slate100,
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'No requests submitted yet',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.slate500,
-                            ),
+                          child: const Icon(
+                            Icons.campaign_outlined,
+                            size: 36,
+                            color: AppTheme.slate300,
                           ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Request a student assistant for your office. The Head approves it and matches Student Assistants to it by their skills.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.slate300,
-                            ),
-                            textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No requests submitted yet',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.slate500,
                           ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  ...mine.map(
-                    (a) => AnnouncementCard(
-                      announcement: a,
-                      showActions: true,
-                      footerActions: [
-                        TextButton(
-                          onPressed: () =>
-                              showAnnouncementDetailsDialog(context, a),
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppTheme.maroon,
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Request a student assistant for your office. The Head approves it and matches Student Assistants to it by their skills.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.slate300,
                           ),
-                          child: const Text('View Details'),
+                          textAlign: TextAlign.center,
                         ),
                       ],
                     ),
                   ),
-              ],
-            ),
+                )
+              else
+                ...mine.map(
+                  (a) => AnnouncementCard(
+                    announcement: a,
+                    showActions: true,
+                    footerActions: [
+                      TextButton(
+                        onPressed: () =>
+                            showAnnouncementDetailsDialog(context, a),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppTheme.maroon,
+                        ),
+                        child: const Text('View Details'),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 }

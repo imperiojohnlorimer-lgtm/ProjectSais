@@ -403,7 +403,22 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      // The card starts closed: who, when, and a one-line summary.
       expect(find.text('Sia Assistant'), findsOneWidget);
+      expect(find.text('1 subject'), findsOneWidget);
+      expect(find.text('Networks'), findsNothing);
+      expect(find.text('Approve'), findsNothing);
+
+      // A tap opens the classes and the buttons; another closes them.
+      await tester.tap(find.text('Sia Assistant'));
+      await tester.pumpAndSettle();
+      expect(find.text('Networks'), findsOneWidget);
+      await tester.tap(find.text('Sia Assistant'));
+      await tester.pumpAndSettle();
+      expect(find.text('Networks'), findsNothing);
+      await tester.tap(find.text('Sia Assistant'));
+      await tester.pumpAndSettle();
+
       expect(find.text('Note: New semester'), findsOneWidget);
       expect(find.text('Networks'), findsOneWidget);
       expect(find.text('No approved class schedule yet.'), findsOneWidget);

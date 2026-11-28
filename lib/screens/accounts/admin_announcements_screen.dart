@@ -58,7 +58,7 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
     final isMobile = MediaQuery.of(context).size.width < 700;
     final hPad = isMobile ? 16.0 : 28.0;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -403,65 +403,70 @@ class _AdminAnnouncementsScreenState extends State<AdminAnnouncementsScreen> {
         ),
 
         // ── Content ─────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (anns.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 60),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: const BoxDecoration(
-                              color: AppTheme.slate100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.campaign_outlined,
-                              size: 36,
-                              color: AppTheme.slate300,
-                            ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (anns.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: const BoxDecoration(
+                            color: AppTheme.slate100,
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'No announcements posted yet',
-                            style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.slate500,
-                            ),
+                          child: const Icon(
+                            Icons.campaign_outlined,
+                            size: 36,
+                            color: AppTheme.slate300,
                           ),
-                          const SizedBox(height: 6),
-                          const Text(
-                            'Use "Post Announcement" to open Student Assistant applications or post a notice.',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: AppTheme.slate300,
-                            ),
-                            textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'No announcements posted yet',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.slate500,
                           ),
-                        ],
-                      ),
-                    ),
-                  )
-                else
-                  ...anns.map(
-                    (a) => _AdminAnnouncementCard(
-                      ann: a,
-                      state: state,
-                      context: context,
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'Use "Post Announcement" to open Student Assistant applications or post a notice.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.slate300,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
                   ),
-              ],
-            ),
+                )
+              else
+                ...anns.map(
+                  (a) => _AdminAnnouncementCard(
+                    ann: a,
+                    state: state,
+                    context: context,
+                  ),
+                ),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 

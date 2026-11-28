@@ -145,7 +145,7 @@ class _RehiringScreenState extends State<RehiringScreen> {
     final noEvaluation = evaluationFor.values.where((e) => e == null).length;
     final decided = recordFor.values.whereType<RehireRecord>().length;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -229,41 +229,46 @@ class _RehiringScreenState extends State<RehiringScreen> {
           ),
         ),
         const SizedBox(height: 14),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (candidates.isNotEmpty) ...[
-                  ProgressStrip(
-                    label: 'Decided',
-                    icon: Icons.how_to_reg_rounded,
-                    progress: decided / candidates.length,
-                    trailing: '$decided/${candidates.length}',
-                  ),
-                  const SizedBox(height: 10),
-                  _timingNote(termLabel, termStarted),
-                  const SizedBox(height: 14),
-                ],
-                if (visible.isEmpty)
-                  (state.isLoaded('Rehire records') && state.isLoaded('Users'))
-                      ? _emptyState(candidates.isEmpty)
-                      : const LoadingState()
-                else
-                  for (final user in visible)
-                    _candidateCard(
-                      state,
-                      user,
-                      term,
-                      evaluationFor[user.id],
-                      recordFor[user.id],
-                    ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (candidates.isNotEmpty) ...[
+                ProgressStrip(
+                  label: 'Decided',
+                  icon: Icons.how_to_reg_rounded,
+                  progress: decided / candidates.length,
+                  trailing: '$decided/${candidates.length}',
+                ),
+                const SizedBox(height: 10),
+                _timingNote(termLabel, termStarted),
+                const SizedBox(height: 14),
               ],
-            ),
+              if (visible.isEmpty)
+                (state.isLoaded('Rehire records') && state.isLoaded('Users'))
+                    ? _emptyState(candidates.isEmpty)
+                    : const LoadingState()
+              else
+                for (final user in visible)
+                  _candidateCard(
+                    state,
+                    user,
+                    term,
+                    evaluationFor[user.id],
+                    recordFor[user.id],
+                  ),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 

@@ -41,7 +41,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
       (sum, dept) => sum + (assigned[dept.trim().toLowerCase()] ?? 0),
     );
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -78,324 +78,329 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
         const SizedBox(height: 18),
 
         // ── Content ─────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (departments.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 60),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(28),
-                            decoration: const BoxDecoration(
-                              color: AppTheme.slate100,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.business_outlined,
-                              size: 40,
-                              color: AppTheme.slate400,
-                            ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (departments.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(28),
+                          decoration: const BoxDecoration(
+                            color: AppTheme.slate100,
+                            shape: BoxShape.circle,
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            query.isEmpty
-                                ? 'No departments yet'
-                                : 'No departments match your search',
-                            style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.slate900,
-                            ),
+                          child: const Icon(
+                            Icons.business_outlined,
+                            size: 40,
+                            color: AppTheme.slate400,
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            query.isEmpty
-                                ? 'Create a department to get started'
-                                : 'Try a different search term',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: AppTheme.slate500,
-                            ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          query.isEmpty
+                              ? 'No departments yet'
+                              : 'No departments match your search',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.slate900,
                           ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          query.isEmpty
+                              ? 'Create a department to get started'
+                              : 'Try a different search term',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.slate500,
+                          ),
+                        ),
+                      ],
                     ),
-                  )
-                else
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Text(
-                            'ALL DEPARTMENTS',
+                  ),
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'ALL DEPARTMENTS',
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.slate500,
+                            letterSpacing: 1.2,
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Divider(color: AppTheme.slate200, height: 1),
+                        ),
+                        const SizedBox(width: 10),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 4,
+                          ),
+                          decoration: BoxDecoration(
+                            color: AppTheme.maroon.withValues(alpha: 0.08),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            query.isEmpty
+                                ? '${departments.length} total'
+                                : '${departments.length} of ${allDepartments.length}',
                             style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.w700,
-                              color: AppTheme.slate500,
-                              letterSpacing: 1.2,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.maroon,
                             ),
                           ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Divider(color: AppTheme.slate200, height: 1),
-                          ),
-                          const SizedBox(width: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 10,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppTheme.maroon.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              query.isEmpty
-                                  ? '${departments.length} total'
-                                  : '${departments.length} of ${allDepartments.length}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.maroon,
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    ...departments.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final dept = entry.value;
+                      final colors = [
+                        [const Color(0xFF8B1C3E), const Color(0xFFB03060)],
+                        [const Color(0xFF1C5F8B), const Color(0xFF2E86C1)],
+                        [const Color(0xFF1C8B5A), const Color(0xFF28B463)],
+                        [const Color(0xFF7D3C98), const Color(0xFF9B59B6)],
+                        [const Color(0xFF8B6914), const Color(0xFFD4AC0D)],
+                      ];
+                      final grad = colors[i % colors.length];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(color: AppTheme.slate100),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
                               ),
-                            ),
+                            ],
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      ...departments.asMap().entries.map((entry) {
-                        final i = entry.key;
-                        final dept = entry.value;
-                        final colors = [
-                          [const Color(0xFF8B1C3E), const Color(0xFFB03060)],
-                          [const Color(0xFF1C5F8B), const Color(0xFF2E86C1)],
-                          [const Color(0xFF1C8B5A), const Color(0xFF28B463)],
-                          [const Color(0xFF7D3C98), const Color(0xFF9B59B6)],
-                          [const Color(0xFF8B6914), const Color(0xFFD4AC0D)],
-                        ];
-                        final grad = colors[i % colors.length];
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border: Border.all(color: AppTheme.slate100),
-                              boxShadow: [
-                                BoxShadow(
-                                  color: Colors.black.withValues(alpha: 0.04),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(16),
+                            child: Row(
+                              children: [
+                                // Colored accent strip
+                                Container(
+                                  width: 5,
+                                  height: 72,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: grad,
+                                      begin: Alignment.topCenter,
+                                      end: Alignment.bottomCenter,
+                                    ),
+                                  ),
                                 ),
-                              ],
-                            ),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
-                              child: Row(
-                                children: [
-                                  // Colored accent strip
-                                  Container(
-                                    width: 5,
-                                    height: 72,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: grad,
-                                        begin: Alignment.topCenter,
-                                        end: Alignment.bottomCenter,
-                                      ),
-                                    ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  // Gradient icon block
-                                  Container(
-                                    width: 44,
-                                    height: 44,
-                                    decoration: BoxDecoration(
-                                      gradient: LinearGradient(
-                                        colors: [
-                                          grad[0].withValues(alpha: 0.15),
-                                          grad[1].withValues(alpha: 0.08),
-                                        ],
-                                      ),
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                        color: grad[0].withValues(alpha: 0.2),
-                                      ),
-                                    ),
-                                    child: Icon(
-                                      Icons.business_rounded,
-                                      size: 20,
-                                      color: grad[0],
-                                    ),
-                                  ),
-                                  const SizedBox(width: 14),
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          dept,
-                                          style: const TextStyle(
-                                            fontSize: 14,
-                                            fontWeight: FontWeight.w700,
-                                            color: AppTheme.slate900,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 3),
-                                        Row(
-                                          children: [
-                                            Icon(
-                                              Icons.verified_outlined,
-                                              size: 11,
-                                              color: AppTheme.slate400,
-                                            ),
-                                            const SizedBox(width: 4),
-                                            const Flexible(
-                                              child: Text(
-                                                'Active Department',
-                                                style: TextStyle(
-                                                  fontSize: 11,
-                                                  color: AppTheme.slate500,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
+                                const SizedBox(width: 16),
+                                // Gradient icon block
+                                Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    gradient: LinearGradient(
+                                      colors: [
+                                        grad[0].withValues(alpha: 0.15),
+                                        grad[1].withValues(alpha: 0.08),
                                       ],
                                     ),
-                                  ),
-                                  // Index badge
-                                  Container(
-                                    width: 28,
-                                    height: 28,
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.slate50,
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(
-                                        color: AppTheme.slate200,
-                                      ),
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: grad[0].withValues(alpha: 0.2),
                                     ),
-                                    child: Center(
-                                      child: Text(
-                                        '${i + 1}',
-                                        style: TextStyle(
-                                          fontSize: 11,
+                                  ),
+                                  child: Icon(
+                                    Icons.business_rounded,
+                                    size: 20,
+                                    color: grad[0],
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        dept,
+                                        style: const TextStyle(
+                                          fontSize: 14,
                                           fontWeight: FontWeight.w700,
-                                          color: AppTheme.slate500,
+                                          color: AppTheme.slate900,
                                         ),
+                                      ),
+                                      const SizedBox(height: 3),
+                                      Row(
+                                        children: [
+                                          Icon(
+                                            Icons.verified_outlined,
+                                            size: 11,
+                                            color: AppTheme.slate400,
+                                          ),
+                                          const SizedBox(width: 4),
+                                          const Flexible(
+                                            child: Text(
+                                              'Active Department',
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: AppTheme.slate500,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                // Index badge
+                                Container(
+                                  width: 28,
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.slate50,
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: AppTheme.slate200,
+                                    ),
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      '${i + 1}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: AppTheme.slate500,
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 10),
-                                  IconButton(
-                                    onPressed: () =>
-                                        _showCreateDepartmentDialog(
-                                          context,
-                                          department: dept,
+                                ),
+                                const SizedBox(width: 10),
+                                IconButton(
+                                  onPressed: () =>
+                                      _showCreateDepartmentDialog(
+                                        context,
+                                        department: dept,
+                                      ),
+                                  icon: const Icon(Icons.edit_outlined),
+                                  color: AppTheme.maroon,
+                                  tooltip: 'Edit department',
+                                  style: IconButton.styleFrom(
+                                    backgroundColor: AppTheme.maroon
+                                        .withValues(alpha: 0.08),
+                                    side: BorderSide(
+                                      color: AppTheme.maroon.withValues(
+                                        alpha: 0.2,
+                                      ),
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                GestureDetector(
+                                  onTap: () async {
+                                    final confirmed = await showConfirmDialog(
+                                      context,
+                                      title: 'Delete department?',
+                                      message:
+                                          '"$dept" will be removed from the '
+                                          'department list. Accounts and '
+                                          'students already in it keep it '
+                                          'on their profile.',
+                                      confirmLabel: 'Delete',
+                                    );
+                                    if (!confirmed || !context.mounted) {
+                                      return;
+                                    }
+                                    final removed = await runWithBusy(
+                                      context,
+                                      () => state.removeDepartment(dept),
+                                      message: 'Deleting…',
+                                    );
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(
+                                      context,
+                                    ).showSnackBar(
+                                      SnackBar(
+                                        content: Text(
+                                          removed
+                                              ? 'Department "$dept" deleted'
+                                              : 'Could not delete department "$dept"',
                                         ),
-                                    icon: const Icon(Icons.edit_outlined),
-                                    color: AppTheme.maroon,
-                                    tooltip: 'Edit department',
-                                    style: IconButton.styleFrom(
-                                      backgroundColor: AppTheme.maroon
-                                          .withValues(alpha: 0.08),
-                                      side: BorderSide(
-                                        color: AppTheme.maroon.withValues(
+                                        backgroundColor: removed
+                                            ? AppTheme.red500
+                                            : AppTheme.amber500,
+                                        behavior: SnackBarBehavior.floating,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        margin: const EdgeInsets.all(16),
+                                      ),
+                                    );
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    margin: const EdgeInsets.only(right: 14),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.red500.withValues(
+                                        alpha: 0.08,
+                                      ),
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: AppTheme.red500.withValues(
                                           alpha: 0.2,
                                         ),
                                       ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10),
-                                      ),
+                                    ),
+                                    child: const Icon(
+                                      Icons.delete_outline_rounded,
+                                      size: 16,
+                                      color: AppTheme.red500,
                                     ),
                                   ),
-                                  const SizedBox(width: 6),
-                                  GestureDetector(
-                                    onTap: () async {
-                                      final confirmed = await showConfirmDialog(
-                                        context,
-                                        title: 'Delete department?',
-                                        message:
-                                            '"$dept" will be removed from the '
-                                            'department list. Accounts and '
-                                            'students already in it keep it '
-                                            'on their profile.',
-                                        confirmLabel: 'Delete',
-                                      );
-                                      if (!confirmed || !context.mounted) {
-                                        return;
-                                      }
-                                      final removed = await runWithBusy(
-                                        context,
-                                        () => state.removeDepartment(dept),
-                                        message: 'Deleting…',
-                                      );
-                                      if (!context.mounted) return;
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        SnackBar(
-                                          content: Text(
-                                            removed
-                                                ? 'Department "$dept" deleted'
-                                                : 'Could not delete department "$dept"',
-                                          ),
-                                          backgroundColor: removed
-                                              ? AppTheme.red500
-                                              : AppTheme.amber500,
-                                          behavior: SnackBarBehavior.floating,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              10,
-                                            ),
-                                          ),
-                                          margin: const EdgeInsets.all(16),
-                                        ),
-                                      );
-                                    },
-                                    child: Container(
-                                      padding: const EdgeInsets.all(8),
-                                      margin: const EdgeInsets.only(right: 14),
-                                      decoration: BoxDecoration(
-                                        color: AppTheme.red500.withValues(
-                                          alpha: 0.08,
-                                        ),
-                                        borderRadius: BorderRadius.circular(10),
-                                        border: Border.all(
-                                          color: AppTheme.red500.withValues(
-                                            alpha: 0.2,
-                                          ),
-                                        ),
-                                      ),
-                                      child: const Icon(
-                                        Icons.delete_outline_rounded,
-                                        size: 16,
-                                        color: AppTheme.red500,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
-                        );
-                      }).toList(),
-                    ],
-                  ),
-              ],
-            ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 

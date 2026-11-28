@@ -53,7 +53,7 @@ class _BackupsScreenState extends State<BackupsScreen> {
     final overview = state.backupOverview;
     final health = state.backupHealthStatus;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -84,8 +84,15 @@ class _BackupsScreenState extends State<BackupsScreen> {
           ),
         ),
         const SizedBox(height: 18),
-        Expanded(child: _body(context, state, overview, health, hPad)),
+        _body(context, state, overview, health, hPad),
       ],
+    );
+
+    // The whole page scrolls, header and stats too: pinned, they took
+    // half a phone screen and left the backups a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 
@@ -100,8 +107,8 @@ class _BackupsScreenState extends State<BackupsScreen> {
     if (overview == null && state.backupError == null) {
       return const LoadingState(message: 'Checking the backups…');
     }
-    return SingleChildScrollView(
-      padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

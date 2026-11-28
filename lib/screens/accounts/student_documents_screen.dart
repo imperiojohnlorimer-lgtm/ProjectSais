@@ -391,7 +391,7 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
     final isCompact = screenWidth < 420;
     final horizontalPadding = isCompact ? 16.0 : 28.0;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -541,61 +541,66 @@ class _StudentDocumentsScreenState extends State<StudentDocumentsScreen> {
           ),
         ),
         const SizedBox(height: 18),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (filtered.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 60),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: const BoxDecoration(color: AppTheme.slate100, shape: BoxShape.circle),
-                            child: Icon(
-                              allEntries.isEmpty ? Icons.folder_off_outlined : Icons.search_off_rounded,
-                              size: 36,
-                              color: AppTheme.slate300,
-                            ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (filtered.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: const BoxDecoration(color: AppTheme.slate100, shape: BoxShape.circle),
+                          child: Icon(
+                            allEntries.isEmpty ? Icons.folder_off_outlined : Icons.search_off_rounded,
+                            size: 36,
+                            color: AppTheme.slate300,
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            allEntries.isEmpty ? 'No documents yet' : 'No matches found',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            allEntries.isEmpty
-                                ? 'Application requirements, contracts, endorsement\n'
-                                    'letters, reports, evaluations, and DTR files will\n'
-                                    'appear here, per student.'
-                                : 'Try a different search term or filter.',
-                            style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
-                            textAlign: TextAlign.center,
-                          ),
-                        ],
-                      ),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          allEntries.isEmpty ? 'No documents yet' : 'No matches found',
+                          style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          allEntries.isEmpty
+                              ? 'Application requirements, contracts, endorsement\n'
+                                  'letters, reports, evaluations, and DTR files will\n'
+                                  'appear here, per student.'
+                              : 'Try a different search term or filter.',
+                          style: const TextStyle(fontSize: 13, color: AppTheme.slate500),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
                     ),
-                  )
-                else
-                  for (final key in studentKeys)
-                    _StudentDocGroup(
-                      studentKey: key,
-                      studentName: studentDisplayName[key]!,
-                      items: byStudent[key]!,
-                      onOpen: _open,
-                      onUpload: () => _uploadForStudent(state, key, studentDisplayName[key]!),
-                      onDelete: (entry) => _deleteUpload(state, entry),
-                    ),
-              ],
-            ),
+                  ),
+                )
+              else
+                for (final key in studentKeys)
+                  _StudentDocGroup(
+                    studentKey: key,
+                    studentName: studentDisplayName[key]!,
+                    items: byStudent[key]!,
+                    onOpen: _open,
+                    onUpload: () => _uploadForStudent(state, key, studentDisplayName[key]!),
+                    onDelete: (entry) => _deleteUpload(state, entry),
+                  ),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 }

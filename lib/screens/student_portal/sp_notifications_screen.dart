@@ -40,7 +40,7 @@ class SpNotificationsScreen extends StatelessWidget {
     final isCompact = screenWidth < 420;
     final horizontalPadding = isCompact ? 16.0 : 28.0;
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -183,60 +183,65 @@ class SpNotificationsScreen extends StatelessWidget {
         const SizedBox(height: 20),
 
         // ── Content ─────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const PushNotificationsCard(
-                  title: 'Phone notifications',
-                  offText: 'Get these notifications on this device, even with SAIS closed.',
-                  onText: 'On for this device: new notifications arrive even with SAIS closed.',
-                ),
-                const SizedBox(height: 10),
-                const EmailNotificationsCard(),
-                const SizedBox(height: 16),
-                if (notifs.isEmpty && !state.isLoaded('Notifications'))
-                  const LoadingState()
-                else if (notifs.isEmpty)
-                  Center(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 60),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(20),
-                            decoration: const BoxDecoration(color: AppTheme.slate100, shape: BoxShape.circle),
-                            child: const Icon(Icons.notifications_none_outlined, size: 36, color: AppTheme.slate300),
-                          ),
-                          const SizedBox(height: 16),
-                          const Text('No notifications yet',
-                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500)),
-                          const SizedBox(height: 4),
-                          const Text("You'll be notified about application updates here.",
-                            style: TextStyle(fontSize: 13, color: AppTheme.slate500)),
-                        ],
-                      ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const PushNotificationsCard(
+                title: 'Phone notifications',
+                offText: 'Get these notifications on this device, even with SAIS closed.',
+                onText: 'On for this device: new notifications arrive even with SAIS closed.',
+              ),
+              const SizedBox(height: 10),
+              const EmailNotificationsCard(),
+              const SizedBox(height: 16),
+              if (notifs.isEmpty && !state.isLoaded('Notifications'))
+                const LoadingState()
+              else if (notifs.isEmpty)
+                Center(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 60),
+                    child: Column(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: const BoxDecoration(color: AppTheme.slate100, shape: BoxShape.circle),
+                          child: const Icon(Icons.notifications_none_outlined, size: 36, color: AppTheme.slate300),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text('No notifications yet',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: AppTheme.slate500)),
+                        const SizedBox(height: 4),
+                        const Text("You'll be notified about application updates here.",
+                          style: TextStyle(fontSize: 13, color: AppTheme.slate500)),
+                      ],
                     ),
-                  )
-                else
-                  ...notifs.map((n) {
-                    final tab = state.notificationTab(n);
-                    return NotificationTile(
-                      notif: n,
-                      opensScreen: tab != null,
-                      onTap: () {
-                        if (!n.isRead) state.markNotificationRead(n.id);
-                        if (tab != null) (onOpen ?? state.setTab)(tab);
-                      },
-                    );
-                  }),
-              ],
-            ),
+                  ),
+                )
+              else
+                ...notifs.map((n) {
+                  final tab = state.notificationTab(n);
+                  return NotificationTile(
+                    notif: n,
+                    opensScreen: tab != null,
+                    onTap: () {
+                      if (!n.isRead) state.markNotificationRead(n.id);
+                      if (tab != null) (onOpen ?? state.setTab)(tab);
+                    },
+                  );
+                }),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 }

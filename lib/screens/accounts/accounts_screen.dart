@@ -118,7 +118,7 @@ class _AccountsScreenState extends State<AccountsScreen>
               u.requestedRole == null,
         )
         .length;
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -196,18 +196,23 @@ class _AccountsScreenState extends State<AccountsScreen>
         const SizedBox(height: 16),
 
         // ── Content ──────────────────────────────────────────
-        Expanded(
-          child: _buildAccountsTab(
-            context,
-            state,
-            adminCount,
-            headCount,
-            supervisorCount,
-            studentCount,
-            studentAssistantCount,
-          ),
+        _buildAccountsTab(
+          context,
+          state,
+          adminCount,
+          headCount,
+          supervisorCount,
+          studentCount,
+          studentAssistantCount,
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 
@@ -247,9 +252,8 @@ class _AccountsScreenState extends State<AccountsScreen>
           matchArchived;
     }).toList();
 
-    return SingleChildScrollView(
-      primary: false,
-      padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
+    return Padding(
+      padding: EdgeInsets.symmetric(horizontal: hPad),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -765,6 +769,7 @@ class _AccountsScreenState extends State<AccountsScreen>
                 else
                   ListView.separated(
                     shrinkWrap: true,
+                    primary: false,
                     physics: const NeverScrollableScrollPhysics(),
                     itemCount: users.length,
                     separatorBuilder: (_, __) =>

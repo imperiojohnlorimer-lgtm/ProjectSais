@@ -316,7 +316,10 @@ class _StudentPortalShellState extends State<StudentPortalShell> {
                 Expanded(
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 200),
-                    child: KeyedSubtree(
+                    // AnimatedSwitcher lays children out loose and centred;
+                    // without this a page shorter than the screen floats to
+                    // the middle (as in AppShell).
+                    child: SizedBox.expand(
                       key: ValueKey(_tab),
                       child: InitialDataGate(child: _body()),
                     ),

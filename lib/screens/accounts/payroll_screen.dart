@@ -442,7 +442,7 @@ class _PayrollScreenState extends State<PayrollScreen> {
         ? preview
         : preview.where((p) => p.status == tab).toList();
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
@@ -450,92 +450,97 @@ class _PayrollScreenState extends State<PayrollScreen> {
           child: _header(preview),
         ),
         const SizedBox(height: 16),
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _periodCard(
-                  isMobile: isMobile,
-                  campusOptions: campusOptions,
-                  departmentOptions: departmentOptions,
-                  officeOptions: officeOptions,
-                ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _periodCard(
+                isMobile: isMobile,
+                campusOptions: campusOptions,
+                departmentOptions: departmentOptions,
+                officeOptions: officeOptions,
+              ),
+              const SizedBox(height: 12),
+              _summaryCard(
+                state: state,
+                allPreview: allPreview,
+                allReady: allReady,
+                held: held,
+                ready: ready,
+                incomplete: incomplete,
+                excluded: excluded,
+                approved: approved,
+                released: released,
+                noHours: noHours,
+                readyTotal: readyTotal,
+                approvedTotal: approvedTotal,
+                hasSavedSheet: hasSavedSheet,
+              ),
+              if (held.isNotEmpty) ...[
                 const SizedBox(height: 12),
-                _summaryCard(
-                  state: state,
-                  allPreview: allPreview,
-                  allReady: allReady,
-                  held: held,
-                  ready: ready,
-                  incomplete: incomplete,
-                  excluded: excluded,
-                  approved: approved,
-                  released: released,
-                  noHours: noHours,
-                  readyTotal: readyTotal,
-                  approvedTotal: approvedTotal,
-                  hasSavedSheet: hasSavedSheet,
-                ),
-                if (held.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  _HeldUpCard(held: held),
-                ],
-                const SizedBox(height: 22),
-                _listHeader(shown.length),
-                const SizedBox(height: 10),
-                _statusTabs(counts, tab),
-                const SizedBox(height: 12),
-                if (shown.isEmpty)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 40),
-                    child: Center(
-                      child: Text(
-                        preview.isEmpty
-                            ? 'No active Student Assistants found.'
-                            : 'No Student Assistants with this status.',
-                        style: const TextStyle(color: AppTheme.slate500),
-                      ),
-                    ),
-                  )
-                else
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      // Two cards per row once there's room, so a desktop
-                      // screen isn't one long narrow column.
-                      const gap = 12.0;
-                      final columns = constraints.maxWidth >= 1000 ? 2 : 1;
-                      final cardWidth =
-                          (constraints.maxWidth - gap * (columns - 1)) /
-                          columns;
-                      return Wrap(
-                        spacing: gap,
-                        runSpacing: gap,
-                        children: [
-                          for (final p in shown)
-                            SizedBox(
-                              key: ValueKey(p.studentId),
-                              width: cardWidth,
-                              child: _PayrollRow(
-                                record: p,
-                                open: _openCards.contains(_openKey(p)),
-                                onToggle: () => setState(() {
-                                  if (!_openCards.remove(_openKey(p))) {
-                                    _openCards.add(_openKey(p));
-                                  }
-                                }),
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
+                _HeldUpCard(held: held),
               ],
-            ),
+              const SizedBox(height: 22),
+              _listHeader(shown.length),
+              const SizedBox(height: 10),
+              _statusTabs(counts, tab),
+              const SizedBox(height: 12),
+              if (shown.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 40),
+                  child: Center(
+                    child: Text(
+                      preview.isEmpty
+                          ? 'No active Student Assistants found.'
+                          : 'No Student Assistants with this status.',
+                      style: const TextStyle(color: AppTheme.slate500),
+                    ),
+                  ),
+                )
+              else
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // Two cards per row once there's room, so a desktop
+                    // screen isn't one long narrow column.
+                    const gap = 12.0;
+                    final columns = constraints.maxWidth >= 1000 ? 2 : 1;
+                    final cardWidth =
+                        (constraints.maxWidth - gap * (columns - 1)) /
+                        columns;
+                    return Wrap(
+                      spacing: gap,
+                      runSpacing: gap,
+                      children: [
+                        for (final p in shown)
+                          SizedBox(
+                            key: ValueKey(p.studentId),
+                            width: cardWidth,
+                            child: _PayrollRow(
+                              record: p,
+                              open: _openCards.contains(_openKey(p)),
+                              onToggle: () => setState(() {
+                                if (!_openCards.remove(_openKey(p))) {
+                                  _openCards.add(_openKey(p));
+                                }
+                              }),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+            ],
           ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 

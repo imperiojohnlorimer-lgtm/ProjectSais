@@ -107,57 +107,64 @@ class _DtrAccomplishmentReportScreenState
           stops: [0.0, 0.25],
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
-            child: HeroBanner(
-              isMobile: isMobile,
-              icon: Icons.fact_check_rounded,
-              title: 'DTR / Accomplishment Report',
-              subtitle:
-                  'The official monthly form for a student assistant, pre-filled '
-                  'from verified DTR records (reports they send are under Reports)',
-              searchHint: 'Search by name or department...',
-              onSearch: (value) => setState(() => _search = value),
-              filters: [SizedBox(width: 190, child: _monthDropdown())],
-              stats: [
-                HeroStatData(
-                  label: 'Assistants',
-                  value: '${all.length}',
-                  icon: Icons.groups_rounded,
-                ),
-                HeroStatData(
-                  label: 'With DTR hours',
-                  value: '$withHours',
-                  icon: Icons.check_circle_rounded,
-                ),
-                HeroStatData(
-                  label: 'Verified hours',
-                  value: totalVerified.toStringAsFixed(1),
-                  icon: Icons.access_time_filled_rounded,
-                ),
-                HeroStatData(
-                  label: 'Period',
-                  value: _months[_month.month - 1].substring(0, 3),
-                  icon: Icons.calendar_month_rounded,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-          Expanded(
-            child: students.isEmpty
-                ? _emptyState()
-                : ListView.builder(
-                    padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-                    itemCount: students.length,
-                    itemBuilder: (context, i) =>
-                        _studentCard(context, state, students[i]),
+      // The whole page scrolls, header and filters too: pinned, they took
+      // half a phone screen and left the list a strip at the bottom.
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.only(bottom: 28),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
+              child: HeroBanner(
+                isMobile: isMobile,
+                icon: Icons.fact_check_rounded,
+                title: 'DTR / Accomplishment Report',
+                subtitle:
+                    'The official monthly form for a student assistant, pre-filled '
+                    'from verified DTR records (reports they send are under Reports)',
+                searchHint: 'Search by name or department...',
+                onSearch: (value) => setState(() => _search = value),
+                filters: [SizedBox(width: 190, child: _monthDropdown())],
+                stats: [
+                  HeroStatData(
+                    label: 'Assistants',
+                    value: '${all.length}',
+                    icon: Icons.groups_rounded,
                   ),
-          ),
-        ],
+                  HeroStatData(
+                    label: 'With DTR hours',
+                    value: '$withHours',
+                    icon: Icons.check_circle_rounded,
+                  ),
+                  HeroStatData(
+                    label: 'Verified hours',
+                    value: totalVerified.toStringAsFixed(1),
+                    icon: Icons.access_time_filled_rounded,
+                  ),
+                  HeroStatData(
+                    label: 'Period',
+                    value: _months[_month.month - 1].substring(0, 3),
+                    icon: Icons.calendar_month_rounded,
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: hPad),
+              child: students.isEmpty
+                  ? _emptyState()
+                  : Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        for (final student in students)
+                          _studentCard(context, state, student),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

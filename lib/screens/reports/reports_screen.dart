@@ -86,7 +86,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
         final isMobile = constraints.maxWidth < 700;
         final hPad = isMobile ? 16.0 : 20.0;
 
-        return Column(
+        final page = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ── Header ──────────────────────────────────────────
@@ -131,61 +131,66 @@ class _ReportsScreenState extends State<ReportsScreen> {
             const SizedBox(height: 14),
 
             // ── Content ─────────────────────────────────────────
-            Expanded(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (baseReports.isNotEmpty) ...[
-                      ProgressStrip(
-                        label: 'Reviewed',
-                        icon: Icons.fact_check_rounded,
-                        progress: reviewedFraction,
-                        trailing:
-                            '${baseReports.length - pendingCount}/'
-                            '${baseReports.length}',
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                    _statusFilters(statusCounts),
-                    const SizedBox(height: 16),
-                    if (reports.isEmpty && !state.isLoaded('Reports'))
-                      const LoadingState()
-                    else if (reports.isEmpty)
-                      _emptyState(baseReports.isEmpty, isStudent)
-                    else
-                      for (final report in reports) ...[
-                        _ReportCard(
-                          report: report,
-                          role: role,
-                          onReview: role == 'Supervisor'
-                              ? () => _showReviewDialog(context, state, report)
-                              : null,
-                          onResubmit:
-                              role == 'Student Assistant' &&
-                                  report.status == 'Rejected'
-                              ? () => _showSubmitDialog(
-                                  context,
-                                  state,
-                                  corrects: report,
-                                )
-                              : null,
-                          onSendToHead: role == 'Supervisor'
-                              ? () => _showSendToHeadDialog(
-                                  context,
-                                  state,
-                                  report,
-                                )
-                              : null,
-                        ),
-                        const SizedBox(height: 12),
-                      ],
+            Padding(
+              padding: EdgeInsets.symmetric(horizontal: hPad),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (baseReports.isNotEmpty) ...[
+                    ProgressStrip(
+                      label: 'Reviewed',
+                      icon: Icons.fact_check_rounded,
+                      progress: reviewedFraction,
+                      trailing:
+                          '${baseReports.length - pendingCount}/'
+                          '${baseReports.length}',
+                    ),
+                    const SizedBox(height: 14),
                   ],
-                ),
+                  _statusFilters(statusCounts),
+                  const SizedBox(height: 16),
+                  if (reports.isEmpty && !state.isLoaded('Reports'))
+                    const LoadingState()
+                  else if (reports.isEmpty)
+                    _emptyState(baseReports.isEmpty, isStudent)
+                  else
+                    for (final report in reports) ...[
+                      _ReportCard(
+                        report: report,
+                        role: role,
+                        onReview: role == 'Supervisor'
+                            ? () => _showReviewDialog(context, state, report)
+                            : null,
+                        onResubmit:
+                            role == 'Student Assistant' &&
+                                report.status == 'Rejected'
+                            ? () => _showSubmitDialog(
+                                context,
+                                state,
+                                corrects: report,
+                              )
+                            : null,
+                        onSendToHead: role == 'Supervisor'
+                            ? () => _showSendToHeadDialog(
+                                context,
+                                state,
+                                report,
+                              )
+                            : null,
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+                ],
               ),
             ),
           ],
+        );
+
+        // The whole page scrolls, header and filters too: pinned, they took
+        // half a phone screen and left the list a strip at the bottom.
+        return SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 28),
+          child: page,
         );
       },
     );

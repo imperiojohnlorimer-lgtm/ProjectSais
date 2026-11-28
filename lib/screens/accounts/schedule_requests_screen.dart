@@ -159,6 +159,10 @@ class _RequestCard extends StatefulWidget {
 class _RequestCardState extends State<_RequestCard> {
   bool _busy = false;
 
+  /// Cards start closed (name, dates and a one-line summary); a tap opens
+  /// the classes and the buttons. Kept per card by its key.
+  bool _open = false;
+
   ScheduleRequest get request => widget.request;
 
   String _day(String key) => philippineDayText('${key}T04:00:00Z') ?? key;
@@ -250,6 +254,12 @@ class _RequestCardState extends State<_RequestCard> {
         : philippineDayText(request.submittedAt!.toUtc().toIso8601String()) ??
               '';
     final wide = MediaQuery.sizeOf(context).width >= 900;
+    final subjectCount = ClassScheduleSummary.grouped(request.subjects).length;
+    final summary = [
+      '$subjectCount subject${subjectCount == 1 ? '' : 's'}',
+      if (request.isPending && changed.isNotEmpty)
+        '${changed.length} new or changed',
+    ].join(' · ');
 
     final newer = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -274,17 +284,16 @@ class _RequestCardState extends State<_RequestCard> {
       ],
     );
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
+    final header = Semantics(
+      button: true,
+      expanded: _open,
+      child: InkWell(
+        onTap: () => setState(() => _open = !_open),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.slate200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+        child: Padding(
+          // Less below when open: the details start with their own gap.
+          padding: EdgeInsets.fromLTRB(16, 16, 16, _open ? 4 : 16),
+          child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Expanded(
@@ -314,96 +323,148 @@ class _RequestCardState extends State<_RequestCard> {
                         color: AppTheme.slate500,
                       ),
                     ),
+                    const SizedBox(height: 6),
+                    Text(
+                      summary,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.slate700,
+                      ),
+                    ),
                   ],
                 ),
               ),
-              if (!request.isPending) _StatusPill(request.status),
-            ],
-          ),
-          if (request.note.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Note: ${request.note}',
-              style: const TextStyle(fontSize: 12.5, color: AppTheme.slate700),
-            ),
-          ],
-          if (request.status == ScheduleRequest.rejected &&
-              request.reviewNote.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Reason: ${request.reviewNote}',
-              style: const TextStyle(fontSize: 12.5, color: AppTheme.red500),
-            ),
-          ],
-          const SizedBox(height: 12),
-          if (request.isPending && wide)
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(child: newer),
-                const SizedBox(width: 20),
-                Expanded(child: older),
+              if (!request.isPending) ...[
+                _StatusPill(request.status),
+                const SizedBox(width: 6),
               ],
-            )
-          else ...[
-            newer,
-            if (request.isPending) ...[const SizedBox(height: 12), older],
-          ],
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                onPressed: request.filePath.isEmpty
-                    ? null
-                    : () => showDocumentPreview(
-                        context,
-                        fileName: request.fileName,
-                        storagePath: request.filePath,
-                      ),
-                icon: const Icon(Icons.image_outlined, size: 16),
-                label: const Text('View file'),
+              AnimatedRotation(
+                turns: _open ? 0.5 : 0,
+                duration: const Duration(milliseconds: 200),
+                child: Icon(
+                  Icons.expand_more_rounded,
+                  color: AppTheme.slate500,
+                  semanticLabel: _open ? 'Hide classes' : 'Show classes',
+                ),
               ),
-              if (request.isPending) ...[
-                OutlinedButton.icon(
-                  onPressed: _busy ? null : _reject,
-                  icon: const Icon(Icons.close, size: 16),
-                  label: const Text('Reject'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.red500,
-                  ),
-                ),
-                ElevatedButton.icon(
-                  onPressed: _busy ? null : _approve,
-                  icon: _busy
-                      ? const SizedBox(
-                          width: 14,
-                          height: 14,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        )
-                      : const Icon(Icons.check, size: 16),
-                  label: Text(_busy ? 'Saving...' : 'Approve'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.maroon,
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor: AppTheme.maroon.withValues(
-                      alpha: 0.7,
-                    ),
-                    disabledForegroundColor: Colors.white,
-                    elevation: 0,
-                  ),
-                ),
-              ],
             ],
           ),
-        ],
+        ),
+      ),
+    );
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.slate200),
+      ),
+      child: Material(
+        type: MaterialType.transparency,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            header,
+            AnimatedSize(
+              duration: const Duration(milliseconds: 200),
+              curve: Curves.easeOut,
+              alignment: Alignment.topCenter,
+              child: _open
+                  ? Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: _details(newer, older, wide),
+                    )
+                  : const SizedBox(width: double.infinity),
+            ),
+          ],
+        ),
       ),
     );
   }
+
+  /// What a tap opens: the note, the reason, the classes and the buttons.
+  Widget _details(Widget newer, Widget older, bool wide) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (request.note.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Text(
+          'Note: ${request.note}',
+          style: const TextStyle(fontSize: 12.5, color: AppTheme.slate700),
+        ),
+      ],
+      if (request.status == ScheduleRequest.rejected &&
+          request.reviewNote.isNotEmpty) ...[
+        const SizedBox(height: 8),
+        Text(
+          'Reason: ${request.reviewNote}',
+          style: const TextStyle(fontSize: 12.5, color: AppTheme.red500),
+        ),
+      ],
+      const SizedBox(height: 12),
+      if (request.isPending && wide)
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(child: newer),
+            const SizedBox(width: 20),
+            Expanded(child: older),
+          ],
+        )
+      else ...[
+        newer,
+        if (request.isPending) ...[const SizedBox(height: 12), older],
+      ],
+      const SizedBox(height: 12),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          OutlinedButton.icon(
+            onPressed: request.filePath.isEmpty
+                ? null
+                : () => showDocumentPreview(
+                    context,
+                    fileName: request.fileName,
+                    storagePath: request.filePath,
+                  ),
+            icon: const Icon(Icons.image_outlined, size: 16),
+            label: const Text('View file'),
+          ),
+          if (request.isPending) ...[
+            OutlinedButton.icon(
+              onPressed: _busy ? null : _reject,
+              icon: const Icon(Icons.close, size: 16),
+              label: const Text('Reject'),
+              style: OutlinedButton.styleFrom(foregroundColor: AppTheme.red500),
+            ),
+            ElevatedButton.icon(
+              onPressed: _busy ? null : _approve,
+              icon: _busy
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.check, size: 16),
+              label: Text(_busy ? 'Saving...' : 'Approve'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.maroon,
+                foregroundColor: Colors.white,
+                disabledBackgroundColor: AppTheme.maroon.withValues(alpha: 0.7),
+                disabledForegroundColor: Colors.white,
+                elevation: 0,
+              ),
+            ),
+          ],
+        ],
+      ),
+    ],
+  );
 }
 
 class _Label extends StatelessWidget {

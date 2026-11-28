@@ -91,7 +91,7 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
       (total, p) => total + enrolledIn(p),
     );
 
-    return Column(
+    final page = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Header ──────────────────────────────────────────
@@ -130,36 +130,41 @@ class _ProgramsScreenState extends State<ProgramsScreen> {
         const SizedBox(height: 18),
 
         // ── Content ─────────────────────────────────────────
-        Expanded(
-          child: SingleChildScrollView(
-            padding: EdgeInsets.fromLTRB(hPad, 0, hPad, 28),
-            child: groups.isEmpty || (shown == 0 && query.isNotEmpty)
-                ? _emptyState(query.isNotEmpty)
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final group in groups)
-                        _DepartmentGroup(
-                          department: group.department,
-                          code: state.departmentCodes[group.department] ?? '',
-                          accent: group.accent,
-                          programs: group.items,
-                          enrolledIn: enrolledIn,
-                          onAdd: group.department.isEmpty
-                              ? null
-                              : () => _showProgramDialog(
-                                  context,
-                                  department: group.department,
-                                ),
-                          onEdit: (p) =>
-                              _showProgramDialog(context, program: p),
-                          onDelete: (p) => _deleteProgram(context, p),
-                        ),
-                    ],
-                  ),
-          ),
+        Padding(
+          padding: EdgeInsets.symmetric(horizontal: hPad),
+          child: groups.isEmpty || (shown == 0 && query.isNotEmpty)
+              ? _emptyState(query.isNotEmpty)
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    for (final group in groups)
+                      _DepartmentGroup(
+                        department: group.department,
+                        code: state.departmentCodes[group.department] ?? '',
+                        accent: group.accent,
+                        programs: group.items,
+                        enrolledIn: enrolledIn,
+                        onAdd: group.department.isEmpty
+                            ? null
+                            : () => _showProgramDialog(
+                                context,
+                                department: group.department,
+                              ),
+                        onEdit: (p) =>
+                            _showProgramDialog(context, program: p),
+                        onDelete: (p) => _deleteProgram(context, p),
+                      ),
+                  ],
+                ),
         ),
       ],
+    );
+
+    // The whole page scrolls, header and filters too: pinned, they took
+    // half a phone screen and left the list a strip at the bottom.
+    return SingleChildScrollView(
+      padding: const EdgeInsets.only(bottom: 28),
+      child: page,
     );
   }
 
