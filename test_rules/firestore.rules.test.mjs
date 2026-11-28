@@ -549,12 +549,14 @@ test('a Supervisor can still write the other meta documents they always could', 
 
 // ── notifications ──────────────────────────────────────────────────────
 
+// The app always stamps a notification with the server's time.
 const note = (userId, over = {}) => ({
   userId,
   title: 'New Application',
   message: 'Someone applied',
   type: 'application',
   isRead: false,
+  createdAt: serverTimestamp(),
   ...over,
 });
 
@@ -594,6 +596,60 @@ test('a student still cannot notify an assistant or attach a link', async () => 
 test('a notification with no text fields is refused only if they are not strings', async () => {
   await assertFails(setDoc(doc(as('sup'), 'notifications', 'n1'), note('sa', { title: 5 })));
   await assertSucceeds(setDoc(doc(as('sup'), 'notifications', 'n2'), note('sa')));
+});
+
+test('non-staff alerts: only the kinds their role raises, to the right staff', async () => {
+  // What the app really sends.
+  await assertSucceeds(setDoc(doc(as('stu'), 'notifications', 'a1'), note('head')));
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'notifications', 'a2'), note('head', { type: 'schedule' })),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'notifications', 'a3'), note('sup', { type: 'report' })),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'notifications', 'a4'), note('sup', { type: 'task' })),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'notifications', 'a5'), note('head', { type: 'task' })),
+  );
+  // A former assistant (now a Student) still updating an old task.
+  await assertSucceeds(
+    setDoc(doc(as('stu'), 'notifications', 'a6'), note('sup', { type: 'task' })),
+  );
+
+  // Not what the app sends.
+  await assertFails(setDoc(doc(as('stu'), 'notifications', 'b1'), note('sup')));
+  await assertFails(
+    setDoc(doc(as('stu'), 'notifications', 'b2'), note('sup', { type: 'report' })),
+  );
+  await assertFails(
+    setDoc(doc(as('stu'), 'notifications', 'b3'), note('head', { type: 'schedule' })),
+  );
+  await assertFails(
+    setDoc(doc(as('sa'), 'notifications', 'b4'), note('sup', { type: 'schedule' })),
+  );
+});
+
+test('a notification is stamped with the server time', async () => {
+  const { createdAt, ...unstamped } = note('head');
+  assert.ok(createdAt);
+  for (const uid of ['stu', 'sup', 'head']) {
+    await assertFails(setDoc(doc(as(uid), 'notifications', `u_${uid}`), unstamped));
+    await assertFails(
+      setDoc(
+        doc(as(uid), 'notifications', `o_${uid}`),
+        { ...unstamped, createdAt: new Date('2026-01-01T00:00:00Z') },
+      ),
+    );
+  }
+  // Their own reminder (the clock-out one) too.
+  await assertFails(
+    setDoc(doc(as('sa'), 'notifications', 'self1'), { ...unstamped, userId: 'sa', type: 'attendance' }),
+  );
+  await assertSucceeds(
+    setDoc(doc(as('sa'), 'notifications', 'self2'), note('sa', { type: 'attendance' })),
+  );
 });
 
 test('a notification is private to its recipient', async () => {
@@ -1325,12 +1381,12 @@ test('the Head approves a request and the schedule in one transaction', async ()
 test('an assistant tells the Head about a new schedule', async () => {
   await assertSucceeds(
     setDoc(doc(as('sa'), 'notifications', 'n_sched'), {
-      userId: 'head', title: 'Schedule Change Request', message: 'Sia Assistant sent a new class schedule for approval.', type: 'schedule', isRead: false,
+      userId: 'head', title: 'Schedule Change Request', message: 'Sia Assistant sent a new class schedule for approval.', type: 'schedule', isRead: false, createdAt: serverTimestamp(),
     }),
   );
   await assertFails(
     setDoc(doc(as('sa'), 'notifications', 'n_sched2'), {
-      userId: 'stu', title: 'x', message: 'y', type: 'schedule', isRead: false,
+      userId: 'stu', title: 'x', message: 'y', type: 'schedule', isRead: false, createdAt: serverTimestamp(),
     }),
   );
 });
@@ -1735,4 +1791,36 @@ test('headForwards create requires author identity, unreviewed status, and offic
   await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f3'), fwd({ reviewed: true })));
   await assertFails(setDoc(doc(as('sup2'), 'headForwards', 'f4'), fwd({ sentById: 'sup2' })));
   await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f5'), fwd({ studentId: 'stu' })));
+  // Always about a student: no empty or missing id.
+  await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f6'), fwd({ studentId: '' })));
+  const { studentId, ...noStudent } = fwd();
+  assert.equal(studentId, 'sa');
+  await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f7'), noStudent));
+  // Rewriting a forward is the Head's alone (the app skips one that exists).
+  await assertFails(setDoc(doc(as('sup'), 'headForwards', 'f1'), fwd()));
+});
+
+test('the Head cannot reactivate a declined sign-up, and can manage a profile with no email', async () => {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await setDoc(doc(db, 'users', 'declined'), {
+      name: 'Dee Declined', email: 'declined@example.com', role: 'Student',
+      status: 'Declined', requestedRole: 'Supervisor',
+    });
+    await setDoc(doc(db, 'users', 'old'), {
+      name: 'Old Student', role: 'Student', status: 'Active',
+    });
+  });
+  await assertFails(updateDoc(doc(as('head'), 'users', 'declined'), { status: 'Active' }));
+  // An older profile without an email: archived and restored, also by a
+  // full save that writes email ''.
+  await assertSucceeds(updateDoc(doc(as('head'), 'users', 'old'), { status: 'Archived' }));
+  await assertSucceeds(
+    setDoc(doc(as('head'), 'users', 'old'), {
+      name: 'Old Student', role: 'Student', status: 'Active', email: '',
+    }),
+  );
+  await assertFails(
+    updateDoc(doc(as('head'), 'users', 'old'), { email: 'taken@example.com' }),
+  );
 });

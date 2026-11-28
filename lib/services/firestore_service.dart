@@ -1943,6 +1943,18 @@ class FirestoreService {
     return ref.id;
   }
 
+  /// Saves [forward] under the fixed [id] unless a forward with that id is
+  /// already there (a retry after a half-finished send). Returns whether it
+  /// saved one now. Rewriting a forward is the Head's alone (the rules).
+  Future<bool> addHeadForwardOnce(String id, HeadForward forward) {
+    final ref = _headForwards.doc(id);
+    return _db.runTransaction((transaction) async {
+      if ((await transaction.get(ref)).exists) return false;
+      transaction.set(ref, forward.toJson());
+      return true;
+    });
+  }
+
   /// Streams forwarded items in real time so the Head's "Sent to Head"
   /// screen updates immediately, even if it was already open when a
   /// supervisor sends something (or the Head logged in earlier).

@@ -44,6 +44,14 @@ part 'app_state/supervisor_cards.dart';
 part 'app_state/class_schedules.dart';
 part 'app_state/manual_attendance.dart';
 
+/// Why something can't be sent to the Head, worded for the Supervisor.
+class SendToHeadProblem implements Exception {
+  final String message;
+  const SendToHeadProblem(this.message);
+  @override
+  String toString() => message;
+}
+
 /// Outcome of a QR clock-in/out. [clockedIn] only means anything when [ok]
 /// is true; [message] carries the server's reason when it isn't.
 class QrClockResult {
@@ -6394,6 +6402,8 @@ class AppState extends ChangeNotifier {
                 office.hasAssistant(assistantId ?? '', assistantName),
           )
           .expand((office) => office.headIds)
+          // A supervisor listed by name alone has no account to tell.
+          .where((id) => id.isNotEmpty)
           .toSet();
       for (final supervisorId in supervisorIds) {
         _addNotification(
@@ -6476,6 +6486,8 @@ class AppState extends ChangeNotifier {
   /// Records an item a Supervisor forwarded to the Head, so it shows up on
   /// the Head's dedicated "Sent to Head" screen (grouped by student)
   /// instead of the general notification feed.
+  /// With [fixedId] (one per report or evaluation) a retry after a
+  /// half-finished send finds the forward already there and adds nothing.
   Future<void> _recordHeadForward({
     required String type,
     required String studentId,
@@ -6484,23 +6496,34 @@ class AppState extends ChangeNotifier {
     required String fileName,
     String? downloadUrl,
     String? storagePath,
+    String? fixedId,
   }) async {
     _firestoreService ??= FirestoreService();
-    final forwardId = await _firestoreService!.addHeadForward(
-      HeadForward(
-        id: '',
-        type: type,
-        studentId: studentId,
-        studentName: studentName,
-        title: title,
-        fileName: fileName,
-        downloadUrl: downloadUrl,
-        storagePath: storagePath,
-        sentByName: currentUser?.name ?? 'Supervisor',
-        sentById: currentUser?.id,
-        sentAt: _formattedToday(),
-      ),
+    final forward = HeadForward(
+      id: '',
+      type: type,
+      studentId: studentId,
+      studentName: studentName,
+      title: title,
+      fileName: fileName,
+      downloadUrl: downloadUrl,
+      storagePath: storagePath,
+      sentByName: currentUser?.name ?? 'Supervisor',
+      sentById: currentUser?.id,
+      sentAt: _formattedToday(),
     );
+    final String forwardId;
+    if (fixedId != null) {
+      final saved = await _firestoreService!.addHeadForwardOnce(
+        fixedId,
+        forward,
+      );
+      // Sent before (the Head was told then).
+      if (!saved) return;
+      forwardId = fixedId;
+    } else {
+      forwardId = await _firestoreService!.addHeadForward(forward);
+    }
     headForwards = _withAdded(
       headForwards,
       HeadForward(
@@ -6592,23 +6615,38 @@ class AppState extends ChangeNotifier {
       reviewedAt: old.reviewedAt,
     );
 
+    // The forward names the student's account (the rules require one of
+    // the Supervisor's own students); an older report may lack it.
+    final studentId = (old.applicantId ?? '').isNotEmpty
+        ? old.applicantId!
+        : _reportStudentAccountId(old);
+    if (studentId == null) {
+      throw const SendToHeadProblem(
+        "This report isn't linked to a student account. Ask the Head to "
+        "link the student's account to your office first.",
+      );
+    }
+
     _firestoreService ??= FirestoreService();
     try {
-      await _firestoreService!.setReport(updated);
-      reports = reports.map((r) => r.id == id ? updated : r).toList();
-
+      // The forward first: if marking the report sent then fails, sending
+      // again finds the forward there (fixed id) and only marks it.
       final firstAttachment = updated.attachments.isNotEmpty
           ? updated.attachments.first
           : null;
       await _recordHeadForward(
         type: 'report',
-        studentId: updated.applicantId ?? '',
+        studentId: studentId,
         studentName: updated.studentName,
         title: updated.title,
         fileName: firstAttachment?.fileName ?? '${updated.title}.txt',
         downloadUrl: firstAttachment?.downloadUrl,
         storagePath: firstAttachment?.storagePath,
+        fixedId: 'report_${old.id}',
       );
+
+      await _firestoreService!.setReport(updated);
+      reports = reports.map((r) => r.id == id ? updated : r).toList();
 
       notifyListeners();
       return true;
@@ -6616,6 +6654,26 @@ class AppState extends ChangeNotifier {
       debugPrint('Failed to send report to Head in Firestore: $e');
       rethrow;
     }
+  }
+
+  /// The account of the student an older report (saved without
+  /// [Report.applicantId]) is from: the one Student Assistant of that name
+  /// in the current Supervisor's offices, or null when there is none or more
+  /// than one.
+  String? _reportStudentAccountId(Report report) {
+    final me = currentUser?.id ?? '';
+    final name = report.studentName.trim().toLowerCase();
+    if (me.isEmpty || name.isEmpty) return null;
+    final mine = offices.where((o) => o.headIds.contains(me)).toList();
+    final matches = {
+      for (final u in users)
+        if (u.role == 'Student Assistant' &&
+            u.id.isNotEmpty &&
+            u.name.trim().toLowerCase() == name &&
+            mine.any((o) => o.assistantIds.contains(u.id)))
+          u.id,
+    };
+    return matches.length == 1 ? matches.single : null;
   }
 
   /// Regenerates the already-submitted performance evaluation document (the
@@ -6689,11 +6747,7 @@ class AppState extends ChangeNotifier {
         headAttachmentUrl: downloadUrl,
       );
 
-      await _firestoreService!.setEvaluation(withAttachment);
-      evaluations = evaluations
-          .map((e) => e.id == withAttachment.id ? withAttachment : e)
-          .toList();
-
+      // The forward first, as for reports (see [sendReportToHead]).
       await _recordHeadForward(
         type: 'evaluation',
         studentId: withAttachment.studentId,
@@ -6702,7 +6756,13 @@ class AppState extends ChangeNotifier {
         fileName: doc.fileName,
         downloadUrl: downloadUrl,
         storagePath: storagePath,
+        fixedId: 'evaluation_${withAttachment.id}',
       );
+
+      await _firestoreService!.setEvaluation(withAttachment);
+      evaluations = evaluations
+          .map((e) => e.id == withAttachment.id ? withAttachment : e)
+          .toList();
 
       notifyListeners();
       return true;

@@ -62,6 +62,15 @@ service cloud.firestore {
       return userExists() && currentRole() == 'Student Assistant';
     }
 
+    // Whether the account [uid] (not the requester) is a Head. Role only:
+    // the app alerts every Head on file, archived ones included.
+    function isHeadAccount(uid) {
+      let profile = /databases/$(database)/documents/users/$(uid);
+      return uid is string && uid != '' && exists(profile)
+        ? get(profile).data.get('role', '') == 'Head'
+        : false;
+    }
+
     // Whether the account [uid] (not the requester) is a Head or Supervisor.
     function isStaffAccount(uid) {
       let profile = /databases/$(database)/documents/users/$(uid);
@@ -334,7 +343,11 @@ service cloud.firestore {
           && request.resource.data.role in ['Student', 'Student Assistant']
           && request.resource.data.get('status', 'Active')
             in ['Active', 'Archived']
-          && request.resource.data.email == resource.data.email
+          // Only from Active or Archived: a declined staff sign-up stays
+          // declined.
+          && resource.data.get('status', 'Active') in ['Active', 'Archived']
+          // An older profile may have no email; a full save writes ''.
+          && sameOr('email', '')
           && resource.data.get('deleted', false) == false
           && sameOr('deleted', false)
           && unchanged('consentAt')
@@ -940,14 +953,19 @@ service cloud.firestore {
         && resource.data.userId == request.auth.uid;
 
       // Staff and the Admin (payroll, role changes) may notify anyone.
-      // Anyone else may notify themselves, or send the Head or a Supervisor
-      // one of the alerts the app raises for them — a new application, a
-      // new report, a task's status changing — as plain text, with no
-      // attachment link to lure them to.
+      // Anyone else may notify themselves, or send staff one of the alerts
+      // the app raises for them, as plain text with no attachment link to
+      // lure them to, and only the kinds their role raises: a Student's
+      // application goes to the Heads; a Student Assistant's report goes to
+      // their supervisors and their class schedule to the Heads; a task's
+      // status goes to whoever assigned it (a Head, or a former supervisor),
+      // from anyone who holds the task, even one who is a Student again.
       //
-      // Whoever sends it, the text is short: a title of up to 100 and a
-      // message of up to 500 characters (the app cuts longer ones).
+      // Whoever sends it, the text is short (a title of up to 100 and a
+      // message of up to 500 characters; the app cuts longer ones) and it
+      // is stamped with the server's time, as the app always does.
       allow create: if id.matches('^[A-Za-z0-9_.:-]{1,128}$')
+        && request.resource.data.get('createdAt', null) == request.time
         && (
           isStaff() || isAdmin()
           || (
@@ -956,12 +974,29 @@ service cloud.firestore {
           )
           || (
             signedIn()
-            && request.resource.data.type
-              in ['application', 'report', 'task', 'schedule']
             && request.resource.data.get('attachmentUrl', null) == null
             && request.resource.data.get('attachmentName', null) == null
             && request.resource.data.get('isRead', false) == false
-            && isStaffAccount(request.resource.data.userId)
+            && (
+              (
+                request.resource.data.type == 'application'
+                && isHeadAccount(request.resource.data.userId)
+              )
+              || (
+                request.resource.data.type == 'schedule'
+                && isStudentAssistant()
+                && isHeadAccount(request.resource.data.userId)
+              )
+              || (
+                request.resource.data.type == 'report'
+                && isStudentAssistant()
+                && isStaffAccount(request.resource.data.userId)
+              )
+              || (
+                request.resource.data.type == 'task'
+                && isStaffAccount(request.resource.data.userId)
+              )
+            )
           )
         )
         && shortText(request.resource.data.get('title', ''), 100)
@@ -1080,13 +1115,12 @@ service cloud.firestore {
     // creates them; Head can read and toggle "reviewed".
     match /headForwards/{id} {
       allow read: if isHead() || isSupervisor();
+      // Always about one of the Supervisor's own students (by account id,
+      // or a roster entry linked to an account).
       allow create: if isSupervisor()
         && request.resource.data.get('sentById', null) == request.auth.uid
         && request.resource.data.get('reviewed', false) == false
-        && (
-          request.resource.data.get('studentId', '') == ''
-          || isSupervisorOfStudent(request.resource.data.studentId)
-        );
+        && isSupervisorOfStudent(request.resource.data.get('studentId', ''));
       allow update: if isHead()
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reviewed']);
       allow delete: if isHead();
