@@ -51,18 +51,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (!_hasInitializedControllers) {
       final user = context.watch<AppState>().currentUser;
       if (user != null) {
-        // A name saved before names were split starts from a guess.
-        final name = user.nameParts;
-        _firstNameCtrl.text = name.first;
-        _middleNameCtrl.text = name.middle;
-        _lastNameCtrl.text = name.last;
-        _suffix = name.suffix;
-        _phoneCtrl.text = user.phone ?? '';
-        _addressCtrl.text = user.address ?? '';
+        _fillFrom(user);
         _hasInitializedControllers = true;
       }
     }
   }
+
+  /// Puts [user]'s saved details in the fields.
+  void _fillFrom(User user) {
+    // A name saved before names were split starts from a guess.
+    final name = user.nameParts;
+    _firstNameCtrl.text = name.first;
+    _middleNameCtrl.text = name.middle;
+    _lastNameCtrl.text = name.last;
+    _suffix = name.suffix;
+    _phoneCtrl.text = user.phone ?? '';
+    _addressCtrl.text = user.address ?? '';
+  }
+
+  /// True while linking a Google account (one popup at a time).
+  bool _linkingGoogle = false;
 
   @override
   void dispose() {
@@ -193,6 +201,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
           margin: const EdgeInsets.all(16),
         ),
       );
+    } else {
+      // Editing starts from what is saved now (it may have changed since
+      // the page opened), so saving can't put back an old phone or address.
+      final user = context.read<AppState>().currentUser;
+      if (user != null) _fillFrom(user);
     }
     setState(() => _isEditing = !_isEditing);
   }
@@ -616,10 +629,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return SizedBox(
       width: double.infinity,
       child: OutlinedButton.icon(
-        onPressed: linked
+        onPressed: linked || _linkingGoogle
             ? null
             : () async {
-                final error = await state.linkGoogleAccount();
+                setState(() => _linkingGoogle = true);
+                final String? error;
+                try {
+                  error = await state.linkGoogleAccount();
+                } finally {
+                  if (mounted) setState(() => _linkingGoogle = false);
+                }
                 if (!mounted) return;
                 ScaffoldMessenger.of(context).showSnackBar(
                   SnackBar(

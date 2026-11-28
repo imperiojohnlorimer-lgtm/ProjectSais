@@ -1456,7 +1456,9 @@ class HeroBanner extends StatelessWidget {
             runSpacing: 9,
             children: [...filters, if (hasAdd) addButton],
           );
-        } else if (width < 520) {
+        } else if (width < 520 || (sheetFilters.isNotEmpty && width < 760)) {
+          // Inline filters beside the search need room: between 520 and
+          // 760 px they crushed the search box (and overflowed near 520).
           toolbar = Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -1755,10 +1757,18 @@ class _BackToTopHostState extends State<BackToTopHost> {
   bool _show = false;
   BuildContext? _scroller;
 
-  bool _onScroll(ScrollNotification n) {
-    if (n.depth != 0 || n.metrics.axis != Axis.vertical) return false;
-    final show = n.metrics.pixels > BackToTopHost.showAfter;
-    _scroller = n.context;
+  bool _onScroll(ScrollNotification n) =>
+      _onMetrics(n.depth, n.metrics, n.context);
+
+  /// A list that shrinks (a filter, a search) or a page that swaps its
+  /// scroller moves the position without a scroll: the button follows.
+  bool _onMetricsChanged(ScrollMetricsNotification n) =>
+      _onMetrics(n.depth, n.metrics, n.context);
+
+  bool _onMetrics(int depth, ScrollMetrics metrics, BuildContext? context) {
+    if (depth != 0 || metrics.axis != Axis.vertical) return false;
+    final show = metrics.pixels > BackToTopHost.showAfter;
+    _scroller = context;
     if (show == _show) return false;
     // A scroll can be reported while a frame is being laid out; the
     // button then changes on the next frame.
@@ -1775,7 +1785,11 @@ class _BackToTopHostState extends State<BackToTopHost> {
 
   void _toTop() {
     final context = _scroller;
-    if (context == null || !context.mounted) return;
+    if (context == null || !context.mounted) {
+      // Its scroller is gone (the page changed under it): nothing to do.
+      if (_show) setState(() => _show = false);
+      return;
+    }
     Scrollable.maybeOf(context)?.position.animateTo(
       0,
       duration: const Duration(milliseconds: 450),
@@ -1788,9 +1802,12 @@ class _BackToTopHostState extends State<BackToTopHost> {
     return Stack(
       children: [
         Positioned.fill(
-          child: NotificationListener<ScrollNotification>(
-            onNotification: _onScroll,
-            child: widget.child,
+          child: NotificationListener<ScrollMetricsNotification>(
+            onNotification: _onMetricsChanged,
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _onScroll,
+              child: widget.child,
+            ),
           ),
         ),
         Positioned(

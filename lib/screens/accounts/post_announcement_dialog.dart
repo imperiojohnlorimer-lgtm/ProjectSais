@@ -79,7 +79,24 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
   String _mentionTab = 'All';
 
   @override
+  void initState() {
+    super.initState();
+    // Moving the cursor (a tap, the arrow keys) changes which "@" is being
+    // typed, not only typing does.
+    _body.addListener(_bodyMoved);
+  }
+
+  TextSelection? _lastSelection;
+
+  void _bodyMoved() {
+    if (_body.selection == _lastSelection) return;
+    _lastSelection = _body.selection;
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _body.removeListener(_bodyMoved);
     _title.dispose();
     _body.dispose();
     _requirement.dispose();
@@ -97,8 +114,21 @@ class _PostAnnouncementDialogState extends State<PostAnnouncementDialog> {
     final before = text.substring(0, cursor);
     final at = before.lastIndexOf('@');
     if (at < 0) return null;
+    // An "@" inside a word is an email address, not a mention.
+    if (at > 0 && !RegExp(r'\s').hasMatch(before[at - 1])) return null;
     final fragment = before.substring(at + 1);
-    return RegExp(r'\s').hasMatch(fragment) ? null : fragment;
+    if (fragment.contains('\n')) return null;
+    if (!RegExp(r'\s').hasMatch(fragment)) return fragment;
+    // "@Juan Dela": still a mention while it starts someone's full name,
+    // so a last name can tell two people apart.
+    final typed = fragment.toLowerCase();
+    final state = context.read<AppState>();
+    final stillAName = state.users.any(
+      (u) =>
+          AppState.isMentionable(u) &&
+          u.name.trim().toLowerCase().startsWith(typed),
+    );
+    return stillAName ? fragment : null;
   }
 
   void _applyMention(String mention) {

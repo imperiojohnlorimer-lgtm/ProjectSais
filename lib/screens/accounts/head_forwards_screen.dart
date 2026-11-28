@@ -55,12 +55,29 @@ class _HeadForwardsScreenState extends State<HeadForwardsScreen> {
       return true;
     }).toList()..sort((a, b) => b.sentAt.compareTo(a.sentAt));
 
+    // One group per student: by their account (a DTR or evaluation names
+    // the roster record, a report the account), so two students who share
+    // a name stay apart; a forward with no id goes by the name.
+    final accountOfRoster = {
+      for (final s in state.students)
+        if ((s.userId ?? '').isNotEmpty) s.id: s.userId!,
+    };
+    String groupOf(HeadForward f) {
+      final id = f.studentId.trim();
+      if (id.isEmpty) return 'name:${f.studentName.trim().toLowerCase()}';
+      return 'id:${accountOfRoster[id] ?? id}';
+    }
+
     final byStudent = <String, List<HeadForward>>{};
     for (final f in forwards) {
-      byStudent.putIfAbsent(f.studentName, () => []).add(f);
+      byStudent.putIfAbsent(groupOf(f), () => []).add(f);
     }
     final studentNames = byStudent.keys.toList()
-      ..sort((a, b) => a.compareTo(b));
+      ..sort(
+        (a, b) => byStudent[a]!.first.studentName.compareTo(
+          byStudent[b]!.first.studentName,
+        ),
+      );
 
     final totalUnreviewed = state.headForwards.where((f) => !f.reviewed).length;
     final reportCount = state.headForwards
@@ -235,10 +252,13 @@ class _HeadForwardsScreenState extends State<HeadForwardsScreen> {
                     ),
                   )
                 else
-                  for (final studentName in studentNames)
+                  for (final group in studentNames)
                     _StudentGroup(
-                      studentName: studentName,
-                      items: byStudent[studentName]!,
+                      // Open/closed stays with its student as the list
+                      // changes.
+                      key: ValueKey(group),
+                      studentName: byStudent[group]!.first.studentName,
+                      items: byStudent[group]!,
                       state: state,
                     ),
               ],
@@ -298,6 +318,7 @@ class _StudentGroup extends StatefulWidget {
   final AppState state;
 
   const _StudentGroup({
+    super.key,
     required this.studentName,
     required this.items,
     required this.state,

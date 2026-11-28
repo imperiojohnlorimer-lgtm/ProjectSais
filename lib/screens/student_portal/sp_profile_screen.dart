@@ -157,6 +157,13 @@ class _SpProfileScreenState extends State<SpProfileScreen> {
         ),
       );
     }
+    if (!_isEditing) {
+      // Editing starts from what is saved now (it may have changed since
+      // the page opened).
+      final user = context.read<AppState>().currentUser;
+      _phoneCtrl.text = user?.phone ?? '';
+      _addressCtrl.text = user?.address ?? '';
+    }
     setState(() => _isEditing = !_isEditing);
   }
 

@@ -18,7 +18,7 @@ const { pushTextFor, pushPageFor } = await import(
 );
 
 test("pay, ratings, rehire and requirements are announced without details", () => {
-  for (const kind of ["payroll", "evaluation", "payroll_requirement", "rehire", "application", "office"]) {
+  for (const kind of ["payroll", "evaluation", "payroll_requirement", "rehire", "application", "office", "system"]) {
     const text = pushTextFor(kind, "Payout Released", "Your pay for September: ₱4,200.00");
     assert.equal(text.title, "SAIS", kind);
     assert.equal(text.body, "You have a new update. Open SAIS to read it.", kind);

@@ -271,19 +271,23 @@ if (typeof module !== 'undefined') {
     event.waitUntil(network.catch(() => {}));
     const stored = await cache.match(key);
     if (!stored) return { response: await network, source: 'network' };
+    // A server error (Hosting having a bad moment) is no better than no
+    // answer: the stored copy serves instead.
     if (waitForNetwork) {
       try {
-        return { response: await network, source: 'network' };
-      } catch (_) {
-        return { response: stored, source: 'cache' };
-      }
+        const response = await network;
+        if (response.status < 500) return { response, source: 'network' };
+      } catch (_) {}
+      return { response: stored, source: 'cache' };
     }
     const timeout = new Promise((resolve) =>
       setTimeout(() => resolve(null), NETWORK_TIMEOUT_MS),
     );
     try {
       const first = await Promise.race([network, timeout]);
-      if (first) return { response: first, source: 'network' };
+      if (first && first.status < 500) {
+        return { response: first, source: 'network' };
+      }
     } catch (_) {}
     return { response: stored, source: 'cache' };
   }

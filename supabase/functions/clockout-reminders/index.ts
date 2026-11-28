@@ -89,6 +89,7 @@ const privateKinds = new Set([
   "rehire",
   "application", // a decision can carry the screening remarks
   "office", // a rehire or placement names the student
+  "system", // a role change
 ]);
 
 export function pushTextFor(
@@ -152,6 +153,7 @@ const emailKinds: Record<string, string> = {
   head_forward: "a document sent to the Head",
   dtr_report: "a DTR / Accomplishment Report",
   academic_year: "the academic year",
+  schedule: "a class schedule",
 };
 
 export type EmailMessage = { subject: string; text: string; html: string };
@@ -1506,8 +1508,13 @@ async function sendTest(userId: string, delaySeconds: number) {
   EdgeRuntime.waitUntil((async () => {
     await new Promise((resolve) => setTimeout(resolve, delaySeconds * 1000));
     for (const device of live) {
-      const result = await send(device, push, token);
-      if (result !== "sent") console.error("Test push failed:", result);
+      // A network error on one device is logged, not left unhandled.
+      try {
+        const result = await send(device, push, token);
+        if (result !== "sent") console.error("Test push failed:", result);
+      } catch (error) {
+        console.error("Test push failed:", error);
+      }
     }
   })());
   return json({ devices: live.length, delaySeconds });
