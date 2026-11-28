@@ -210,7 +210,6 @@ class _PayrollRequirementsScreenState extends State<PayrollRequirementsScreen> {
                     key: ValueKey('${row.studentId}|$_termLabel'),
                     row: row,
                     state: state,
-                    initiallyOpen: _show == _Show.notReady,
                   ),
             ],
           ),
@@ -874,13 +873,11 @@ class _SplitBar extends StatelessWidget {
 class _StudentCard extends StatefulWidget {
   final PayrollRecord row;
   final AppState state;
-  final bool initiallyOpen;
 
   const _StudentCard({
     super.key,
     required this.row,
     required this.state,
-    required this.initiallyOpen,
   });
 
   @override
@@ -888,7 +885,9 @@ class _StudentCard extends StatefulWidget {
 }
 
 class _StudentCardState extends State<_StudentCard> {
-  late bool _open = widget.initiallyOpen;
+  /// Cards start closed (name, status and the requirement strip); a tap
+  /// opens the checklist. Open, they crowded the page.
+  bool _open = false;
   bool _saving = false;
 
   PayrollRecord get row => widget.row;

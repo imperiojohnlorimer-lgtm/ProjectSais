@@ -138,6 +138,10 @@ void main() {
           find.textContaining('waiting on 1 Student Assistant'),
           findsOneWidget,
         );
+        // Cards start closed: a tap opens Ben's checklist.
+        expect(find.text('Waiting for your check.'), findsNothing);
+        await tester.tap(find.text('Ben Cruz'));
+        await tester.pumpAndSettle();
         expect(find.text('Waiting for your check.'), findsOneWidget);
 
         // Return the DTR: a note is required.
@@ -172,6 +176,8 @@ void main() {
       final state = _state(fake, head)..payrollChecks = [_allChecked('sa1')];
 
       await _pump(tester, state, const PayrollRequirementsScreen());
+      await tester.tap(find.text('Ben Cruz'));
+      await tester.pumpAndSettle();
       // The application requirements are the first line.
       await tester.tap(find.text('Check').first);
       await tester.pumpAndSettle();
