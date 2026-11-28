@@ -79,14 +79,25 @@ class _StudentsScreenState extends State<StudentsScreen> {
     // precise student document still appear in the student list. Archived
     // students are off that roster, so the archived view adds them back.
     final roleScoped = [...state.filteredStudents, ...state.archivedStudents];
-    final officeOptions = [
+    final officeOptions = {
       'All Offices',
       ...state.currentUserOffices.map((office) => office.name),
+    }.toList();
+    final filterDepartments = [
+      'All Departments',
+      ...roleScoped.map((student) => student.department).toSet().toList()
+        ..sort(),
     ];
-    final selectedOffice = _office == 'All Offices'
+    // A choice no longer offered (its last student moved away, the office
+    // closed) counts as All, instead of a blank picker and an empty list.
+    final dept = filterDepartments.contains(_dept) ? _dept : 'All Departments';
+    final officeName = officeOptions.contains(_office)
+        ? _office
+        : 'All Offices';
+    final selectedOffice = officeName == 'All Offices'
         ? null
         : state.currentUserOffices
-              .where((office) => office.name == _office)
+              .where((office) => office.name == officeName)
               .firstOrNull;
 
     final students = roleScoped.where((s) {
@@ -95,7 +106,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
           q.isEmpty ||
           s.name.toLowerCase().contains(q) ||
           s.email.toLowerCase().contains(q);
-      final matchDept = _dept == 'All Departments' || s.department == _dept;
+      final matchDept = dept == 'All Departments' || s.department == dept;
       final matchOffice =
           selectedOffice == null ||
           selectedOffice.assistantIds.contains(s.userId ?? s.id) ||
@@ -110,12 +121,6 @@ class _StudentsScreenState extends State<StudentsScreen> {
           : s.status != 'Archived';
       return matchSearch && matchDept && matchOffice && matchArchived;
     }).toList();
-
-    final filterDepartments = [
-      'All Departments',
-      ...roleScoped.map((student) => student.department).toSet().toList()
-        ..sort(),
-    ];
 
     final isMobile = MediaQuery.of(context).size.width < 700;
     final hPad = isMobile ? 16.0 : 28.0;
@@ -139,7 +144,7 @@ class _StudentsScreenState extends State<StudentsScreen> {
       (sum, student) => sum + student.totalHours,
     );
     final filterIsOffice = state.role == 'Supervisor';
-    final filterValue = filterIsOffice ? _office : _dept;
+    final filterValue = filterIsOffice ? officeName : dept;
     final filterOptions = filterIsOffice ? officeOptions : filterDepartments;
 
     return SingleChildScrollView(
@@ -933,7 +938,7 @@ class _StudentRowState extends State<_StudentRow> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.45),
-      builder: (_) => Dialog(
+      builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 60),
         child: Container(
@@ -989,7 +994,7 @@ class _StudentRowState extends State<_StudentRow> {
                         top: 14,
                         right: 14,
                         child: GestureDetector(
-                          onTap: () => Navigator.pop(context),
+                          onTap: () => popIfCurrent(dialogContext),
                           child: Container(
                             padding: const EdgeInsets.all(7),
                             decoration: BoxDecoration(
@@ -1210,7 +1215,7 @@ class _StudentRowState extends State<_StudentRow> {
                       width: double.infinity,
                       child: OutlinedButton.icon(
                         onPressed: () {
-                          Navigator.pop(context);
+                          popIfCurrent(dialogContext);
                           _showHistoryDialog(context, widget.state, s);
                         },
                         icon: const Icon(Icons.history_rounded, size: 16),
@@ -1242,7 +1247,7 @@ class _StudentRowState extends State<_StudentRow> {
                           Expanded(
                             child: OutlinedButton.icon(
                               onPressed: () {
-                                Navigator.pop(context);
+                                popIfCurrent(dialogContext);
                                 _showChangeDepartmentDialog(
                                   context,
                                   widget.state,
@@ -1281,7 +1286,7 @@ class _StudentRowState extends State<_StudentRow> {
                             child: s.status == 'Archived'
                                 ? OutlinedButton.icon(
                                     onPressed: () {
-                                      Navigator.pop(context);
+                                      popIfCurrent(dialogContext);
                                       _setArchived(s, archive: false);
                                     },
                                     icon: const Icon(
@@ -1312,7 +1317,7 @@ class _StudentRowState extends State<_StudentRow> {
                                   )
                                 : OutlinedButton.icon(
                                     onPressed: () async {
-                                      Navigator.pop(context);
+                                      popIfCurrent(dialogContext);
                                       final ok = await showConfirmDialog(
                                         context,
                                         title: 'Archive Student',
@@ -1409,7 +1414,7 @@ class _StudentRowState extends State<_StudentRow> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withValues(alpha: 0.45),
-      builder: (_) => Dialog(
+      builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 60),
         child: Container(
@@ -1458,7 +1463,7 @@ class _StudentRowState extends State<_StudentRow> {
                     ),
                     IconButton(
                       tooltip: 'Close',
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: () => popIfCurrent(dialogContext),
                       icon: const Icon(
                         Icons.close_rounded,
                         size: 18,

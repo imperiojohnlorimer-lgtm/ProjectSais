@@ -800,6 +800,9 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
   late bool _eligibleForRehire;
   bool _saving = false;
 
+  /// Why the last save failed; the form stays open with everything typed.
+  String? _saveError;
+
   @override
   void initState() {
     super.initState();
@@ -859,7 +862,10 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
       return;
     }
 
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _saveError = null;
+    });
 
     final evaluation = Evaluation(
       id: widget.existing?.id ?? '',
@@ -883,6 +889,15 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
     final ok = await state.saveEvaluation(evaluation);
 
     if (!mounted) return;
+    if (!ok) {
+      // Nothing is lost: the ratings and comments stay for another try.
+      setState(() {
+        _saving = false;
+        _saveError =
+            "The evaluation wasn't saved. Check your connection and try again.";
+      });
+      return;
+    }
     setState(() => _saving = false);
     Navigator.pop(context);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -1152,55 +1167,73 @@ class _EvaluationFormDialogState extends State<_EvaluationFormDialog> {
                 decoration: const BoxDecoration(
                   border: Border(top: BorderSide(color: AppTheme.slate100)),
                 ),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(13),
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppTheme.maroon.withValues(alpha: 0.3),
-                          blurRadius: 14,
-                          offset: const Offset(0, 5),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_saveError != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          _saveError!,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            color: AppTheme.red500,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
-                      ],
-                    ),
-                    child: ElevatedButton(
-                      onPressed: _saving ? null : _save,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: AppTheme.maroon,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 15),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                        elevation: 0,
                       ),
-                      child: _saving
-                          ? const SizedBox(
-                              height: 18,
-                              width: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                Icon(Icons.check_circle_rounded, size: 18),
-                                SizedBox(width: 8),
-                                Text(
-                                  'Save Evaluation',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w800,
-                                    fontSize: 14.5,
-                                  ),
-                                ),
-                              ],
+                    SizedBox(
+                      width: double.infinity,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(13),
+                          boxShadow: [
+                            BoxShadow(
+                              color: AppTheme.maroon.withValues(alpha: 0.3),
+                              blurRadius: 14,
+                              offset: const Offset(0, 5),
                             ),
+                          ],
+                        ),
+                        child: ElevatedButton(
+                          onPressed: _saving ? null : _save,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.maroon,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(13),
+                            ),
+                            elevation: 0,
+                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  height: 18,
+                                  width: 18,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: const [
+                                    Icon(Icons.check_circle_rounded, size: 18),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      'Save Evaluation',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 14.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                        ),
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ),
             ],

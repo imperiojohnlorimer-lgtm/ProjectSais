@@ -413,7 +413,10 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
 
     showDialog(
       context: context,
-      builder: (_) => Dialog(
+      // The controllers go once the dialog has finished closing.
+      builder: (dialogContext) => DisposeWhenGone(
+        notifiers: [nameCtrl, codeCtrl],
+        child: Dialog(
         backgroundColor: Colors.transparent,
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxHeight: 650),
@@ -459,21 +462,25 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                         ),
                       ),
                       const SizedBox(width: 12),
-                      const Expanded(
+                      Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Create Department',
-                              style: TextStyle(
+                              department == null
+                                  ? 'Create Department'
+                                  : 'Edit Department',
+                              style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w800,
                                 color: Colors.white,
                               ),
                             ),
                             Text(
-                              'Add a new department to the system',
-                              style: TextStyle(
+                              department == null
+                                  ? 'Add a new department to the system'
+                                  : "Change this department's name or code",
+                              style: const TextStyle(
                                 fontSize: 11,
                                 color: Colors.white70,
                               ),
@@ -482,7 +489,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                         ),
                       ),
                       GestureDetector(
-                        onTap: () => Navigator.pop(context),
+                        onTap: () => popIfCurrent(dialogContext),
                         child: Container(
                           padding: const EdgeInsets.all(5),
                           decoration: BoxDecoration(
@@ -543,7 +550,6 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                             child: SingleChildScrollView(
                               child: Column(
                                 children: state.departments
-                                    .skip(1)
                                     .map(
                                       (d) => Padding(
                                         padding: const EdgeInsets.only(
@@ -634,7 +640,18 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
                           message: 'Saving…',
                         );
                         if (!context.mounted) return;
-                        Navigator.pop(context);
+                        // A failed save keeps the dialog and what was typed.
+                        if (!created) {
+                          AppSnackBar.show(
+                            context,
+                            department == null
+                                ? 'Could not create department "$name". Try again.'
+                                : 'Could not update the department. Try again.',
+                            type: SnackType.warning,
+                          );
+                          return;
+                        }
+                        popIfCurrent(dialogContext);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
@@ -683,6 +700,7 @@ class _CreateDepartmentScreenState extends State<CreateDepartmentScreen> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

@@ -544,9 +544,13 @@ class _AttendanceScreenState extends State<AttendanceScreen>
   void _showQrScanner(BuildContext context) {
     showDialog(
       context: context,
-      builder: (_) => _QrScanDialog(
+      builder: (dialogContext) => _QrScanDialog(
         onScanned: (code) {
-          Navigator.pop(context);
+          // A code seen while the scanner is already closing (or after it
+          // closed) is dropped: it would pop the page underneath and clock
+          // in a second time.
+          if (!(ModalRoute.of(dialogContext)?.isCurrent ?? false)) return;
+          Navigator.of(dialogContext).pop();
           _handleScannedCode(context, code);
         },
       ),

@@ -1629,6 +1629,22 @@ class _OfficeCardState extends State<_OfficeCard> {
       ...state.skills,
       ...acceptedAssistants.expand(state.skillsForUser),
     }.toList()..sort();
+    // A filter whose choice is no longer offered (a skill renamed, the last
+    // assistant of a department moved) goes back to All rather than leave
+    // a blank picker and an empty list.
+    if (_skillFilter != 'All skills' && !allSkills.contains(_skillFilter)) {
+      _skillFilter = 'All skills';
+    }
+    if (_departmentFilter != 'All departments' &&
+        !acceptedAssistants.any(
+          (user) =>
+              (user.department?.trim().isNotEmpty == true
+                  ? user.department!.trim()
+                  : 'No department') ==
+              _departmentFilter,
+        )) {
+      _departmentFilter = 'All departments';
+    }
     final visibleAssistants = acceptedAssistants.where((user) {
       final department = user.department?.trim().isNotEmpty == true
           ? user.department!.trim()

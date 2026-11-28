@@ -1071,10 +1071,14 @@ class _AdminAnnouncementCard extends StatelessWidget {
   void _showAnnouncementDetails(BuildContext context, Announcement ann) {
     showDialog(
       context: context,
-      builder: (_) => Dialog(
+      builder: (dialogContext) => Dialog(
         backgroundColor: Colors.transparent,
         child: Container(
           width: 520,
+          // A long announcement scrolls; Close stays reachable.
+          constraints: BoxConstraints(
+            maxHeight: MediaQuery.sizeOf(dialogContext).height * 0.85,
+          ),
           decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(24),
@@ -1093,9 +1097,11 @@ class _AdminAnnouncementCard extends StatelessWidget {
               LightDialogHeader(
                 icon: Icons.campaign_outlined,
                 title: 'Announcement Details',
-                onClose: () => Navigator.pop(context),
+                onClose: () => popIfCurrent(dialogContext),
               ),
-              Padding(
+              Flexible(
+                child: SingleChildScrollView(
+                child: Padding(
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1221,7 +1227,7 @@ class _AdminAnnouncementCard extends StatelessWidget {
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
+                        onPressed: () => popIfCurrent(dialogContext),
                         style: ElevatedButton.styleFrom(
                           backgroundColor: AppTheme.maroon,
                           foregroundColor: Colors.white,
@@ -1237,6 +1243,8 @@ class _AdminAnnouncementCard extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ),
                 ),
               ),
             ],

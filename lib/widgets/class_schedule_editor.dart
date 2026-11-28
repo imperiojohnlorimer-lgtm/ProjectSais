@@ -215,12 +215,13 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       c.changed();
       return;
     }
-    final pick = ++c._pick;
     if (_locked) {
+      // The file in use (and its upload) stays until a new one scans well.
       final token = ++c._readToken;
-      await _scanThenUpload(pick, token, bytes, file.name, extension);
+      await _scanThenUpload(token, bytes, file.name, extension);
       return;
     }
+    final pick = ++c._pick;
     c
       ..fileName = file.name
       ..fileBytes = bytes
@@ -233,8 +234,10 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
     ]);
   }
 
+  /// Read-only mode: scans the file first, and only a file that scans into
+  /// a complete schedule replaces the one in use (then uploads). A file that
+  /// fails leaves the previous file and classes as they were.
   Future<void> _scanThenUpload(
-    int pick,
     int token,
     Uint8List bytes,
     String name,
@@ -261,9 +264,10 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       ..readMessage = null
       ..readFailed = false;
     c.changed();
+    final int pick;
     try {
       final result = await read(bytes, _mimeFor(extension));
-      if (token != c._readToken || pick != c._pick) return;
+      if (token != c._readToken) return;
       final found = [
         for (final m in result.meetings) ClassMeetingRow.fromMeeting(m),
       ];
@@ -274,19 +278,19 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
           classScheduleProblems(found).isEmpty;
       if (!isValid) {
         c
-          ..fileName = null
-          ..filePath = null
-          ..fileBytes = null
-          ..rows.clear()
           ..reading = false
           ..readFailed = true
           ..readMessage =
               "This file was not accepted because it doesn't look like a "
               'clear, readable class schedule. Upload a screenshot or PDF of '
-              'your class schedule.';
+              'your class schedule.${c.fileName != null ? ' Your previous '
+                        'schedule is kept.' : ''}';
         c.changed();
         return;
       }
+      // This file takes over: an earlier file's upload still running is
+      // dropped from here on.
+      pick = ++c._pick;
       c.rows
         ..clear()
         ..addAll(found);
@@ -294,6 +298,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
         ..fileName = name
         ..fileBytes = bytes
         ..filePath = null
+        ..uploadError = null
         ..reading = false
         ..readFailed = false
         ..readMessage =
@@ -301,15 +306,12 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
             'from your schedule.';
       c.changed();
     } catch (error) {
-      if (token != c._readToken || pick != c._pick) return;
+      if (token != c._readToken) return;
       c
-        ..fileName = null
-        ..filePath = null
-        ..fileBytes = null
-        ..rows.clear()
         ..reading = false
         ..readFailed = true
-        ..readMessage = '$error';
+        ..readMessage =
+            '$error${c.fileName != null ? ' Your previous schedule is kept.' : ''}';
       c.changed();
       return;
     }
@@ -412,7 +414,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
     ScheduleReader.cancel();
     c._readToken++;
     if (_locked) {
-      c._pick++;
+      // The file in use (if any) stays, its upload included.
       c
         ..reading = false
         ..readFailed = true
@@ -498,7 +500,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
   Widget _fileRow(bool enabled) {
     final name = c.fileName;
     if (name == null) {
-      return OutlinedButton.icon(
+      final choose = OutlinedButton.icon(
         // Not while a first file is still being read and uploaded.
         onPressed: enabled && !c.busy ? _pickFile : null,
         icon: const Icon(Icons.upload_file_outlined, size: 18),
@@ -511,6 +513,24 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
             borderRadius: BorderRadius.circular(10),
           ),
         ),
+      );
+      final error = c.uploadError;
+      // A file refused before anything was read (too big, wrong type).
+      if (error == null) return choose;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          choose,
+          const SizedBox(height: 6),
+          Text(
+            error,
+            style: const TextStyle(
+              fontSize: 12,
+              color: AppTheme.red500,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       );
     }
     final status = c.uploading

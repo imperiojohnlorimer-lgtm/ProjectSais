@@ -250,6 +250,75 @@ void main() {
       expect(controller.problems(), contains('Choose your class schedule file.'));
     });
 
+    testWidgets('a new file that fails to scan keeps the schedule already '
+        'there', (tester) async {
+      tester.view.physicalSize = const Size(900, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      _ignoreOverflow();
+      final uploads = <String>[];
+      var reads = 0;
+      final controller = await pumpEditor(
+        tester,
+        uploads: uploads,
+        reader: (bytes, type) async => ++reads == 1
+            ? const ScheduleReadResult(
+                ok: true,
+                meetings: [
+                  ScheduleMeeting(
+                    title: 'Systems Analysis',
+                    weekday: 1,
+                    start: 480,
+                    end: 660,
+                  ),
+                ],
+              )
+            : const ScheduleReadResult(ok: false, meetings: []),
+      );
+      expect(controller.hasFile, isTrue);
+      final path = controller.filePath;
+
+      await tester.tap(find.text('Change'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('previous schedule is kept'), findsOneWidget);
+      expect(controller.filePath, path);
+      expect(controller.rows, hasLength(1));
+      expect(controller.problems(), isEmpty);
+      expect(uploads, hasLength(1));
+    });
+
+    testWidgets('a file refused before reading says why', (tester) async {
+      tester.view.physicalSize = const Size(900, 1600);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      _ignoreOverflow();
+      final controller = ClassScheduleController();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: AppTheme.theme,
+          home: Scaffold(
+            body: ClassScheduleEditor(
+              controller: controller,
+              ownerId: 'sa',
+              readOnly: true,
+              picker: () async => PlatformFile(
+                name: 'notes.docx',
+                size: 4,
+                bytes: Uint8List.fromList([1, 2, 3, 4]),
+              ),
+              reader: (bytes, type) async =>
+                  const ScheduleReadResult(ok: false, meetings: []),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.textContaining('Choose your class schedule'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Choose a JPG, PNG or PDF file.'), findsOneWidget);
+    });
+
     testWidgets('Head edit mode stays editable without a file', (tester) async {
       tester.view.physicalSize = const Size(900, 1600);
       tester.view.devicePixelRatio = 1.0;
