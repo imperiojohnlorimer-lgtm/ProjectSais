@@ -1502,7 +1502,12 @@ class AppState extends ChangeNotifier {
     return null;
   }
 
+  /// The status of the profile the last [login] refused as blocked, else
+  /// null.
+  String? _loginBlockedStatus;
+
   Future<bool> login(User user, {bool preferProvidedProfile = false}) async {
+    _loginBlockedStatus = null;
     await _ensureSeeded();
     final profile = await _loadUserProfile(uid: user.id, email: user.email);
     var authenticatedUser = preferProvidedProfile ? user : profile ?? user;
@@ -1531,6 +1536,7 @@ class AppState extends ChangeNotifier {
       }
     }
     if (blocksSignIn(authenticatedUser.status)) {
+      _loginBlockedStatus = authenticatedUser.status;
       currentUser = null;
       try {
         await fb_auth.FirebaseAuth.instance.signOut();
@@ -1612,6 +1618,24 @@ class AppState extends ChangeNotifier {
   /// a staff sign-up the Head has not approved (or has turned down).
   static bool blocksSignIn(String status) =>
       status == 'Archived' || status == 'Pending' || status == 'Declined';
+
+  /// When the profile couldn't be read at sign-in (no connection, say).
+  static const profileCheckFailedMessage =
+      'Could not check your account right now. Check your connection and '
+      'try again.';
+
+  /// When signing in stopped after the account was found (the session
+  /// changed meanwhile, say).
+  static const signInFailedMessage =
+      'Could not sign you in. Please try again, or contact the Admin if it '
+      'keeps happening.';
+
+  /// What [login] says when it refused an account because the profile it
+  /// read blocks sign-in: the message for that profile's status.
+  String _signInStoppedMessage() {
+    final status = _loginBlockedStatus;
+    return status == null ? signInFailedMessage : signInBlockedMessage(status);
+  }
 
   /// What the Login page says to someone whose [status] blocks sign-in.
   static String signInBlockedMessage(String status) => switch (status) {
@@ -1699,7 +1723,7 @@ class AppState extends ChangeNotifier {
       final profileRead = await _readUserProfile(uid: authUser.uid);
       if (profileRead.failed) {
         await _signOutFirebaseAuthQuietly();
-        return 'Could not check your account right now. Check your connection and try again.';
+        return profileCheckFailedMessage;
       }
       User? existing = profileRead.user;
       if (existing == null) {
@@ -1730,7 +1754,10 @@ class AppState extends ChangeNotifier {
         return signInBlockedMessage(existing.status);
       }
 
-      await login(existing.copyWith(id: authUser.uid));
+      if (!await login(existing.copyWith(id: authUser.uid)) &&
+          currentUser == null) {
+        return _signInStoppedMessage();
+      }
       return null;
     } on fb_auth.FirebaseAuthException catch (e) {
       debugPrint('Login failed: ${e.code}');
@@ -1870,10 +1897,19 @@ class AppState extends ChangeNotifier {
         // Look up by uid first: registered accounts are stored under their
         // Firebase uid, and the Firestore rules only let a non-staff user read
         // their own document (an email query is denied for them).
-        User? existing = await _loadUserProfile(
-          uid: authUser.uid,
-          email: email,
-        );
+        // By uid only: an email query is refused to anyone but staff, so it
+        // would make every unregistered account look like a failed read.
+        final profileRead = await _readUserProfile(uid: authUser.uid);
+        if (profileRead.failed) {
+          // Couldn't check (no connection, say): never "no account", and
+          // never delete the auth user of an account that may exist.
+          await _signOutFirebaseAuthQuietly();
+          try {
+            await _googleSignIn.signOut();
+          } catch (_) {}
+          return profileCheckFailedMessage;
+        }
+        User? existing = profileRead.user;
         if (existing == null) {
           try {
             existing = users.firstWhere((u) => u.email.toLowerCase() == email);
@@ -1910,7 +1946,13 @@ class AppState extends ChangeNotifier {
           return signInBlockedMessage(existing.status);
         }
 
-        await login(existing.copyWith(id: authUser.uid));
+        if (!await login(existing.copyWith(id: authUser.uid)) &&
+            currentUser == null) {
+          try {
+            await _googleSignIn.signOut();
+          } catch (_) {}
+          return _signInStoppedMessage();
+        }
         return null;
       } on fb_auth.FirebaseAuthException catch (e) {
         if (e.code == 'account-exists-with-different-credential') {
@@ -3644,8 +3686,7 @@ class AppState extends ChangeNotifier {
       saved = result?[office.id] ?? office;
     }
     final index = offices.indexWhere((item) => item.id == office.id);
-    offices = index < 0 ? [...offices, saved] : [...offices]
-      ..[index] = saved;
+    offices = index < 0 ? [...offices, saved] : ([...offices]..[index] = saved);
     notifyListeners();
     await _syncOfficeAssignments();
   }
@@ -3790,6 +3831,15 @@ class AppState extends ChangeNotifier {
           other.id,
     };
 
+    // Whose office documents follow: someone listed by name alone has no
+    // account id, so no document.
+    final people = {
+      for (final a in added)
+        if (a.id.isNotEmpty) a.id,
+      for (final g in removed)
+        if (g.id.isNotEmpty) g.id,
+    };
+
     _firestoreService ??= FirestoreService();
     final Map<String, Office>? saved;
     try {
@@ -3818,7 +3868,7 @@ class AppState extends ChangeNotifier {
           if (_peopleDiffer(other, entry.value)) changed[entry.key] = other;
         }
         return changed;
-      }, people: [for (final a in added) a.id, for (final g in removed) g.id]);
+      }, people: people);
     } catch (error) {
       debugPrint('Failed to save the office roster: $error');
       return false;
@@ -4129,10 +4179,24 @@ class AppState extends ChangeNotifier {
     return '${_monthNames[day.month - 1]} ${day.day}, ${day.year}';
   }
 
-  /// The wall clock in the Philippines as a plain DateTime, for screens that
-  /// compare it with the dates and times records are saved under.
-  DateTime philippineClock([DateTime? now]) =>
-      (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
+  /// The wall clock in the Philippines as a plain (local, not UTC) DateTime,
+  /// for screens that compare it with the dates and times records are saved
+  /// under. Those are built as local DateTimes from their fields ("Nov 28,
+  /// 2026", "8:05 AM"), so this must be one too: a UTC value would compare
+  /// eight hours off on a phone set to Philippine time.
+  DateTime philippineClock([DateTime? now]) {
+    final c = (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
+    return DateTime(
+      c.year,
+      c.month,
+      c.day,
+      c.hour,
+      c.minute,
+      c.second,
+      c.millisecond,
+      c.microsecond,
+    );
+  }
 
   DateTime _philippineDay([DateTime? now]) {
     final clock = (now ?? DateTime.now()).toUtc().add(const Duration(hours: 8));
@@ -5130,8 +5194,9 @@ class AppState extends ChangeNotifier {
   /// the full roster the Users listener delivers: accounts made before
   /// reservations existed get theirs (so a newcomer can't register the
   /// same ID), and an ID the Admin changed on a profile frees the old one.
-  /// Reservations for accounts not in the roster — deleted ones, or a
-  /// registration newer than this list — are left alone.
+  /// A reservation whose account has no profile at all is freed (checked
+  /// against Firestore, so a registration newer than this list keeps its);
+  /// a deleted account keeps its reservation.
   Future<void> _syncStudentIdClaims() async {
     final fs = _firestoreService;
     if (fs == null) return;
@@ -5144,6 +5209,22 @@ class AppState extends ChangeNotifier {
     _syncedStudentIds = signature;
     try {
       final claims = await fs.getStudentIdClaims();
+      // A reservation whose account has no profile at all (removed without
+      // freeing it) would block the real owner for good. A deleted account
+      // keeps its profile, marked deleted, and its ID stays reserved.
+      final deletedIds = {for (final u in _deletedAccounts) u.id};
+      for (final MapEntry(key: id, value: holder) in claims.entries.toList()) {
+        if (keyOf.containsKey(holder) || deletedIds.contains(holder)) continue;
+        try {
+          if (await fs.releaseOrphanStudentIdClaim(id, holder)) {
+            claims.remove(id);
+          }
+        } catch (error) {
+          debugPrint('Failed to free Student ID $id: $error');
+          // Try again on the next roster update.
+          _syncedStudentIds = null;
+        }
+      }
       final changes = <String, String?>{};
       for (final MapEntry(key: id, value: holder) in claims.entries) {
         if (keyOf.containsKey(holder) && keyOf[holder] != id) {
@@ -6776,7 +6857,13 @@ class AppState extends ChangeNotifier {
     if (academicYear != year) {
       final currentSettings = await _firestoreService!
           .getAcademicYearSettings();
-      if (currentSettings != null && currentSettings['academicYear'] != null) {
+      final previousYear =
+          currentSettings?['academicYear']?.toString().trim() ?? '';
+      // Another session may already have switched to [year]: never list the
+      // year being switched to as finished.
+      if (currentSettings != null &&
+          previousYear.isNotEmpty &&
+          previousYear != year) {
         // Only record the year as finished. Its records are copied into the
         // archive by the Head's session (see _archiveFinishedAcademicYears),
         // since the Admin can't read them all.

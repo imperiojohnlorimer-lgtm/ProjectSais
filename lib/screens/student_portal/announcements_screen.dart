@@ -33,6 +33,8 @@ class AnnouncementsScreen extends StatelessWidget {
   @visibleForTesting
   final SchoolIdFileReader? schoolIdReader;
   @visibleForTesting
+  final ScheduleFileReader? scheduleReader;
+  @visibleForTesting
   final RequirementFilePicker? filePicker;
   @visibleForTesting
   final RequirementFileUploader? fileUploader;
@@ -40,6 +42,7 @@ class AnnouncementsScreen extends StatelessWidget {
   const AnnouncementsScreen({
     super.key,
     this.schoolIdReader,
+    this.scheduleReader,
     this.filePicker,
     this.fileUploader,
   });
@@ -73,6 +76,7 @@ class AnnouncementsScreen extends StatelessWidget {
                   application: myApplication,
                   state: state,
                   schoolIdReader: schoolIdReader,
+                  scheduleReader: scheduleReader,
                   filePicker: filePicker,
                   fileUploader: fileUploader,
                 )
@@ -80,6 +84,7 @@ class AnnouncementsScreen extends StatelessWidget {
                 _ApplyCard(
                   state: state,
                   schoolIdReader: schoolIdReader,
+                  scheduleReader: scheduleReader,
                   filePicker: filePicker,
                   fileUploader: fileUploader,
                 ),
@@ -105,6 +110,7 @@ void _openApplyDialog(
   Announcement call, {
   Application? previous,
   SchoolIdFileReader? schoolIdReader,
+  ScheduleFileReader? scheduleReader,
   RequirementFilePicker? filePicker,
   RequirementFileUploader? fileUploader,
 }) {
@@ -117,6 +123,7 @@ void _openApplyDialog(
         call: call,
         previous: previous,
         schoolIdReader: schoolIdReader,
+        scheduleReader: scheduleReader,
         filePicker: filePicker,
         fileUploader: fileUploader,
       ),
@@ -129,11 +136,13 @@ void _openApplyDialog(
 class _ApplyCard extends StatelessWidget {
   final AppState state;
   final SchoolIdFileReader? schoolIdReader;
+  final ScheduleFileReader? scheduleReader;
   final RequirementFilePicker? filePicker;
   final RequirementFileUploader? fileUploader;
   const _ApplyCard({
     required this.state,
     this.schoolIdReader,
+    this.scheduleReader,
     this.filePicker,
     this.fileUploader,
   });
@@ -327,6 +336,7 @@ class _ApplyCard extends StatelessWidget {
                   state,
                   call!,
                   schoolIdReader: schoolIdReader,
+                  scheduleReader: scheduleReader,
                   filePicker: filePicker,
                   fileUploader: fileUploader,
                 ),
@@ -596,12 +606,14 @@ class _MyApplicationCard extends StatelessWidget {
   final Application application;
   final AppState state;
   final SchoolIdFileReader? schoolIdReader;
+  final ScheduleFileReader? scheduleReader;
   final RequirementFilePicker? filePicker;
   final RequirementFileUploader? fileUploader;
   const _MyApplicationCard({
     required this.application,
     required this.state,
     this.schoolIdReader,
+    this.scheduleReader,
     this.filePicker,
     this.fileUploader,
   });
@@ -748,6 +760,7 @@ class _MyApplicationCard extends StatelessWidget {
                     call!,
                     previous: application,
                     schoolIdReader: schoolIdReader,
+                    scheduleReader: scheduleReader,
                     filePicker: filePicker,
                     fileUploader: fileUploader,
                   ),
@@ -923,6 +936,8 @@ class ApplyDialog extends StatefulWidget {
   @visibleForTesting
   final SchoolIdFileReader? schoolIdReader;
   @visibleForTesting
+  final ScheduleFileReader? scheduleReader;
+  @visibleForTesting
   final RequirementFilePicker? filePicker;
   @visibleForTesting
   final RequirementFileUploader? fileUploader;
@@ -932,6 +947,7 @@ class ApplyDialog extends StatefulWidget {
     required this.call,
     this.previous,
     this.schoolIdReader,
+    this.scheduleReader,
     this.filePicker,
     this.fileUploader,
   });
@@ -1034,6 +1050,12 @@ class _ApplyDialogState extends State<ApplyDialog> {
     }
   }
 
+  /// Whether the school ID photo can be read here. The Android app can't:
+  /// the student types the Student ID and the Head checks it against the
+  /// photo, as for every application.
+  bool get _canScanId =>
+      widget.schoolIdReader != null || SchoolIdReader.isSupported;
+
   @override
   void dispose() {
     if (_scanningId) SchoolIdReader.cancel();
@@ -1132,17 +1154,13 @@ class _ApplyDialogState extends State<ApplyDialog> {
       }
 
       String? scannedId;
-      if (isSchoolId) {
-        final reader =
-            widget.schoolIdReader ??
-            (SchoolIdReader.isSupported ? SchoolIdReader.read : null);
-        if (reader == null) {
-          if (!mounted) return;
-          setState(() {
-            _idScanError = 'Scanning a school ID requires the web app.';
-          });
-          return;
-        }
+      final reader = !isSchoolId
+          ? null
+          : widget.schoolIdReader ??
+                (SchoolIdReader.isSupported ? SchoolIdReader.read : null);
+      // Without a reader the photo is simply uploaded, and the Student ID
+      // is typed.
+      if (reader != null) {
         final token = ++_idScanToken;
         if (!mounted) return;
         setState(() {
@@ -1289,9 +1307,13 @@ class _ApplyDialogState extends State<ApplyDialog> {
     if (!_uploaded.containsKey(_schoolIdKey) || !isValidStudentId(studentId)) {
       setState(() {
         _noticeIsError = true;
-        _notice =
-            'Upload a clear photo of the front of your MarSU school ID so '
-            'your Student ID can be scanned.';
+        _notice = _canScanId
+            ? 'Upload a clear photo of the front of your MarSU school ID so '
+                  'your Student ID can be scanned.'
+            : !_uploaded.containsKey(_schoolIdKey)
+            ? 'Upload a clear photo of the front of your MarSU school ID.'
+            : 'Type your Student ID as printed on your school ID '
+                  '(like 23B0626).';
       });
       return;
     }
@@ -1540,7 +1562,7 @@ class _ApplyDialogState extends State<ApplyDialog> {
         ],
         TextField(
           controller: _studentIdCtrl,
-          readOnly: true,
+          readOnly: _lockedStudentId != null || _canScanId,
           enabled: !_submitting,
           textCapitalization: TextCapitalization.characters,
           inputFormatters: [StudentIdFormatter()],
@@ -1551,13 +1573,20 @@ class _ApplyDialogState extends State<ApplyDialog> {
           ),
           decoration: InputDecoration(
             labelText: 'Student ID',
-            hintText: 'Scanned from your school ID photo',
+            hintText: _canScanId
+                ? 'Scanned from your school ID photo'
+                : 'e.g. 23B0626',
             helperText: _lockedStudentId != null
                 ? "From your profile. If it's wrong, ask the Admin to correct it."
-                : 'Filled automatically from your school ID photo.',
+                : _canScanId
+                ? 'Filled automatically from your school ID photo.'
+                : 'Type the Student ID printed on your school ID. The Head '
+                      'checks it against the photo.',
             helperMaxLines: 2,
             filled: true,
-            fillColor: AppTheme.slate100,
+            fillColor: _lockedStudentId != null || _canScanId
+                ? AppTheme.slate100
+                : Colors.white,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(10),
               borderSide: const BorderSide(color: AppTheme.slate200),
@@ -1577,12 +1606,21 @@ class _ApplyDialogState extends State<ApplyDialog> {
         const SizedBox(height: 22),
         const StudentSectionLabel('YOUR CLASS SCHEDULE'),
         const SizedBox(height: 4),
-        const Text(
-          'Upload your class schedule (a screenshot, a PDF or a photo of the '
-          'printed copy). Your classes are scanned automatically and cannot be '
-          'edited manually. If you are approved, it becomes your schedule in '
-          'SAIS.',
-          style: TextStyle(fontSize: 11, color: AppTheme.slate500, height: 1.4),
+        Text(
+          ClassScheduleEditor.canScan(widget.scheduleReader)
+              ? 'Upload your class schedule (a screenshot, a PDF or a photo of '
+                    'the printed copy). Your classes are scanned automatically '
+                    'and cannot be edited manually. If you are approved, it '
+                    'becomes your schedule in SAIS.'
+              : 'Upload your class schedule (a screenshot, a PDF or a photo of '
+                    'the printed copy), then type your classes as they appear '
+                    'on it. The Head checks them against the file. If you are '
+                    'approved, it becomes your schedule in SAIS.',
+          style: const TextStyle(
+            fontSize: 11,
+            color: AppTheme.slate500,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 10),
         ClassScheduleEditor(
@@ -1590,8 +1628,10 @@ class _ApplyDialogState extends State<ApplyDialog> {
           // The account id is the Firebase uid the upload is checked
           // against.
           ownerId: state.currentUser?.id ?? '',
-          enabled: !_submitting,
+          // One file is read at a time: starting one read stops the other.
+          enabled: !_submitting && !_scanningId,
           readOnly: true,
+          reader: widget.scheduleReader,
         ),
         if (_scheduleProblems.isNotEmpty)
           Padding(
@@ -2105,7 +2145,12 @@ class _ApplyDialogState extends State<ApplyDialog> {
               ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: busyTile || _submitting
+              // The school ID waits while the class schedule is being read:
+              // one read at a time.
+              onPressed:
+                  busyTile ||
+                      _submitting ||
+                      (req == _schoolIdKey && _schedule.reading)
                   ? null
                   : () => _upload(req, state),
               icon: busyTile

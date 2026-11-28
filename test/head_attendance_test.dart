@@ -10,7 +10,13 @@ import 'package:projectsais/screens/attendance/head_attendance_screen.dart';
 import 'package:projectsais/services/firestore_service.dart';
 import 'package:projectsais/theme/app_theme.dart';
 
-class _Store extends FirestoreService {}
+class _Store extends FirestoreService {
+  /// The attendance records deleted, by id.
+  static final deleted = <String>[];
+
+  @override
+  Future<void> deleteAttendance(String id) async => deleted.add(id);
+}
 
 final _head = User(
   id: 'head1',
@@ -458,6 +464,51 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Office: Library'), findsOneWidget);
+    });
+
+    testWidgets('a record that moves while its Delete dialog is open is still '
+        'the one deleted', (tester) async {
+      _Store.deleted.clear();
+      AttendanceRecord day(String id, String date) => AttendanceRecord(
+        id: id,
+        studentName: 'Sam Santos',
+        studentId: 'sam',
+        date: date,
+        timeIn: '8:00 AM',
+        timeOut: '11:00 AM',
+        totalHours: 3,
+      );
+      state.attendance = [day('d6', 'Oct 6, 2026'), day('d5', 'Oct 5, 2026')];
+      await pump(
+        tester,
+        const Scaffold(body: HeadAttendanceScreen()),
+        size: const Size(1440, 1000),
+      );
+      await tester.tap(find.text('School year'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sam Santos'));
+      await tester.pumpAndSettle();
+
+      // Delete the Oct 5 record...
+      await tester.tap(
+        find.descendant(
+          of: find.byKey(const ValueKey('d5')),
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete').last);
+      await tester.pumpAndSettle();
+
+      // ...while a newer record arrives and the list shifts down.
+      state.attendance = [day('d7', 'Oct 7, 2026'), ...state.attendance];
+      // ignore: invalid_use_of_protected_member, invalid_use_of_visible_for_testing_member
+      state.notifyListeners();
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(ElevatedButton, 'Delete'));
+      await tester.pumpAndSettle();
+
+      expect(_Store.deleted, ['d5']);
     });
 
     testWidgets('Offices warns about people without a linked account', (

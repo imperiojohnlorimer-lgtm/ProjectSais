@@ -49,13 +49,16 @@ class ScheduleReader {
     }
   }
 
-  static String _messageOf(Object error) {
+  static String _messageOf(
+    Object error, {
+    String plain =
+        'This schedule could not be read. Please type your subjects.',
+  }) {
     // The reader's own messages are written for students; anything else
     // gets a plain one.
     final text = error.toString();
     final match = RegExp(r'Error: (.+)$').firstMatch(text);
     final message = (match?.group(1) ?? text).trim();
-    const plain = 'This schedule could not be read. Please type your subjects.';
     if (message.isEmpty || message.length > 200 || message.contains('Dart')) {
       return plain;
     }
@@ -80,7 +83,14 @@ class SchoolIdReader {
         Map<String, dynamic>.from(jsonDecode(json.toDart) as Map),
       );
     } catch (error) {
-      throw ScheduleReadError(ScheduleReader._messageOf(error));
+      throw ScheduleReadError(
+        ScheduleReader._messageOf(
+          error,
+          plain:
+              'This school ID could not be read. Upload a clear photo of the '
+              'front of your MarSU school ID.',
+        ),
+      );
     }
   }
 
@@ -103,9 +113,9 @@ Future<void> _loadScripts() {
   return _scripts ??= () async {
     try {
       for (final src in const [
-        'schedule-reader/sais-schedule-layout.js?v=3',
-        'schedule-reader/sais-id-parser.js?v=3',
-        'schedule-reader/sais-schedule.js?v=3',
+        'schedule-reader/sais-schedule-layout.js?v=4',
+        'schedule-reader/sais-id-parser.js?v=4',
+        'schedule-reader/sais-schedule.js?v=4',
       ]) {
         final done = Completer<void>();
         final script = web.HTMLScriptElement()

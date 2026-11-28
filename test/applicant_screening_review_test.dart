@@ -59,6 +59,9 @@ const _overallNames = [
   'Overall Impression',
 ];
 
+// The one observation saved with Kristel's assessment.
+const _savedNote = 'Answers clearly and politely';
+
 // Kristel was screened: every skill rated 2, every overall rating 3.
 final _kristelRecord = ScreeningRecord(
   id: 'screen-s1-2026-2027',
@@ -74,7 +77,9 @@ final _kristelRecord = ScreeningRecord(
   targetOfficeId: 'o1',
   targetOfficeName: 'Registrar',
   skills: {for (final k in _skillNames) k: 2},
-  skillNotes: {for (final k in _skillNames) k: ''},
+  skillNotes: {
+    for (final k in _skillNames) k: k == _skillNames.first ? _savedNote : '',
+  },
   overall: {for (final k in _overallNames) k: 3},
   overallNotes: {for (final k in _overallNames) k: ''},
   recommendation: 'Recommended with Reservations',
@@ -141,6 +146,12 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  /// How many text boxes on screen hold [text].
+  int boxesHolding(WidgetTester tester, String text) => tester
+      .widgetList<TextField>(find.byType(TextField))
+      .where((f) => f.controller?.text == text)
+      .length;
+
   String remarksText(WidgetTester tester) => tester
       .widget<TextField>(
         find.widgetWithText(TextField, 'General evaluator remarks'),
@@ -158,6 +169,8 @@ void main() {
     expect(find.text('Avg 3.0'), findsWidgets);
     expect(find.text('Avg 4.0'), findsNothing);
     expect(remarksText(tester), 'Needs more practice with spreadsheets.');
+    // The saved observation shows in its box.
+    expect(boxesHolding(tester, _savedNote), 1);
     // A saved record can be printed straight away.
     expect(find.text('Print Official Form'), findsOneWidget);
   });
@@ -186,6 +199,7 @@ void main() {
     expect(find.text('Avg 2.0'), findsNothing);
     expect(find.text('Avg 3.0'), findsNothing);
     expect(remarksText(tester), isEmpty);
+    expect(boxesHolding(tester, _savedNote), 0);
     expect(find.text('Print Official Form'), findsNothing);
   });
 }

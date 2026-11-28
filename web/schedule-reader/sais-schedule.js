@@ -283,7 +283,7 @@
    * libraries isn't counted: on a slow connection it takes a while, and
    * happens only once.
    */
-  function withinTimeLimit(promise) {
+  function withinTimeLimit(promise, message) {
     let timer;
     // Once the time is up nobody waits for it: don't report its failure.
     promise.catch(() => {});
@@ -291,12 +291,18 @@
       promise,
       new Promise((_, reject) => {
         timer = setTimeout(
-          () => reject(failure('Reading took too long. Please type your subjects instead.')),
+          () =>
+            reject(
+              failure(message || 'Reading took too long. Please type your subjects instead.'),
+            ),
           TIME_LIMIT_MS,
         );
       }),
     ]).finally(() => clearTimeout(timer));
   }
+
+  const ID_TIME_LIMIT_MESSAGE =
+    'Reading your school ID took too long. Upload a clear, close photo of the front of your MarSU school ID.';
 
   async function read(bytes, type, job) {
     const layout = window.SaisScheduleLayout;
@@ -459,7 +465,8 @@
     const text1 = await recognizeImageText(job, img, 3);
     let combined = text1;
     let parsed = parser.parseSchoolId(combined);
-    if (parsed.ok) return parsed;
+    // A schedule or registration form stays one whatever is cropped next.
+    if (parsed.ok || parser.isFinalFailure(parsed)) return parsed;
     if (job.cancelled) throw failure('Cancelled.');
 
     // Header band: reads "Marinduque State College / University" and
@@ -536,7 +543,7 @@
       if (job.cancelled) throw failure('Cancelled.');
       if (pdf.words.length >= 5) {
         const parsed = parser.parseSchoolId(pdf.words.map((w) => w.text).join(' '));
-        if (parsed.ok) return parsed;
+        if (parsed.ok || parser.isFinalFailure(parsed)) return parsed;
       }
       image = pdf.image;
     } else {
@@ -545,34 +552,34 @@
     job.worker = await startTesseract();
     if (job.cancelled) throw failure('Cancelled.');
     return withinTimeLimit((async () => {
-      const norm = resizeMaxSide(image, 1100);
-      let parsed = await scanUprightId(job, norm, parser, layout);
-      if (!parsed.ok) {
-        const cardRect = findBrightCardRect(norm);
-        if (cardRect) {
-          if (job.cancelled) throw failure('Cancelled.');
-          const card = resizeMaxSide(cropImageRect(norm, cardRect), 1100);
-          parsed = await scanUprightId(job, card, parser, layout);
-          if (!parsed.ok && card.width > card.height) {
-            if (job.cancelled) throw failure('Cancelled.');
-            parsed = await scanUprightId(job, rotate90(card, false), parser, layout);
-            if (!parsed.ok) {
-              if (job.cancelled) throw failure('Cancelled.');
-              parsed = await scanUprightId(job, rotate90(card, true), parser, layout);
-            }
-          }
-        }
-      }
-      if (!parsed.ok && norm.width > norm.height) {
+      // Each crop or turn tried keeps the most telling answer so far (a
+      // success, else the clearest reason), and a schedule or registration
+      // form ends the search at once.
+      let best = null;
+      const done = () => best && (best.ok || parser.isFinalFailure(best));
+      const attempt = async (img) => {
         if (job.cancelled) throw failure('Cancelled.');
-        parsed = await scanUprightId(job, rotate90(norm, false), parser, layout);
-        if (!parsed.ok) {
-          if (job.cancelled) throw failure('Cancelled.');
-          parsed = await scanUprightId(job, rotate90(norm, true), parser, layout);
+        best = parser.betterResult(best, await scanUprightId(job, img, parser, layout));
+        return done();
+      };
+
+      const norm = resizeMaxSide(image, 1100);
+      if (await attempt(norm)) return best;
+      const cardRect = findBrightCardRect(norm);
+      if (cardRect) {
+        const card = resizeMaxSide(cropImageRect(norm, cardRect), 1100);
+        if (await attempt(card)) return best;
+        if (card.width > card.height) {
+          if (await attempt(rotate90(card, false))) return best;
+          if (await attempt(rotate90(card, true))) return best;
         }
       }
-      return parsed;
-    })());
+      if (norm.width > norm.height) {
+        if (await attempt(rotate90(norm, false))) return best;
+        if (await attempt(rotate90(norm, true))) return best;
+      }
+      return best;
+    })(), ID_TIME_LIMIT_MESSAGE);
   }
 
   async function saisReadSchedule(bytes, type) {
@@ -583,6 +590,9 @@
       return JSON.stringify(await read(bytes, type, job));
     } catch (error) {
       if (error && error.saisMessage) throw error;
+      // Stopped (by the student, or by another read starting): not a
+      // failure to read the file.
+      if (job.cancelled) throw failure('Cancelled.');
       console.warn('Schedule reader: ' + (error && error.stack ? error.stack : error));
       throw failure('This schedule could not be read. Please type your subjects.');
     } finally {
@@ -601,6 +611,7 @@
       return JSON.stringify(await readSchoolId(bytes, type, job));
     } catch (error) {
       if (error && error.saisMessage) throw error;
+      if (job.cancelled) throw failure('Cancelled.');
       console.warn('School ID reader: ' + (error && error.stack ? error.stack : error));
       throw failure('This school ID could not be read. Upload a clear photo of the front of your MarSU school ID.');
     } finally {

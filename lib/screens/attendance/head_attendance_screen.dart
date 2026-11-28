@@ -748,7 +748,11 @@ class _AssistantRow extends StatelessWidget {
               )
             else
               for (final record in row.records)
-                _RecordLine(record: record, compact: compact),
+                _RecordLine(
+                  key: ValueKey(record.id),
+                  record: record,
+                  compact: compact,
+                ),
             // For time worked when no code was posted to scan.
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
@@ -860,7 +864,7 @@ class _Badge extends StatelessWidget {
 class _RecordLine extends StatefulWidget {
   final AttendanceRecord record;
   final bool compact;
-  const _RecordLine({required this.record, required this.compact});
+  const _RecordLine({super.key, required this.record, required this.compact});
 
   @override
   State<_RecordLine> createState() => _RecordLineState();
@@ -1014,6 +1018,10 @@ class _RecordLineState extends State<_RecordLine> {
   }
 
   Future<void> _act(BuildContext context, String action) async {
+    // The record this menu was opened on. A live update can rebuild the
+    // list while a dialog is open, so everything after an await uses this
+    // copy, never the widget's current record.
+    final record = this.record;
     final state = context.read<AppState>();
     final messenger = ScaffoldMessenger.of(context);
     void say(String message, Color color) => messenger.showSnackBar(
@@ -1027,9 +1035,10 @@ class _RecordLineState extends State<_RecordLine> {
     );
     switch (action) {
       case 'timeout':
+        final clock = state.philippineClock();
         final picked = await showTimePicker(
           context: context,
-          initialTime: TimeOfDay.now(),
+          initialTime: TimeOfDay(hour: clock.hour, minute: clock.minute),
         );
         if (picked == null || !context.mounted) return;
         final hour = picked.hourOfPeriod == 0 ? 12 : picked.hourOfPeriod;
@@ -1046,7 +1055,19 @@ class _RecordLineState extends State<_RecordLine> {
           confirmLabel: 'Record',
           confirmColor: AppTheme.maroon,
         );
-        if (!confirmed) return;
+        if (!confirmed || !context.mounted) return;
+        // The student may have timed out, or the record been archived,
+        // while the time was being picked.
+        final now = state.attendance
+            .where((a) => a.id == record.id)
+            .firstOrNull;
+        if (!AppState.canSetManualTimeOut(now)) {
+          say(
+            'This record changed meanwhile. Check it again.',
+            AppTheme.amber500,
+          );
+          return;
+        }
         final saved = await _busy(
           () => state.setManualTimeOut(record.id, time),
         );
@@ -1068,7 +1089,7 @@ class _RecordLineState extends State<_RecordLine> {
           confirmLabel: 'Archive',
           confirmColor: AppTheme.amber500,
         );
-        if (!confirmed) return;
+        if (!confirmed || !context.mounted) return;
         final saved = await _busy(
           () => state.setAttendanceArchived(record.id, true),
         );
@@ -1098,7 +1119,7 @@ class _RecordLineState extends State<_RecordLine> {
           confirmLabel: 'Delete',
           confirmColor: AppTheme.red500,
         );
-        if (!confirmed) return;
+        if (!confirmed || !context.mounted) return;
         final deleted = await _busy(() => state.deleteAttendance(record.id));
         say(
           deleted

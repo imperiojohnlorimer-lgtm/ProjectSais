@@ -426,6 +426,34 @@ void main() {
       expect(await state.assignSupervisorsToOffice('nope', []), isFalse);
     });
 
+    test('someone listed by name alone can be taken off', () async {
+      // An older entry: a name with no account id.
+      final shown = _office(
+        ids: ['', 'sa1'],
+        names: ['Old Entry', 'Ana Reyes'],
+      );
+      store.officeDocs['o1'] = shown;
+      final state = session(_head)..offices = [shown];
+
+      expect(await state.assignStudentAssistantsToOffice('o1', [ana]), isTrue);
+
+      expect(store.officeDocs['o1']!.assistantIds, ['sa1']);
+      expect(store.officeDocs['o1']!.assistantNames, ['Ana Reyes']);
+    });
+
+    test(
+      'saving a new office the live list has not shown yet adds it',
+      () async {
+        final state = session(_head)..offices = [];
+        final fresh = _office(id: 'o9').copyWith(name: 'Clinic');
+
+        await state.saveOffice(fresh);
+
+        expect(store.officeDocs['o9']?.name, 'Clinic');
+        expect(state.offices.map((o) => o.id), ['o9']);
+      },
+    );
+
     test('a dialog opened earlier keeps the roster and changes supervisors by '
         'what it changed', () async {
       final opened = _office(ids: ['sa1'], names: ['Ana Reyes']);

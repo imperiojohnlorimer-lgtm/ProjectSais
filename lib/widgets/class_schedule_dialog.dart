@@ -197,13 +197,20 @@ class _ClassScheduleDialogState extends State<ClassScheduleDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     if (_isRequest)
-                      const Text(
-                        'Upload your new class schedule (a screenshot, a PDF or '
-                        'a photo of the printed copy). Your classes are scanned '
-                        'automatically and cannot be edited manually. Your '
-                        'schedule stays as it is until the Head approves this '
-                        'one.',
-                        style: TextStyle(
+                      Text(
+                        ClassScheduleEditor.canScan()
+                            ? 'Upload your new class schedule (a screenshot, a '
+                                  'PDF or a photo of the printed copy). Your '
+                                  'classes are scanned automatically and cannot '
+                                  'be edited manually. Your schedule stays as it '
+                                  'is until the Head approves this one.'
+                            : 'Upload your new class schedule (a screenshot, a '
+                                  'PDF or a photo of the printed copy), then type '
+                                  'your classes as they appear on it. The Head '
+                                  'checks them against the file. Your schedule '
+                                  'stays as it is until the Head approves this '
+                                  'one.',
+                        style: const TextStyle(
                           fontSize: 12.5,
                           color: AppTheme.slate600,
                           height: 1.45,

@@ -1014,10 +1014,13 @@ class FirestoreService {
     Map<String, Office>? Function(Map<String, Office> stored) edit, {
     Iterable<String> people = const [],
   }) {
+    // Someone listed by name alone has no account id, so no assignment
+    // document (and Firestore refuses an empty document path).
+    final persons = people.where((p) => p.isNotEmpty).toSet();
     return _db.runTransaction((transaction) async {
       final officeIds = {...ids};
       final assigned = <String, String>{};
-      for (final person in people) {
+      for (final person in persons) {
         final snapshot = await transaction.get(_officeAssignments.doc(person));
         final office = snapshot.exists
             ? (snapshot.data() as Map<String, dynamic>)['officeId']?.toString()
@@ -1043,7 +1046,7 @@ class FirestoreService {
       }
       // Each person's document follows the offices as they now stand.
       final result = {...stored, ...changed};
-      for (final person in people) {
+      for (final person in persons) {
         final home = result.values
             .where((office) => office.assistantIds.contains(person))
             .firstOrNull;
@@ -1230,6 +1233,23 @@ class FirestoreService {
   }
 
   Future<void> releaseStudentId(String key) => _studentIds.doc(key).delete();
+
+  /// Frees the Student ID [key] if it still names [holder] and [holder] has
+  /// no profile at all (a registration whose profile was removed without its
+  /// reservation). Read and delete happen in one transaction, so a claim
+  /// that changed hands, or a profile that appeared meanwhile, is left
+  /// alone. Returns whether it freed the ID. Admin and Head only.
+  Future<bool> releaseOrphanStudentIdClaim(String key, String holder) {
+    final claim = _studentIds.doc(key);
+    return _db.runTransaction((transaction) async {
+      final current = (await transaction.get(claim)).data()?['uid'];
+      if (current != holder) return false;
+      final profile = await transaction.get(_users.doc(holder));
+      if (profile.exists) return false;
+      transaction.delete(claim);
+      return true;
+    });
+  }
 
   /// The account holding the Student ID [key], or null when it's free.
   /// Any signed-in account may ask about one ID (the rules).

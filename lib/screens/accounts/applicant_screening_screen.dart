@@ -81,6 +81,14 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   final yearLevel = TextEditingController();
   final ratings = <String, int>{};
   final notes = <String, String>{};
+
+  /// The observation boxes, one per rated item, so a saved record's notes
+  /// show in them and the next applicant starts with empty ones.
+  final _noteControllers = <String, TextEditingController>{};
+
+  TextEditingController _noteController(String item) =>
+      _noteControllers.putIfAbsent(item, TextEditingController.new);
+
   String view = 'queue';
 
   /// What the search box holds: part of a name or a skill.
@@ -107,6 +115,9 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
   @override
   void dispose() {
     _scroll.dispose();
+    for (final controller in _noteControllers.values) {
+      controller.dispose();
+    }
     for (final controller in [
       name,
       studentNumber,
@@ -1653,6 +1664,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
             ],
           );
           final noteField = TextField(
+            controller: _noteController(item),
             onChanged: (value) => notes[item] = value,
             decoration: InputDecoration(
               hintText: 'Observation...',
@@ -2225,6 +2237,7 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     for (final key in [...skillNames, ...overallNames]) {
       ratings[key] = 4;
       notes[key] = '';
+      _noteController(key).text = '';
     }
     recommendation = 'Recommended';
     remarks.clear();
@@ -2247,6 +2260,9 @@ class _ApplicantScreeningScreenState extends State<ApplicantScreeningScreen> {
     ratings.addAll(record.overall);
     notes.addAll(record.skillNotes);
     notes.addAll(record.overallNotes);
+    for (final key in [...skillNames, ...overallNames]) {
+      _noteController(key).text = notes[key] ?? '';
+    }
   }
 
   User? _user(AppState state, Application app) {

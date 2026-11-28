@@ -105,7 +105,9 @@ class ClassScheduleEditor extends StatefulWidget {
 
   /// When true (student uploads), the file must scan into valid, complete
   /// classes before it is uploaded, and the scanned classes are shown
-  /// read-only (no adding, editing, or removing rows).
+  /// read-only (no adding, editing, or removing rows). Where nothing can
+  /// read the file (the Android app) the student types the classes instead,
+  /// and the Head checks them against the file.
   final bool readOnly;
 
   @visibleForTesting
@@ -129,12 +131,22 @@ class ClassScheduleEditor extends StatefulWidget {
     this.picker,
   });
 
+  /// Whether a schedule file can be read on this device (with [reader] for
+  /// tests): the web app reads it, the Android app can't.
+  static bool canScan([ScheduleFileReader? reader]) =>
+      reader != null || ScheduleReader.isSupported;
+
   @override
   State<ClassScheduleEditor> createState() => _ClassScheduleEditorState();
 }
 
 class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
   ClassScheduleController get c => widget.controller;
+
+  /// Read-only only where the file can be read: otherwise the classes are
+  /// typed (see [ClassScheduleEditor.readOnly]).
+  bool get _locked =>
+      widget.readOnly && ClassScheduleEditor.canScan(widget.reader);
 
   @override
   void initState() {
@@ -204,7 +216,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       return;
     }
     final pick = ++c._pick;
-    if (widget.readOnly) {
+    if (_locked) {
       final token = ++c._readToken;
       await _scanThenUpload(pick, token, bytes, file.name, extension);
       return;
@@ -399,7 +411,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
   void _cancelRead() {
     ScheduleReader.cancel();
     c._readToken++;
-    if (widget.readOnly) {
+    if (_locked) {
       c._pick++;
       c
         ..reading = false
@@ -435,7 +447,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
       children: [
         if (widget.withFile) ...[_fileRow(enabled), const SizedBox(height: 10)],
         if (c.reading) _readingBox() else if (c.readMessage != null) _callout(),
-        if (widget.readOnly) ...[
+        if (_locked) ...[
           if (c.rows.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
@@ -487,7 +499,8 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
     final name = c.fileName;
     if (name == null) {
       return OutlinedButton.icon(
-        onPressed: enabled ? _pickFile : null,
+        // Not while a first file is still being read and uploaded.
+        onPressed: enabled && !c.busy ? _pickFile : null,
         icon: const Icon(Icons.upload_file_outlined, size: 18),
         label: const Text('Choose your class schedule (JPG, PNG or PDF)'),
         style: OutlinedButton.styleFrom(
@@ -568,7 +581,10 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
               ),
               child: const Text('View'),
             ),
-          if (c.fileBytes != null && !c.reading && !widget.readOnly)
+          if (c.fileBytes != null &&
+              !c.reading &&
+              !_locked &&
+              ClassScheduleEditor.canScan(widget.reader))
             TextButton(
               onPressed: enabled ? _readAgain : null,
               child: const Text('Read again'),
@@ -611,7 +627,7 @@ class _ClassScheduleEditorState extends State<ClassScheduleEditor> {
 
   Widget _callout() {
     final bad = c.readFailed;
-    final rejected = bad && widget.readOnly;
+    final rejected = bad && _locked;
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(

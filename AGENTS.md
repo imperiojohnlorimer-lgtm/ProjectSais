@@ -82,7 +82,9 @@ Students apply **to be a Student Assistant**, never to an office.
 3. The **student** (portal page "Apply") fills one form: their **Student
    ID** (no longer asked at registration; locked to the profile's when it
    has a valid one) with a **photo of their school ID** (document
-   "School ID", Head-only like the other files), skills (from the
+   "School ID", Head-only like the other files; the web app reads the ID
+   off the photo, the Android app has no reader so the student types it,
+   and the Head's "Student ID checked" step covers both), skills (from the
    Head's list or typed; typed ones take the Head's spelling) and one file
    per requirement. One application per student per year, id
    `app_<uid>_<academicYear>` (`Application.idFor`); the rules enforce the
@@ -156,6 +158,10 @@ Statuses: `Pending` → `For Screening` → `Approved` / `Waitlisted`, or
 - "Today" and the week for hours are Philippine time (`philippineToday`,
   `philippineClock`), never the machine's: tests must not use
   `DateTime.now()` for a date the app stamps (CI runs in UTC).
+  `philippineClock` returns a plain local DateTime holding Philippine
+  wall-clock fields, to compare with the local DateTimes built from records'
+  dates and times; never make it UTC (it was, and every comparison ran 8 h
+  off on phones set to Philippine time).
 
 ### Payroll
 
@@ -348,7 +354,9 @@ loaded from jsDelivr on first use with pinned versions and hashes; layout
 logic in `sais-schedule-layout.js`, unit tests and a headless-Chrome check
 in `tool/schedule_reader_check/`). The student checks and fixes the rows in
 `ClassScheduleEditor` (rows marked "Check" are doubtful; units are typed)
-before sending. Without a browser (the Android app) the rows are typed.
+before sending. Student uploads are read-only (scanned rows only) where a
+reader exists (`ClassScheduleEditor.canScan`); without one (the Android
+app) the rows are typed and the Head checks them against the file.
 
 - Saved on the application as `classSchedule {fileName, filePath,
   subjects}` (`ClassScheduleSubmission`); the file is also listed among its

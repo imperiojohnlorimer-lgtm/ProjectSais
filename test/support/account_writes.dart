@@ -85,6 +85,10 @@ mixin AccountWrites on FirestoreService {
     Iterable<String> people = const [],
   }) async {
     if (failAccountWrites) throw Exception('permission-denied');
+    // Firestore refuses an empty document path.
+    if (people.any((p) => p.isEmpty)) {
+      throw ArgumentError('A document path must be a non-empty string');
+    }
     final officeIds = {...ids};
     for (final person in people) {
       final office = assignmentDocs[person];

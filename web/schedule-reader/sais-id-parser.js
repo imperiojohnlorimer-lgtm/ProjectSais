@@ -118,6 +118,7 @@
       return {
         ok: false,
         studentId: null,
+        kind: 'schedule',
         reason:
           'This looks like a class schedule or registration form, not a school ID. Upload a clear photo of the front of your MarSU school ID.',
       };
@@ -128,6 +129,7 @@
       return {
         ok: false,
         studentId: null,
+        kind: 'noId',
         reason:
           'No MarSU Student ID number was found. Upload a clear photo of the front of your school ID.',
       };
@@ -136,6 +138,7 @@
       return {
         ok: false,
         studentId: null,
+        kind: 'notMarsu',
         reason:
           'This does not look like a MarSU school ID. Upload a clear photo of the front of your MarSU school ID.',
       };
@@ -143,8 +146,42 @@
     return { ok: true, studentId, reason: null };
   }
 
+  /**
+   * How telling a failed parse is, so a scan that tries several crops and
+   * turns keeps the most useful reason rather than the last one: a schedule
+   * or registration form (3) over "not a MarSU ID" (2) over "no number
+   * found" (1). A success ranks above them all.
+   */
+  function failureRank(result) {
+    if (!result) return 0;
+    if (result.ok) return 4;
+    switch (result.kind) {
+      case 'schedule':
+        return 3;
+      case 'notMarsu':
+        return 2;
+      case 'noId':
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  /** The better of two parses by [failureRank]; ties keep the first. */
+  function betterResult(a, b) {
+    return failureRank(b) > failureRank(a) ? b : a;
+  }
+
+  /** A failure no other crop or turn will change: the file is a schedule. */
+  function isFinalFailure(result) {
+    return !!result && !result.ok && result.kind === 'schedule';
+  }
+
   return {
     parseSchoolId,
+    failureRank,
+    betterResult,
+    isFinalFailure,
     extractStudentId,
     looksLikeMarsuSchool,
     looksLikeScheduleOrCor,

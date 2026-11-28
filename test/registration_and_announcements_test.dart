@@ -18,6 +18,10 @@ class _FakeFirestore extends FirestoreService with AccountWrites {
   Map<String, String> claims = {};
   final claimWrites = <Map<String, String?>>[];
 
+  /// Accounts whose profile document exists though the roster may not show
+  /// them yet (a registration still arriving).
+  Set<String> profileDocs = {};
+
   final _lists = <String, StreamController<List<Map<String, dynamic>>>>{};
 
   StreamController<List<Map<String, dynamic>>> list(String key) =>
@@ -82,6 +86,13 @@ class _FakeFirestore extends FirestoreService with AccountWrites {
 
   @override
   Future<Map<String, String>> getStudentIdClaims() async => {...claims};
+
+  @override
+  Future<bool> releaseOrphanStudentIdClaim(String key, String holder) async {
+    if (claims[key] != holder || profileDocs.contains(holder)) return false;
+    claims.remove(key);
+    return true;
+  }
 
   @override
   Future<void> writeStudentIdClaims(Map<String, String?> changes) async {
@@ -268,9 +279,10 @@ void main() {
       fake.claims = {
         // The Admin changed this account's ID to NEW1 since.
         'OLD1': 'u_old',
-        // An account the roster doesn't have (deleted, or just registered).
+        // An account the roster doesn't show yet: just registered.
         'KEEP': 'u_other',
       };
+      fake.profileDocs = {'u_other'};
       state.currentUser = admin;
       await state.init();
 
@@ -307,6 +319,44 @@ void main() {
         'NEW1': 'u_old',
         'KEEP': 'u_other',
       });
+    });
+
+    test('a reservation whose account has no profile is freed; a deleted '
+        "account's is kept", () async {
+      final admin = _person('a1', 'Ana Admin', role: 'Admin');
+      fake.claims = {
+        // Its profile was removed without freeing the ID.
+        '23B0626': 'u_gone',
+        // Deleted by the Admin: the profile stays, marked deleted.
+        '24B0001': 'u_deleted',
+      };
+      state.currentUser = admin;
+      await state.init();
+
+      fake.list('users').add([
+        admin.toJson(),
+        User(
+          id: 'u_deleted',
+          name: 'Deleted',
+          email: 'deleted@example.com',
+          role: 'Student',
+          studentId: '24B0001',
+          isDeleted: true,
+        ).toJson(),
+        // The real owner of the ID, now free to hold it.
+        User(
+          id: 'u1',
+          name: 'Owner',
+          email: 'owner@example.com',
+          role: 'Student',
+          studentId: '23B0626',
+        ).toJson(),
+      ]);
+      await _settle();
+      await _settle();
+      await _settle();
+
+      expect(fake.claims, {'23B0626': 'u1', '24B0001': 'u_deleted'});
     });
 
     test("an unchanged roster doesn't re-read the reservations", () async {

@@ -77,3 +77,28 @@ test('recovers campus letter when OCR reads bold B/S/G/T as 8/5/6/7 on MarSU IDs
   assert.equal(P.parseSchoolId('MARINDUQUE STATE UNIVERSITY\n2026001').ok, false);
   assert.equal(P.parseSchoolId('MARINDUQUE STATE UNIVERSITY\n1234567').ok, false);
 });
+
+test('a scan keeps the most telling reason across crops and turns', () => {
+  const schedule = P.parseSchoolId('CLASS SCHEDULE\nMonday Tuesday Wednesday');
+  const notMarsu = P.parseSchoolId('SOME OTHER SCHOOL\n23B0626');
+  const noId = P.parseSchoolId('MARINDUQUE STATE UNIVERSITY');
+  const ok = P.parseSchoolId('MARINDUQUE STATE UNIVERSITY\n23B0626');
+
+  assert.equal(schedule.kind, 'schedule');
+  assert.equal(notMarsu.kind, 'notMarsu');
+  assert.equal(noId.kind, 'noId');
+  assert.ok(P.failureRank(ok) > P.failureRank(schedule));
+  assert.ok(P.failureRank(schedule) > P.failureRank(notMarsu));
+  assert.ok(P.failureRank(notMarsu) > P.failureRank(noId));
+
+  // A later, vaguer failure doesn't replace a clearer one.
+  assert.equal(P.betterResult(notMarsu, noId), notMarsu);
+  assert.equal(P.betterResult(noId, notMarsu), notMarsu);
+  assert.equal(P.betterResult(noId, noId), noId);
+  assert.equal(P.betterResult(null, noId), noId);
+
+  // Only a schedule or registration form ends the scan early.
+  assert.equal(P.isFinalFailure(schedule), true);
+  assert.equal(P.isFinalFailure(notMarsu), false);
+  assert.equal(P.isFinalFailure(ok), false);
+});

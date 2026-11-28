@@ -238,4 +238,50 @@ void main() {
     expect(state.activeTab, 'attendance');
     expect(store.updated['clockout_r1'], {'isRead': true});
   });
+
+  group('the Philippine clock', () {
+    test('is a plain wall-clock time, not UTC', () {
+      final clock = state.philippineClock(DateTime.utc(2026, 10, 5, 1, 0));
+      expect(clock.isUtc, isFalse);
+      expect(clock, DateTime(2026, 10, 5, 9, 0));
+    });
+
+    test('measures time on duty from the time-in, whatever the device '
+        'zone', () {
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      final start = state.philippineClock().subtract(
+        const Duration(minutes: 10),
+      );
+      final hour = start.hour % 12 == 0 ? 12 : start.hour % 12;
+      state.currentUser = _assistant;
+      state.attendance = [
+        AttendanceRecord(
+          id: 'now1',
+          studentName: 'Sara Assistant',
+          studentId: 'sa1',
+          date: '${months[start.month - 1]} ${start.day}, ${start.year}',
+          timeIn:
+              '$hour:${start.minute.toString().padLeft(2, '0')} '
+              '${start.hour < 12 ? 'AM' : 'PM'}',
+        ),
+      ];
+
+      final elapsed = state.philippineClock().difference(
+        state.activeDutyStart!,
+      );
+      expect(elapsed.inMinutes, 10);
+    });
+
+    test('sends the reminder at 11:30 AM Philippine time', () {
+      state.currentUser = _assistant;
+      state.attendance = [_record()];
+
+      // 3:30 UTC is 11:30 in the Philippines.
+      final at = state.philippineClock(DateTime.utc(2026, 10, 5, 3, 30));
+      expect(state.remindToClockOutIfDue(at), isNotNull);
+    });
+  });
 }

@@ -438,6 +438,9 @@ void main() {
       ],
     );
 
+    /// [webApp]: the form as the web app shows it, where files are read
+    /// (tests run as the non-web build, which has no reader of its own).
+    /// False is the Android app: nothing reads the files.
     Future<void> openApplyAgain(
       WidgetTester tester,
       Application previous, {
@@ -445,6 +448,7 @@ void main() {
       SchoolIdFileReader? schoolIdReader,
       RequirementFilePicker? filePicker,
       RequirementFileUploader? fileUploader,
+      bool webApp = true,
     }) async {
       state
         ..currentUser = user ?? _student
@@ -454,7 +458,16 @@ void main() {
       await pump(
         tester,
         AnnouncementsScreen(
-          schoolIdReader: schoolIdReader,
+          schoolIdReader:
+              schoolIdReader ??
+              (webApp
+                  ? (bytes, mime) async =>
+                        const SchoolIdReadResult(ok: false, reason: 'Unread.')
+                  : null),
+          scheduleReader: webApp
+              ? (bytes, mime) async =>
+                    const ScheduleReadResult(ok: false, meetings: [])
+              : null,
           filePicker: filePicker,
           fileUploader: fileUploader,
         ),
@@ -535,6 +548,82 @@ void main() {
         find.text(
           'Upload a clear photo of the front of your MarSU school ID so your '
           'Student ID can be scanned.',
+        ),
+        findsOneWidget,
+      );
+      expect(store.applications, isEmpty);
+    });
+
+    testWidgets('in the Android app the school ID photo uploads unread and '
+        'the Student ID is typed', (tester) async {
+      final uploads = <String>[];
+      await openApplyAgain(
+        tester,
+        _application(
+          status: Application.rejected,
+          studentNumber: null,
+          schedule: schedule,
+          documents: [_doc('Resume::pdf', 'resume.pdf')],
+        ),
+        webApp: false,
+        filePicker: (_) async => PlatformFile(
+          name: 'school_id.jpg',
+          size: 4,
+          bytes: Uint8List.fromList([1, 2, 3, 4]),
+        ),
+        fileUploader: (bytes, path, ext) async {
+          uploads.add(path);
+          return 'https://example.com/$path';
+        },
+      );
+
+      final idField = find.widgetWithText(TextField, 'Student ID');
+      expect(tester.widget<TextField>(idField).readOnly, isFalse);
+      expect(
+        find.textContaining('The Head checks it against the photo'),
+        findsOneWidget,
+      );
+      // The class schedule is typed too: its rows can be edited.
+      expect(find.text('Add a class'), findsOneWidget);
+
+      await tester.tap(find.text('Upload Document').first);
+      await tester.pumpAndSettle();
+      expect(uploads, hasLength(1));
+      expect(find.textContaining('requires the web app'), findsNothing);
+
+      await tester.enterText(idField, '24a9876');
+      await submit(tester);
+
+      final saved = store.applications['app_stu1_2026-2027']!;
+      expect(saved.studentNumber, '24A9876');
+      expect(saved.schoolIdPhoto?.fileName, 'school_id.jpg');
+      // The Head still checks it before screening.
+      expect(saved.isStudentIdChecked, isFalse);
+    });
+
+    testWidgets('in the Android app a missing Student ID stops the form', (
+      tester,
+    ) async {
+      await openApplyAgain(
+        tester,
+        _application(
+          status: Application.rejected,
+          studentNumber: null,
+          schedule: schedule,
+          documents: [
+            _doc('School ID', 'id.jpg'),
+            _doc('Resume::pdf', 'resume.pdf'),
+          ],
+        ),
+        webApp: false,
+      );
+      await tester.enterText(find.widgetWithText(TextField, 'Student ID'), '');
+
+      await submit(tester);
+
+      expect(
+        find.text(
+          'Type your Student ID as printed on your school ID (like 23B0626).',
         ),
         findsOneWidget,
       );

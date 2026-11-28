@@ -135,6 +135,8 @@ export const EMAIL_LEASE_MS = 2 * 60 * 1000;
 /** One email gets this long, and one run stops starting new emails after
  * [EMAIL_BUDGET_MS], well inside the function's own wall-clock limit. */
 export const EMAIL_SEND_TIMEOUT_MS = 20_000;
+/** How long closing a mail connection may take once the email is sent. */
+export const EMAIL_CLOSE_TIMEOUT_MS = 3_000;
 export const EMAIL_BUDGET_MS = 90_000;
 export const EMAIL_CONCURRENCY = 3;
 
@@ -1047,8 +1049,10 @@ async function sendEmail(to: string, message: EmailMessage): Promise<void> {
   // closed so the attempt really stops (and no more than the pool's few are
   // ever open).
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let timedOut = false;
   const late = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
+      timedOut = true;
       reject(new EmailTimeout("Email server timed out."));
       Promise.resolve().then(() => client.close()).catch(() => {});
     }, EMAIL_SEND_TIMEOUT_MS);
@@ -1065,10 +1069,24 @@ async function sendEmail(to: string, message: EmailMessage): Promise<void> {
     await Promise.race([sending, late]);
   } finally {
     clearTimeout(timer);
-    try {
-      await client.close();
-    } catch {
-      // Closing a connection that has already dropped is not a failure.
+    // After a time-out the close is already under way, and closing waits for
+    // the stalled server: don't wait for it a second time. Otherwise give
+    // the close a few seconds at most, so one slow server can't hold up the
+    // rest of the run.
+    if (!timedOut) {
+      let closeTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await Promise.race([
+          client.close(),
+          new Promise<void>((resolve) => {
+            closeTimer = setTimeout(resolve, EMAIL_CLOSE_TIMEOUT_MS);
+          }),
+        ]);
+      } catch {
+        // Closing a connection that has already dropped is not a failure.
+      } finally {
+        clearTimeout(closeTimer);
+      }
     }
   }
 }
